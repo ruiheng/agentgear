@@ -1,0 +1,4 @@
+dist/
+tests/
+skills/**/scripts/*.test.js
+skills/**/scripts/*.test.mjs

@@ -1,0 +1,37 @@
+---
+name: agent-deck-workflow
+description: Use the Agent Deck Waypost protocol.
+---
+
+# Agent Deck Workflow
+
+Use this skill as the shared transport, envelope, and lifecycle layer for multi-session work.
+
+Run a bundled workflow script through `ai-skills run agent-deck-workflow <script> [args...]`.
+The `workflow` pack installer installs that launcher; do not recover the old
+installation-specific path from another repository.
+
+## Workflow Order
+
+For any workflow turn:
+1. follow `references/internal-protocol/shared-protocol.md`
+2. use the action skill for the current workflow step
+3. use any extra references that skill requires
+
+Interpret references to the shared workflow protocol as:
+- use the `agent-deck-workflow` skill as the entry point
+- then follow `references/internal-protocol/shared-protocol.md`
+
+Use `agent-deck/<agent-deck-session-id>` as the default waypost sender.
+
+## Shared Context
+
+Use the protocol's Agent Deck Mode Detection and Context Resolution Priority sections.
+
+## Tool Resolution
+
+Use `references/tool-resolution.md` for the shared tool-resolution contract before creating a new session.
+
+## Error Handling and Diagnostics
+
+Use `references/diagnostics.md` for the shared diagnostics checklist.

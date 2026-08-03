@@ -1,0 +1,20 @@
+{
+  "name": "@ruiheng/ai-skills",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "description": "Portable, maintained AI-agent skills with a local installer.",
+  "type": "module",
+  "bin": {
+    "ai-skills": "bin/ai-skills.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "validate": "node scripts/validate.mjs",
+    "test": "node --test --test-concurrency=1 tests/cli.test.mjs tests/workflow-permissions.test.mjs skills/agent-deck-workflow/scripts/archive-and-remove-planner-group-sessions.test.mjs skills/agent-deck-workflow/scripts/resolve-tool-command.test.js",
+    "check": "npm run validate && npm run build && npm test"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "codex": {
+      "description": "Codex CLI and compatible Agent Skills hosts",
+      "global": "~/.agents/skills",
+      "project": ".agents/skills",
+      "dist": "codex/.agents/skills"
+    },
+    "claude": {
+      "description": "Claude Code",
+      "global": "~/.claude/skills",
+      "project": ".claude/skills",
+      "dist": "claude/.claude/skills"
+    },
+    "gemini": {
+      "description": "Gemini CLI",
+      "global": "~/.gemini/skills",
+      "project": ".gemini/skills",
+      "dist": "gemini/.gemini/skills"
+    },
+    "opencode": {
+      "description": "OpenCode",
+      "global": "~/.config/opencode/skills",
+      "project": ".opencode/skills",
+      "dist": "opencode/.opencode/skills"
+    },
+    "antigravity": {
+      "description": "Antigravity CLI",
+      "global": "~/.gemini/antigravity-cli/skills",
+      "project": ".agent/skills",
+      "dist": "antigravity/.agent/skills"
+    },
+    "kiro": {
+      "description": "Kiro CLI",
+      "global": "~/.kiro/skills",
+      "project": ".kiro/skills",
+      "dist": "kiro/.kiro/skills"
+    }
+  }
+}

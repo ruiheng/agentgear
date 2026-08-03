@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "upstreams": {
+    "agent-deck": {
+      "repository": "https://github.com/asheshgoplani/agent-deck",
+      "skillPath": "skills/agent-deck",
+      "reason": "The workflow pack delegates session lifecycle to Agent Deck. It remains upstream-owned and is not copied into this repository."
+    }
+  },
+  "packs": {
+    "core": {
+      "description": "Standalone skills with no Agent Deck workflow dependency.",
+      "skills": [
+        "commit-staged",
+        "explain-for-me",
+        "explore-defects",
+        "handoff",
+        "tech-design-assessment"
+      ]
+    },
+    "workflow": {
+      "description": "Agent Deck and Waypost workflow skills.",
+      "requires": {
+        "commands": ["agent-deck", "waypost", "git", "node"],
+        "upstreams": ["agent-deck"]
+      },
+      "skills": [
+        "agent-deck-workflow",
+        "check-waypost-messages",
+        "code-health-review",
+        "delegate-code-task",
+        "delegate-task",
+        "dispatch-plan",
+        "execute-plan",
+        "plan-report",
+        "planner-closeout",
+        "refactor-review",
+        "refactor-review-request",
+        "review-closeout",
+        "review-code",
+        "review-request",
+        "roundtable",
+        "roundtable-participant",
+        "simplify-review",
+        "tech-design-review",
+        "tech-design-review-request"
+      ]
+    },
+    "browser": {
+      "description": "Agent Deck browser validation skills.",
+      "includes": ["workflow"],
+      "requires": {
+        "commands": ["agent-browser"]
+      },
+      "skills": [
+        "browser-test",
+        "browser-test-request"
+      ]
+    },
+    "all": {
+      "description": "Every maintained skill in this repository.",
+      "includes": ["core", "workflow", "browser"]
+    }
+  },
+  "skills": {
+    "agent-deck-workflow": {"tags": ["workflow", "protocol"]},
+    "browser-test": {"tags": ["browser", "workflow"]},
+    "browser-test-request": {"tags": ["browser", "workflow"]},
+    "check-waypost-messages": {"tags": ["workflow", "receiver"]},
+    "code-health-review": {"tags": ["review", "workflow"]},
+    "commit-staged": {"tags": ["git", "standalone"]},
+    "delegate-code-task": {"tags": ["delegation", "workflow"]},
+    "delegate-task": {"tags": ["delegation", "workflow"]},
+    "dispatch-plan": {"tags": ["planning", "workflow"]},
+    "execute-plan": {"tags": ["planning", "workflow"]},
+    "explain-for-me": {"tags": ["communication", "standalone"]},
+    "explore-defects": {"tags": ["analysis", "standalone"]},
+    "handoff": {"tags": ["communication", "standalone"]},
+    "plan-report": {"tags": ["planning", "workflow"]},
+    "planner-closeout": {"tags": ["planning", "workflow"]},
+    "refactor-review": {"tags": ["review", "workflow"]},
+    "refactor-review-request": {"tags": ["review", "workflow"]},
+    "review-closeout": {"tags": ["review", "workflow"]},
+    "review-code": {"tags": ["review", "workflow"]},
+    "review-request": {"tags": ["review", "workflow"]},
+    "roundtable": {"tags": ["discussion", "workflow"]},
+    "roundtable-participant": {"tags": ["discussion", "workflow"]},
+    "simplify-review": {"tags": ["review", "workflow"]},
+    "tech-design-assessment": {"tags": ["design", "standalone"]},
+    "tech-design-review": {"tags": ["design", "workflow"]},
+    "tech-design-review-request": {"tags": ["design", "workflow"]}
+  }
+}
