@@ -128,7 +128,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 1. Prepare workspace records:
 
    ```bash
-   ai-skills run agent-deck-workflow prepare-workspaces.mjs \
+   agentgear run agent-deck-workflow prepare-workspaces.mjs \
      --worker-workspace <worker_workspace> \
      --planner-workspace <planner_workspace> \
      --integration-branch <integration_branch> \
@@ -153,7 +153,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 3. Fill `{{TO_SESSION_ID}}`, then send through the lock-owning wrapper:
 
    ```bash
-   ai-skills run agent-deck-workflow send-delegate-with-active-task-lock.mjs \
+   agentgear run agent-deck-workflow send-delegate-with-active-task-lock.mjs \
      --workdir <worker_workspace> \
      --task-id <task_id> \
      --integration-branch <integration_branch> \

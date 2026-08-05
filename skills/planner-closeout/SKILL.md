@@ -55,7 +55,7 @@ Branch-plan rule with a Handoff:
 Required closeout command shape:
 
 ```bash
-ai-skills run agent-deck-workflow planner-closeout-batch.mjs \
+agentgear run agent-deck-workflow planner-closeout-batch.mjs \
   --task-id <task_id> \
   --task-branch <task_branch> \
   --integration-branch <integration_branch> \

@@ -8,14 +8,14 @@ Use this reference only before creating a new Agent Deck session.
 - Resolve a new role command with:
 
   ```bash
-  ai-skills run agent-deck-workflow resolve-tool-command.js --role <role> --profile <profile> --workdir <target_workdir> --show-list --format json
+  agentgear run agent-deck-workflow resolve-tool-command.js --role <role> --profile <profile> --workdir <target_workdir> --show-list --format json
   ```
 
   Omit `--profile` when none is set.
 - List configured roles with:
 
   ```bash
-  ai-skills run agent-deck-workflow resolve-tool-command.js --list-roles --format text
+  agentgear run agent-deck-workflow resolve-tool-command.js --list-roles --format text
   ```
 
   JSON output is an object with a `roles` array.

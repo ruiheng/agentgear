@@ -12,7 +12,7 @@ import {
   parseTomlValue,
   parseToolProfilesToml,
   mergeToolConfigs,
-  resolveAiSkillsConfigDir,
+  resolveAgentgearConfigDir,
   resolveCwdLocalConfigPath,
   resolveDefaultLocalConfigPaths,
   resolveToolCommand,
@@ -122,14 +122,14 @@ function availableInspection(toolCmd) {
   };
 }
 
-test("resolveAiSkillsConfigDir follows XDG config conventions", () => {
+test("resolveAgentgearConfigDir follows XDG config conventions", () => {
   assert.equal(
-    resolveAiSkillsConfigDir({ XDG_CONFIG_HOME: "/tmp/custom-config" }, "/home/tester"),
-    "/tmp/custom-config/ai-skills"
+    resolveAgentgearConfigDir({ XDG_CONFIG_HOME: "/tmp/custom-config" }, "/home/tester"),
+    "/tmp/custom-config/agentgear"
   );
   assert.equal(
-    resolveAiSkillsConfigDir({}, "/home/tester"),
-    "/home/tester/.config/ai-skills"
+    resolveAgentgearConfigDir({}, "/home/tester"),
+    "/home/tester/.config/agentgear"
   );
 });
 
@@ -141,7 +141,7 @@ test("resolveDefaultLocalConfigPaths layers user then current directory override
       "/workspace/project"
     ),
     [
-      "/tmp/custom-config/ai-skills/tool-profiles.local.toml",
+      "/tmp/custom-config/agentgear/tool-profiles.local.toml",
       "/workspace/project/tool-profiles.local.toml",
     ]
   );

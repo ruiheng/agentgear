@@ -1,15 +1,15 @@
-# AI Skills
+# Agentgear
 
-Portable, maintained AI-agent skills with a small installer and explicit runtime
-dependencies.
+Portable utilities and workflow orchestration for AI-agent harnesses, with a
+small installer and explicit runtime dependencies.
 
 ## Terminal users: release snapshots
 
 After the first public package release, install the latest stable release:
 
 ~~~bash
-npx @ruiheng/ai-skills install --pack core --target codex
-npx --yes @ruiheng/ai-skills@latest update --pack core --target codex
+npx @ruiheng/agentgear install --pack core --target codex
+npx --yes @ruiheng/agentgear@latest update --pack core --target codex
 ~~~
 
 `update` resolves the newest published version, stages it under the user's XDG
@@ -20,22 +20,22 @@ skills untouched. Later edits in any local checkout do not affect that release.
 ## Developers: live source links
 
 ~~~bash
-git clone <repository-url> ai-skills
-cd ai-skills
-node ./bin/ai-skills.mjs link --pack all --target codex,claude
+git clone git@github.com:ruiheng/agentgear.git
+cd agentgear
+node ./bin/agentgear.mjs link --pack all --target codex,claude
 ~~~
 
-`link` points each installed skill and the `ai-skills` launcher at this checkout.
+`link` points each installed skill and the `agentgear` launcher at this checkout.
 Edits to an existing `SKILL.md`, script, or reference take effect immediately.
 After adding a skill or changing pack membership, rerun the same command, or use
-`node ./bin/ai-skills.mjs sync ...`. Switch back to a release snapshot with
-`npx --yes @ruiheng/ai-skills@latest update ...`.
+`node ./bin/agentgear.mjs sync ...`. Switch back to a release snapshot with
+`npx --yes @ruiheng/agentgear@latest update ...`.
 
 ## Workflow pack
 
 ~~~bash
-node ./bin/ai-skills.mjs doctor --pack workflow
-node ./bin/ai-skills.mjs install --pack workflow --target codex,claude --scope project
+node ./bin/agentgear.mjs doctor --pack workflow
+node ./bin/agentgear.mjs install --pack workflow --target codex,claude --scope project
 ~~~
 
 Use `--link` while developing from a checkout. The normal mode copies skills
@@ -52,8 +52,8 @@ integration.
 Remove a selected pack or skill from a target:
 
 ~~~bash
-ai-skills uninstall --pack core --target codex
-ai-skills uninstall --skill handoff --target codex
+agentgear uninstall --pack core --target codex
+agentgear uninstall --skill handoff --target codex
 ~~~
 
 Use `--dry-run` first if desired. The installer refuses to remove locally
@@ -64,8 +64,8 @@ To remove every installer-managed skill, launcher, workflow helper, recognized
 release snapshot, and install-state file, run a full purge:
 
 ~~~bash
-ai-skills uninstall --purge --dry-run
-ai-skills uninstall --purge
+agentgear uninstall --purge --dry-run
+agentgear uninstall --purge
 ~~~
 
 Without a target selector, `--purge` covers every target in its installation
@@ -95,13 +95,14 @@ npm run check
 ~~~
 
 This project is licensed under [Apache-2.0](LICENSE). The package remains
-intentionally private until its release and publishing policy is chosen.
+intentionally private until its first npm release. Before publishing, remove
+`"private": true`, set the release version, and publish the matching Git tag.
 
 All repository-owned executable scripts use Node.js. External tools such as
 `git`, `agent-deck`, and `waypost` remain explicit workflow dependencies and
 are checked by `doctor`.
 
 The bundled tool profiles live in `config/tool-profiles.toml`. A user can
-override them with `$XDG_CONFIG_HOME/ai-skills/tool-profiles.local.toml` (or
-`~/.config/ai-skills/tool-profiles.local.toml`) and a project-local
+override them with `$XDG_CONFIG_HOME/agentgear/tool-profiles.local.toml` (or
+`~/.config/agentgear/tool-profiles.local.toml`) and a project-local
 `tool-profiles.local.toml`.

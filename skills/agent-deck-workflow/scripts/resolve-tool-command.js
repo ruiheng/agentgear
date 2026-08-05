@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-function resolveAiSkillsConfigDir(env = process.env, homeDir = os.homedir()) {
+function resolveAgentgearConfigDir(env = process.env, homeDir = os.homedir()) {
   const xdgConfigHome = env.XDG_CONFIG_HOME || path.join(homeDir, ".config");
-  return path.resolve(xdgConfigHome, "ai-skills");
+  return path.resolve(xdgConfigHome, "agentgear");
 }
 
 function uniquePaths(paths) {
@@ -24,13 +24,13 @@ function resolveDefaultLocalConfigPaths(
   cwd = process.cwd()
 ) {
   return uniquePaths([
-    path.join(resolveAiSkillsConfigDir(env, homeDir), "tool-profiles.local.toml"),
+    path.join(resolveAgentgearConfigDir(env, homeDir), "tool-profiles.local.toml"),
     resolveCwdLocalConfigPath(cwd),
   ]);
 }
 
 const DEFAULT_CONFIG_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../config/tool-profiles.toml");
-const DEFAULT_LOCAL_CONFIG_PATH = path.join(resolveAiSkillsConfigDir(), "tool-profiles.local.toml");
+const DEFAULT_LOCAL_CONFIG_PATH = path.join(resolveAgentgearConfigDir(), "tool-profiles.local.toml");
 const DEFAULT_LOCAL_CONFIG_PATHS = resolveDefaultLocalConfigPaths();
 
 const HELP_TEXT = `Usage: resolve-tool-command.js [options]
@@ -1008,7 +1008,7 @@ export {
   mergeToolConfigs,
   parseToolProfilesToml,
   parseTomlValue,
-  resolveAiSkillsConfigDir,
+  resolveAgentgearConfigDir,
   resolveCwdLocalConfigPath,
   resolveDefaultLocalConfigPaths,
   resolveToolCommand,

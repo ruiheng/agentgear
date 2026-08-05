@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const RUNTIME_MARKER = ".ai-skills-runtime.json";
+const RUNTIME_MARKER = ".agentgear-runtime.json";
 const STATE_VERSION = 1;
 const WORKFLOW_HELPERS = {
   "agent-deck-workflow-init-permissions": "agent-deck-workflow-init-permissions.mjs",
@@ -19,12 +19,12 @@ export function getHome(env = process.env) {
 }
 
 export function getDataRoot(env = process.env) {
-  return path.join(env.XDG_DATA_HOME || path.join(getHome(env), ".local", "share"), "ai-skills");
+  return path.join(env.XDG_DATA_HOME || path.join(getHome(env), ".local", "share"), "agentgear");
 }
 
 export function getStateFile(env = process.env) {
   const stateHome = env.XDG_STATE_HOME || path.join(getHome(env), ".local", "state");
-  return path.join(stateHome, "ai-skills", "installs.json");
+  return path.join(stateHome, "agentgear", "installs.json");
 }
 
 export function expandHome(value, env = process.env) {
@@ -212,8 +212,8 @@ function launcherIsManaged(launcherPath, sourceRoot, dataRoot) {
   if (!info?.isSymbolicLink()) return false;
   try {
     const target = fs.realpathSync(launcherPath);
-    const sourceLauncher = fs.realpathSync(path.join(sourceRoot, "bin", "ai-skills.mjs"));
-    const managedLauncher = path.join(dataRoot, "current", "bin", "ai-skills.mjs");
+    const sourceLauncher = fs.realpathSync(path.join(sourceRoot, "bin", "agentgear.mjs"));
+    const managedLauncher = path.join(dataRoot, "current", "bin", "agentgear.mjs");
     const managedTarget = fs.existsSync(managedLauncher) ? fs.realpathSync(managedLauncher) : null;
     return target === sourceLauncher || target === managedTarget;
   } catch {
@@ -223,10 +223,10 @@ function launcherIsManaged(launcherPath, sourceRoot, dataRoot) {
 
 export function ensureLauncher({ sourceRoot, runtime, force, dryRun, env = process.env, print }) {
   const dataRoot = getDataRoot(env);
-  const destination = path.join(getHome(env), ".local", "bin", "ai-skills");
+  const destination = path.join(getHome(env), ".local", "bin", "agentgear");
   const target = runtime.mode === "link"
-    ? path.join(sourceRoot, "bin", "ai-skills.mjs")
-    : path.join(dataRoot, "current", "bin", "ai-skills.mjs");
+    ? path.join(sourceRoot, "bin", "agentgear.mjs")
+    : path.join(dataRoot, "current", "bin", "agentgear.mjs");
 
   if (exists(destination)) {
     if (!force && !launcherIsManaged(destination, sourceRoot, dataRoot)) {
@@ -307,11 +307,11 @@ export function purgeManagedRuntime({
   const localBin = path.join(getHome(env), ".local", "bin");
 
   const launcherTargets = [
-    ...sourceRoots.map(root => path.join(root, "bin", "ai-skills.mjs")),
-    ...releaseRoots.map(root => path.join(root, "bin", "ai-skills.mjs"))
+    ...sourceRoots.map(root => path.join(root, "bin", "agentgear.mjs")),
+    ...releaseRoots.map(root => path.join(root, "bin", "agentgear.mjs"))
   ];
-  if (currentIsManaged) launcherTargets.push(path.join(currentPath, "bin", "ai-skills.mjs"));
-  const launcher = path.join(localBin, "ai-skills");
+  if (currentIsManaged) launcherTargets.push(path.join(currentPath, "bin", "agentgear.mjs"));
+  const launcher = path.join(localBin, "agentgear");
   if (linkMatchesAnyTarget(launcher, launcherTargets)) {
     removeManagedPath("launcher", launcher, dryRun, print);
   }

@@ -41,7 +41,7 @@ function fail(message) {
 
 function usage() {
   return [
-    "Usage: ai-skills <command> [options]",
+    "Usage: agentgear <command> [options]",
     "",
     "Commands:",
     "  list [--json]",
@@ -267,7 +267,7 @@ function install(catalog, options) {
   const channel = options.link ? "development link" : "release snapshot";
   print("Installed " + selection.skills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
   if (selection.requirements.commands.length > 0) {
-    print("Run: ai-skills doctor --pack " + selection.packs.at(-1));
+    print("Run: agentgear doctor --pack " + selection.packs.at(-1));
   }
 }
 
@@ -277,7 +277,7 @@ function status(catalog, options) {
     ? resolveTargetRoots(catalog, options).map(target => target.root)
     : Object.keys(state.targets).sort();
   if (roots.length === 0) {
-    print("No ai-skills installation state recorded.");
+    print("No agentgear installation state recorded.");
     return;
   }
   for (const root of roots) {
@@ -308,7 +308,7 @@ function uninstall(catalog, options) {
     for (const skill of selection.skills) {
       const item = record.skills[skill];
       if (!item) {
-        print("Not managed by ai-skills: " + path.join(target.root, skill));
+        print("Not managed by agentgear: " + path.join(target.root, skill));
         continue;
       }
       const destination = path.join(target.root, skill);
@@ -591,7 +591,7 @@ if (invokedFile === thisFile) {
   try {
     main();
   } catch (error) {
-    process.stderr.write("ai-skills: " + error.message + "\n");
+    process.stderr.write("agentgear: " + error.message + "\n");
     process.exitCode = 1;
   }
 }

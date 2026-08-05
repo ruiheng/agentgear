@@ -6,8 +6,8 @@ directories for Codex, Claude Code, Gemini CLI, OpenCode, Antigravity, and Kiro.
 The installer places skills only. It does not silently write host hooks, MCP
 configuration, or permission rules. The workflow pack exposes the explicit,
 opt-in `agent-deck-workflow-init-permissions` helper for the latter; it writes
-rules through the stable `ai-skills run …` launcher rather than a checkout path.
+rules through the stable `agentgear run …` launcher rather than a checkout path.
 
 The `workflow` and `browser` packs have runtime prerequisites. Run
-`ai-skills doctor --pack workflow` or `ai-skills doctor --pack browser`
+`agentgear doctor --pack workflow` or `agentgear doctor --pack browser`
 before relying on them.

@@ -4,7 +4,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { main as cliMain } from "../cli/ai-skills.mjs";
+import { main as cliMain } from "../cli/agentgear.mjs";
 import { main as configurePermissions } from "../skills/agent-deck-workflow/scripts/agent-deck-workflow-init-permissions.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -43,7 +43,7 @@ function withEnvironment(environment, action) {
 }
 
 test("workflow permissions use the stable launcher and never an old source path", () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-permissions-test-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-permissions-test-"));
   const home = path.join(temporary, "home");
   const project = path.join(temporary, "project");
   const environment = {
@@ -62,20 +62,20 @@ test("workflow permissions use the stable launcher and never an old source path"
       path.join(project, ".gemini", "policies", "agent-deck-workflow.toml")
     ].map(filePath => fs.readFileSync(filePath, "utf8"));
     for (const source of generated) {
-      assert.match(source, /ai-skills/);
+      assert.match(source, /agentgear/);
       assert.match(source, /agent-deck-workflow/);
       assert.doesNotMatch(source, /\.config[\\/]ai-agent|\/home\/ruiheng\/config_files/);
       assert.doesNotMatch(source, new RegExp(rootDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }
     const claude = JSON.parse(generated[0]);
-    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/ai-skills run agent-deck-workflow *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run agent-deck-workflow *)"), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
 
 test("workflow permissions grant only validated scoped Waypost CLI access", () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-waypost-permissions-test-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-permissions-test-"));
   const home = path.join(temporary, "home");
   const project = path.join(temporary, "project");
   const bin = path.join(temporary, "bin");
@@ -131,7 +131,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
 });
 
 test("workflow permissions reject project-local Waypost commands", () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-waypost-reject-test-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-reject-test-"));
   const home = path.join(temporary, "home");
   const project = path.join(temporary, "project");
   const projectBin = path.join(project, "bin");
@@ -159,7 +159,7 @@ test("workflow permissions reject project-local Waypost commands", () => {
 });
 
 test("workflow permissions reject a relative Waypost state directory", () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-waypost-state-test-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-state-test-"));
   const home = path.join(temporary, "home");
   const project = path.join(temporary, "project");
   const bin = path.join(temporary, "bin");
@@ -187,7 +187,7 @@ test("workflow permissions reject a relative Waypost state directory", () => {
 });
 
 test("workflow permissions reject Waypost found through a relative PATH entry", () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-waypost-relative-command-test-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-relative-command-test-"));
   const home = path.join(temporary, "home");
   const project = path.join(temporary, "project");
   const relativeBin = "waypost-bin";
@@ -217,7 +217,7 @@ test("workflow permissions reject Waypost found through a relative PATH entry", 
 });
 
 test("workflow permissions reject a Waypost command inside a symlinked project", { skip: process.platform === "win32" }, () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-waypost-symlink-project-test-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-symlink-project-test-"));
   const home = path.join(temporary, "home");
   const physicalProject = path.join(temporary, "physical-project");
   const projectLink = path.join(temporary, "project-link");
@@ -246,7 +246,7 @@ test("workflow permissions reject a Waypost command inside a symlinked project",
 });
 
 test("workflow permissions migrate a verified legacy v1 Waypost manifest", () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "ai-skills-waypost-v1-manifest-test-"));
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-v1-manifest-test-"));
   const home = path.join(temporary, "home");
   const project = path.join(temporary, "project");
   const bin = path.join(temporary, "bin");

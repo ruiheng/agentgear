@@ -7,7 +7,7 @@ description: Use the Agent Deck Waypost protocol.
 
 Use this skill as the shared transport, envelope, and lifecycle layer for multi-session work.
 
-Run a bundled workflow script through `ai-skills run agent-deck-workflow <script> [args...]`.
+Run a bundled workflow script through `agentgear run agent-deck-workflow <script> [args...]`.
 The `workflow` pack installer installs that launcher; do not recover the old
 installation-specific path from another repository.
 

@@ -1,12 +1,20 @@
 {
-  "name": "@ruiheng/ai-skills",
+  "name": "@ruiheng/agentgear",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
-  "description": "Portable, maintained AI-agent skills with a local installer.",
+  "description": "Portable utilities and workflow orchestration for AI-agent harnesses.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ruiheng/agentgear.git"
+  },
+  "homepage": "https://github.com/ruiheng/agentgear#readme",
+  "bugs": {
+    "url": "https://github.com/ruiheng/agentgear/issues"
+  },
   "type": "module",
   "bin": {
-    "ai-skills": "bin/ai-skills.mjs"
+    "agentgear": "bin/agentgear.mjs"
   },
   "engines": {
     "node": ">=20"

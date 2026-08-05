@@ -12,7 +12,7 @@ frontmatter decides when an agent loads a skill; the catalog decides how a human
 installs and operates a collection.
 
 `config/tool-profiles.toml` is packaged runtime configuration. User overrides
-are layered from the XDG `ai-skills` config directory and the project-local
+are layered from the XDG `agentgear` config directory and the project-local
 `tool-profiles.local.toml`; neither depends on the maintainer's old dotfiles.
 
 The workflow pack depends on the upstream Agent Deck skill and executable. The
@@ -28,13 +28,13 @@ Release installation copies a package snapshot to the user's XDG data directory
 and deploys copies from that snapshot. It is stable even if a checkout changes
 or disappears.
 
-Developer installation uses `ai-skills link`. It links the harness directly to
+Developer installation uses `agentgear link`. It links the harness directly to
 the current checkout and points the launcher there too. Existing source edits
 therefore apply immediately; rerun `link` or `sync` only when the installed
 set changes. If a future provider adapter needs generated output, its developer
 path must be produced by `sync`, not hand-edited in `dist/`.
 
-`ai-skills uninstall --purge` explicitly cleans up installer-owned artifacts.
+`agentgear uninstall --purge` explicitly cleans up installer-owned artifacts.
 It removes only state-recorded skills and installer-recognized launchers,
 helpers, and runtime snapshots. It preserves unmanaged target content,
 unrelated files in the XDG data directory, and separately opted-in host

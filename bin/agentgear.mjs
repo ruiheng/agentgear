@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import process from "node:process";
-import { main } from "../cli/ai-skills.mjs";
+import { main } from "../cli/agentgear.mjs";
 
 try {
   main();
 } catch (error) {
-  process.stderr.write(`ai-skills: ${error.message}\n`);
+  process.stderr.write(`agentgear: ${error.message}\n`);
   process.exitCode = 1;
 }

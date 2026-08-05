@@ -18,7 +18,7 @@ const usage = `Initialize agent-deck-workflow permissions for Claude Code, Codex
 Usage:
   agent-deck-workflow-init-permissions.mjs [project-dir]
 
-The generated rules invoke the stable ~/.local/bin/ai-skills launcher, so both
+The generated rules invoke the stable ~/.local/bin/agentgear launcher, so both
 release snapshots and developer links can update skills without rewriting
 project permission files.`;
 
@@ -67,8 +67,8 @@ function waypostContext(projectDir) {
 }
 
 function launcherForms() {
-  const absolute = path.join(getHome(), ".local", "bin", "ai-skills");
-  return ["~/.local/bin/ai-skills", absolute];
+  const absolute = path.join(getHome(), ".local", "bin", "agentgear");
+  return ["~/.local/bin/agentgear", absolute];
 }
 
 function adwfForms() {
@@ -154,7 +154,7 @@ function configureCodex(projectDir, waypost) {
     codexRule(["agent-deck"], "Agent Deck workflow commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck workflow dispatch",\n    ]'),
     codexRule(["printf"], "Shell formatting helper commands"),
     ...adwfForms().map(command => codexRule([command], "Workflow send+wakeup helper")),
-    ...launcherForms().map(command => codexRule([command, "run", "agent-deck-workflow"], "Workflow scripts through the managed ai-skills launcher")),
+    ...launcherForms().map(command => codexRule([command, "run", "agent-deck-workflow"], "Workflow scripts through the managed agentgear launcher")),
     ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Read-only Waypost query")),
     "# Note: file write permissions are controlled separately by the host.\n"
   ].join("\n");
