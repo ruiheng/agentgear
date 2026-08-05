@@ -2,8 +2,14 @@
   "name": "@ruiheng/agentgear",
   "version": "0.1.0",
   "license": "Apache-2.0",
-  "private": true,
   "description": "Portable utilities and workflow orchestration for AI-agent harnesses.",
+  "keywords": [
+    "ai-agent",
+    "agent-harness",
+    "orchestration",
+    "codex",
+    "claude-code"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ruiheng/agentgear.git"
@@ -16,6 +22,17 @@
   "bin": {
     "agentgear": "bin/agentgear.mjs"
   },
+  "files": [
+    "bin",
+    "catalog",
+    "cli",
+    "config",
+    "providers",
+    "skills"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -23,6 +40,7 @@
     "build": "node scripts/build.mjs",
     "validate": "node scripts/validate.mjs",
     "test": "node --test --test-concurrency=1 tests/cli.test.mjs tests/workflow-permissions.test.mjs skills/agent-deck-workflow/scripts/archive-and-remove-planner-group-sessions.test.mjs skills/agent-deck-workflow/scripts/resolve-tool-command.test.js",
-    "check": "npm run validate && npm run build && npm test"
+    "check": "npm run validate && npm run build && npm test",
+    "prepublishOnly": "npm run check"
   }
 }

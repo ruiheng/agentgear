@@ -31,6 +31,14 @@ After adding a skill or changing pack membership, rerun the same command, or use
 `node ./bin/agentgear.mjs sync ...`. Switch back to a release snapshot with
 `npx --yes @ruiheng/agentgear@latest update ...`.
 
+## External dependency: Waypost
+
+The workflow-orchestration features depend on
+[Waypost](https://github.com/ruiheng/waypost). Install Waypost separately and
+ensure its `waypost` command is available on `PATH` before using the workflow
+pack. `agentgear doctor --pack workflow` reports a missing or incompatible
+Waypost installation.
+
 ## Workflow pack
 
 ~~~bash
@@ -94,9 +102,9 @@ separate, opt-in workflow permission initializer untouched.
 npm run check
 ~~~
 
-This project is licensed under [Apache-2.0](LICENSE). The package remains
-intentionally private until its first npm release. Before publishing, remove
-`"private": true`, set the release version, and publish the matching Git tag.
+This project is licensed under [Apache-2.0](LICENSE) and is configured for a
+public npm release as `@ruiheng/agentgear`. Before publishing, verify the
+release version and matching Git tag; `npm publish` runs `npm run check` first.
 
 All repository-owned executable scripts use Node.js. External tools such as
 `git`, `agent-deck`, and `waypost` remain explicit workflow dependencies and
