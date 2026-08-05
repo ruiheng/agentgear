@@ -28,6 +28,8 @@ Use `agent-deck/<agent-deck-session-id>` as the default waypost sender.
 
 Use the protocol's Agent Deck Mode Detection and Context Resolution Priority sections.
 
+Treat `waypost_*` names in this workflow as MCP tools, not shell commands; use CLI only for capabilities unavailable through MCP.
+
 ## Tool Resolution
 
 Use `references/tool-resolution.md` for the shared tool-resolution contract before creating a new session.

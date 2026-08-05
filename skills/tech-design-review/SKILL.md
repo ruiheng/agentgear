@@ -34,6 +34,8 @@ Continue resumes the existing lane; do not restart review.
 
 ## Review
 
+Before hardening any component, apply a deletion test: if removing it still satisfies the explicit user goal and required compatibility, require its removal or a user decision. Treat avoidable cross-domain expansion as scope evidence, not merely an engineering problem. Do not spend review rounds making unapproved scope safer or more complete.
+
 Review as a skeptical senior engineer. Prioritize:
 
 - problem framing, constraints, and success criteria
@@ -62,6 +64,7 @@ For draft-round:
 - do not edit it or switch to a newer round
 - require it to contain the full current design; use prior rounds only to compare changes, never to supply missing design content
 - repository inspection may validate claims, but must not change the reviewed target
+- compare draft rounds as files, not Git revisions
 - on later rounds, compare against the prior artifact from this session's report or Waypost history when useful
 
 For committed-docs:
@@ -119,7 +122,7 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 
 Decision guidance:
 
-- SOUND: coherent and implementation-ready with no unresolved design findings or caveats
+- SOUND: coherent and implementation-ready with no unresolved design findings, unapproved product capability, avoidable cross-domain expansion, or caveats
 - SOUND_WITH_CAVEATS: deliverable, with only non-blocking caveats already recorded in the reviewed target
 - NEEDS_REVISION: design changes and another reviewed snapshot are required before handoff
 - NEEDS_INPUT: message mode only; the requester must correct critical review input and may resend the same target

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   inspectToolCommand,
+  listConfiguredRoles,
   loadToolConfig,
   parseTomlValue,
   parseToolProfilesToml,
@@ -15,9 +16,103 @@ import {
   resolveCwdLocalConfigPath,
   resolveDefaultLocalConfigPaths,
   resolveToolCommand,
+  runCli,
 } from "./resolve-tool-command.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function captureStdout(callback) {
+  let output = "";
+  const originalWrite = process.stdout.write;
+  process.stdout.write = (chunk) => {
+    output += chunk;
+    return true;
+  };
+
+  try {
+    callback();
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+
+  return output;
+}
+
+test("CLI prints help without loading the default config", () => {
+  const missingConfig = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "tool-command-help-")),
+    "missing.toml"
+  );
+  const results = ["--help", "-h"].map((argument) =>
+    captureStdout(() => runCli(["--config", missingConfig, argument]))
+  );
+
+  for (const result of results) {
+    assert.match(result, /Usage: resolve-tool-command\.js/);
+    assert.match(result, /--profile <profile>/);
+    assert.match(result, /-h, --help/);
+  }
+
+  assert.equal(results[0], results[1]);
+});
+
+test("listConfiguredRoles returns sorted configured role names", () => {
+  assert.deepEqual(
+    listConfiguredRoles({
+      roles: { reviewer: "reviewer_default", coder: "coder_default" },
+    }),
+    ["coder", "reviewer"]
+  );
+});
+
+test("CLI lists merged configured roles independently", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-command-roles-"));
+  const configPath = path.join(tmpDir, "tool-profiles.toml");
+  const localConfigPath = path.join(tmpDir, "tool-profiles.local.toml");
+  fs.writeFileSync(
+    configPath,
+    `version = 1
+
+[roles]
+worker = "coder_default"
+reviewer = "reviewer_default"
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    localConfigPath,
+    `[roles]
+coder = "coder_default"
+`,
+    "utf8"
+  );
+
+  const jsonOutput = captureStdout(() =>
+    runCli([
+      "--config",
+      configPath,
+      "--local-config",
+      localConfigPath,
+      "--list-roles",
+    ])
+  );
+  assert.deepEqual(JSON.parse(jsonOutput), {
+    roles: ["coder", "reviewer", "worker"],
+  });
+
+  const textOutput = captureStdout(() =>
+    runCli([
+      "--config",
+      configPath,
+      "--local-config",
+      localConfigPath,
+      "--list-roles",
+      "--format",
+      "text",
+    ])
+  );
+  assert.equal(textOutput, "coder\nreviewer\nworker\n");
+});
 
 function availableInspection(toolCmd) {
   return {
@@ -749,6 +844,49 @@ test("resolveToolCommand keeps an explicit command missing only from dispatcher 
       candidate_index: 0,
     },
   ]);
+});
+
+test("resolveToolCommand defaults an omitted profile strategy to ordered", () => {
+  const resolved = resolveToolCommand({
+    role: "coder",
+    inspectCommand: availableInspection,
+    config: {
+      version: 2,
+      roles: { coder: "coder_local" },
+      profiles: {
+        coder_local: {
+          candidates: ["claude --model sonnet --permission-mode acceptEdits"],
+        },
+      },
+    },
+  });
+
+  assert.equal(resolved.tool_profile, "coder_local");
+  assert.equal(
+    resolved.resolved_tool_cmd,
+    "claude --model sonnet --permission-mode acceptEdits"
+  );
+});
+
+test("resolveToolCommand still rejects an unsupported explicit strategy", () => {
+  assert.throws(
+    () =>
+      resolveToolCommand({
+        profile: "coder_local",
+        inspectCommand: availableInspection,
+        config: {
+          version: 2,
+          roles: {},
+          profiles: {
+            coder_local: {
+              strategy: "random",
+              candidates: ["claude --model sonnet --permission-mode acceptEdits"],
+            },
+          },
+        },
+      }),
+    /unsupported tool profile strategy: random/
+  );
 });
 
 test("resolveToolCommand filters a missing relative command in the target workdir", () => {

@@ -5,6 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { execute, isMain, nowIso, resolveCommand } from "./workflow-lib.mjs";
+import {
+  claudeWaypostPermission,
+  isLegacyBroadWaypostPermission,
+  readWaypostOwnershipManifest,
+  resolveWaypostPermissionContext,
+  writeWaypostOwnershipManifest
+} from "./waypost-permission-spec.mjs";
 
 const usage = `Initialize agent-deck-workflow permissions for Claude Code, Codex, and Gemini CLI.
 
@@ -31,35 +38,32 @@ function getHome() {
   return process.env.HOME || os.homedir();
 }
 
-function tildePath(value, home = getHome()) {
-  const normalizedHome = path.resolve(home);
-  const normalizedValue = path.resolve(value);
-  if (normalizedValue === normalizedHome) return "~";
-  if (normalizedValue.startsWith(`${normalizedHome}${path.sep}`)) return `~/${path.relative(normalizedHome, normalizedValue).split(path.sep).join("/")}`;
-  return normalizedValue;
-}
-
 function writeAtomic(filePath, content) {
+  const existing = fs.lstatSync(filePath, { throwIfNoEntry: false });
+  if (existing?.isSymbolicLink() || (existing && !existing.isFile())) {
+    throw new Error(`refusing symlinked or non-file path: ${filePath}`);
+  }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
   fs.writeFileSync(temporary, content);
-  fs.renameSync(temporary, filePath);
+  try {
+    fs.renameSync(temporary, filePath);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
 }
 
 function jsonPermission(command) {
   return `Bash(${command})`;
 }
 
-function waypostForms() {
-  const command = resolveCommand("waypost");
-  if (!command) {
-    log("warn", "Skipping Waypost CLI approvals; no installed Waypost executable was resolved");
-    return [];
+function waypostContext(projectDir) {
+  const context = resolveWaypostPermissionContext({ projectDir });
+  if (!context.trusted) {
+    log("warn", `Skipping Waypost-specific permissions: ${context.reason}`);
   }
-  const stateDir = process.env.WAYPOST_STATE_DIR || path.join(process.env.XDG_STATE_HOME || path.join(getHome(), ".local", "state"), "ai-agent", "waypost");
-  const commandForms = [...new Set([command, tildePath(command), "waypost"] )];
-  const stateForms = [...new Set([path.resolve(stateDir), tildePath(stateDir)])];
-  return commandForms.flatMap(commandForm => stateForms.flatMap(stateForm => ["read", "list"].map(action => ({ command: commandForm, stateDir: stateForm, action }))));
+  return context;
 }
 
 function launcherForms() {
@@ -72,7 +76,7 @@ function adwfForms() {
   return ["~/.local/bin/adwf-send-and-wake", absolute];
 }
 
-function generatedClaudePermissions(waypost) {
+function generatedClaudePermissions(waypostRules) {
   const permissions = [
     jsonPermission("agent-deck"), jsonPermission("agent-deck *"),
     "Bash(git diff)", "Bash(git diff *)", "Bash(git show)", "Bash(git show *)", "Bash(git status)", "Bash(git status *)", "Bash(git log)", "Bash(git log *)", "Bash(git rev-parse)", "Bash(git rev-parse *)",
@@ -80,31 +84,34 @@ function generatedClaudePermissions(waypost) {
     ...launcherForms().map(command => jsonPermission(`${command} run agent-deck-workflow *`)),
     "Write(/.agent-artifacts/**)"
   ];
-  for (const item of waypost) {
-    const base = `${item.command} --state-dir ${item.stateDir} ${item.action}`;
-    permissions.push(jsonPermission(base), jsonPermission(`${base} *`));
-  }
+  permissions.push(...waypostRules.map(claudeWaypostPermission));
   return [...new Set(permissions)];
 }
 
-function isGeneratedWaypostPermission(value) {
-  return typeof value === "string" && (
-    value === "Bash(waypost)" || value === "Bash(waypost *)" ||
-    /^Bash\((?:[^ ]*waypost|waypost) --state-dir .+ (?:read|list)(?: \*)?\)$/.test(value)
-  );
+function isSafeRegularFile(filePath) {
+  const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
+  return Boolean(info?.isFile() && !info.isSymbolicLink());
 }
 
 function configureClaude(projectDir, waypost) {
   log("info", "Configuring Claude Code permissions...");
   const settingsFile = path.join(projectDir, ".claude", "settings.json");
-  const alreadyExists = fs.existsSync(settingsFile);
+  const settingsInfo = fs.lstatSync(settingsFile, { throwIfNoEntry: false });
+  if (settingsInfo && !isSafeRegularFile(settingsFile)) {
+    throw new Error(`refusing symlinked or non-file Claude settings path: ${settingsFile}`);
+  }
+  const alreadyExists = Boolean(settingsInfo);
+  const ownership = readWaypostOwnershipManifest(projectDir);
+  const ownedWaypostPermissions = new Set(ownership.permissions);
   let settings = {};
+  let originalSettings = "";
   if (alreadyExists) {
     log("info", "Merging permissions into existing settings.json");
     const backup = `${settingsFile}.backup.${nowIso().replace(/[-:TZ]/g, "")}`;
     fs.copyFileSync(settingsFile, backup);
     try {
-      settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+      originalSettings = fs.readFileSync(settingsFile, "utf8");
+      settings = JSON.parse(originalSettings);
     } catch (error) {
       throw new Error(`Failed to parse ${settingsFile}: ${error.message}`);
     }
@@ -114,8 +121,20 @@ function configureClaude(projectDir, waypost) {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) settings = {};
   if (!settings.permissions || typeof settings.permissions !== "object" || Array.isArray(settings.permissions)) settings.permissions = {};
   const prior = Array.isArray(settings.permissions.allow) ? settings.permissions.allow : [];
-  settings.permissions.allow = [...new Set([...prior.filter(item => !isGeneratedWaypostPermission(item)), ...generatedClaudePermissions(waypost)])];
+  settings.permissions.allow = [...new Set([
+    ...prior.filter(item => !ownedWaypostPermissions.has(item) && (ownership.present || !isLegacyBroadWaypostPermission(item))),
+    ...generatedClaudePermissions(waypost.rules)
+  ])];
   writeAtomic(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+  if (waypost.trusted) {
+    try {
+      writeWaypostOwnershipManifest(projectDir, waypost.rules);
+    } catch (error) {
+      if (alreadyExists) writeAtomic(settingsFile, originalSettings);
+      else fs.rmSync(settingsFile, { force: true });
+      throw error;
+    }
+  }
   log("ok", `${alreadyExists ? "Merged permissions into" : "Created"} ${settingsFile}`);
 }
 
@@ -136,7 +155,7 @@ function configureCodex(projectDir, waypost) {
     codexRule(["printf"], "Shell formatting helper commands"),
     ...adwfForms().map(command => codexRule([command], "Workflow send+wakeup helper")),
     ...launcherForms().map(command => codexRule([command, "run", "agent-deck-workflow"], "Workflow scripts through the managed ai-skills launcher")),
-    ...waypost.map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Read-only Waypost query")),
+    ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Read-only Waypost query")),
     "# Note: file write permissions are controlled separately by the host.\n"
   ].join("\n");
   writeAtomic(rulesFile, rules);
@@ -163,10 +182,10 @@ function configureGemini(projectDir, waypost) {
   const policies = [
     "# Agent Deck Workflow - generated policy rules\n",
     geminiRule("allow_agent_deck_cli", ["agent-deck"]),
-    `[[rule]]\nname = "allow_waypost_mcp"\nenabled = true\ndecision = "allow"\ntoolName = "*"\nmcpName = "waypost"\npriority = 950\nmodes = ["default", "autoEdit", "yolo"]\n`,
+    ...(waypost.trusted ? [`[[rule]]\nname = "allow_waypost_mcp"\nenabled = true\ndecision = "allow"\ntoolName = "*"\nmcpName = "waypost"\npriority = 950\nmodes = ["default", "autoEdit", "yolo"]\n`] : []),
     ...adwfForms().map((command, index) => geminiRule(`allow_adwf_send_and_wake_${index}`, [command])),
     ...launcherForms().map((command, index) => geminiRule(`allow_ai_skills_workflow_launcher_${index}`, [command, "run", "agent-deck-workflow"])),
-    ...waypost.map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
+    ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
     "# Note: file write permissions are controlled separately by the host.\n"
   ].join("\n");
   writeAtomic(policyFile, policies);
@@ -179,9 +198,10 @@ export function main(argv = process.argv.slice(2)) {
     return;
   }
   if (argv.length > 1) throw new Error("pass at most one project directory");
-  const projectDir = path.resolve(argv[0] || process.cwd());
-  if (!fs.statSync(projectDir, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`project directory does not exist: ${projectDir}`);
-  const waypost = waypostForms();
+  const requestedProjectDir = path.resolve(argv[0] || process.cwd());
+  if (!fs.statSync(requestedProjectDir, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`project directory does not exist: ${requestedProjectDir}`);
+  const projectDir = fs.realpathSync(requestedProjectDir);
+  const waypost = waypostContext(projectDir);
   process.stdout.write("\n========================================\n  Agent Deck Workflow Permission Setup\n========================================\n\n");
   log("info", `Initializing agent-deck-workflow permissions for: ${projectDir}`);
   if (!resolveCommand("agent-deck")) {

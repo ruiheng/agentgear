@@ -33,6 +33,26 @@ const DEFAULT_CONFIG_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.
 const DEFAULT_LOCAL_CONFIG_PATH = path.join(resolveAiSkillsConfigDir(), "tool-profiles.local.toml");
 const DEFAULT_LOCAL_CONFIG_PATHS = resolveDefaultLocalConfigPaths();
 
+const HELP_TEXT = `Usage: resolve-tool-command.js [options]
+
+Resolve a tool command from an explicit command, profile, inherited command, or role default.
+
+Options:
+  --role <role>                  Resolve the profile configured for a role
+  --profile <profile>            Resolve an explicit profile
+  --command <command>            Use an explicit tool command
+  --inherit-command <command>    Use an existing inherited tool command
+  --show-list                    Include all usable tool candidates
+  --list-roles                   List configured role names
+  --workdir <path>               Inspect commands in the target workdir
+  --target-path <PATH>           Inspect commands with the target PATH
+  --config <path>                Use a specific tool-profiles.toml
+  --local-config <path>          Apply a local tool profile override
+  --format <json|text>           Select output format (default: json)
+  --json                         Use JSON output
+  -h, --help                     Show this help message
+`;
+
 function stripInlineComment(line) {
   let escaped = false;
   let stringQuote = "";
@@ -714,8 +734,9 @@ function resolveProfileCommand(
   if (!profileConfig) {
     throw new Error(`unknown tool profile: ${profileName}`);
   }
-  if (profileConfig.strategy !== "ordered") {
-    throw new Error(`unsupported tool profile strategy: ${profileConfig.strategy}`);
+  const strategy = profileConfig.strategy ?? "ordered";
+  if (strategy !== "ordered") {
+    throw new Error(`unsupported tool profile strategy: ${strategy}`);
   }
   const candidates = Array.isArray(profileConfig.candidates)
     ? profileConfig.candidates
@@ -860,6 +881,10 @@ function resolveToolCommand(options = {}) {
   throw new Error("tool resolution requires an explicit command, profile, inherited command, or role default");
 }
 
+function listConfiguredRoles(config) {
+  return Object.keys(config.roles).sort();
+}
+
 function parseArgs(argv) {
   const options = {
     role: "",
@@ -867,11 +892,13 @@ function parseArgs(argv) {
     command: "",
     inheritCommand: "",
     showList: false,
+    listRoles: false,
     workdir: "",
     targetPath: "",
     configPath: DEFAULT_CONFIG_PATH,
     localConfigPaths: resolveDefaultLocalConfigPaths(),
     format: "json",
+    help: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -886,6 +913,8 @@ function parseArgs(argv) {
       options.inheritCommand = argv[++i] || "";
     } else if (arg === "--show-list") {
       options.showList = true;
+    } else if (arg === "--list-roles") {
+      options.listRoles = true;
     } else if (arg === "--workdir") {
       options.workdir = argv[++i] || "";
     } else if (arg === "--target-path") {
@@ -898,6 +927,8 @@ function parseArgs(argv) {
       options.format = argv[++i] || "json";
     } else if (arg === "--json") {
       options.format = "json";
+    } else if (arg === "-h" || arg === "--help") {
+      options.help = true;
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
@@ -908,7 +939,25 @@ function parseArgs(argv) {
 
 function runCli(argv) {
   const options = parseArgs(argv);
+  if (options.help) {
+    process.stdout.write(HELP_TEXT);
+    return;
+  }
+
   const config = loadToolConfig(options.configPath, options.localConfigPaths);
+  if (options.listRoles) {
+    const roles = listConfiguredRoles(config);
+    if (options.format === "text") {
+      process.stdout.write(roles.length ? `${roles.join("\n")}\n` : "");
+      return;
+    }
+    if (options.format !== "json") {
+      throw new Error(`unsupported output format: ${options.format}`);
+    }
+    process.stdout.write(`${JSON.stringify({ roles }, null, 2)}\n`);
+    return;
+  }
+
   const inspectionOptions = {
     cwd: options.workdir || process.cwd(),
     cwdTrusted: Boolean(options.workdir),
@@ -954,6 +1003,7 @@ export {
   DEFAULT_LOCAL_CONFIG_PATH,
   DEFAULT_LOCAL_CONFIG_PATHS,
   inspectToolCommand,
+  listConfiguredRoles,
   loadToolConfig,
   mergeToolConfigs,
   parseToolProfilesToml,
