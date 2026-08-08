@@ -1,13 +1,13 @@
 ---
 name: browser-test-request
-description: Request Agent Deck browser validation.
+description: Request browser validation from a collaborator.
 ---
 
 # Browser Test Request
 
 Generate a concise Waypost message that asks a browser-tester to validate one coherent browser test batch with `agent-browser`.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Inputs
 
@@ -36,9 +36,9 @@ Workflow protocol baseline: use the `agent-deck-workflow` skill.
 - optional `round`
 - optional `browser_check_id`
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol.
+Use the `multi-agent-protocol` skill for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message/review context -> ask

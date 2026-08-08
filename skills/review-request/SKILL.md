@@ -1,13 +1,13 @@
 ---
 name: review-request
-description: Request Agent Deck code review.
+description: Request code review from a collaborator.
 ---
 
 # Review Request
 
 Generate a copy/paste-friendly Waypost message for code review.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Required Scope Selection
 
@@ -98,9 +98,9 @@ Provide task intent, scope, constraints, and verification evidence, not a pre-re
 - Let the reviewer inspect the full scope and choose risk angles independently.
 - Omit optional focus and author notes when the original task plus git target are enough.
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol.
+Use the `multi-agent-protocol` skill for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> branch `task/<task_id>` -> delegated context -> ask

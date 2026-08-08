@@ -7,7 +7,7 @@ description: Request an advisory refactor review.
 
 Generate a concise Waypost message that asks a refactor reviewer to inspect code for duplication and simplification opportunities.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Inputs
 
@@ -36,9 +36,9 @@ Round `1` or new reviewer allocation:
 - later rounds to the same refactor-reviewer session send only the delta since the previous round
 - if reviewer continuity changed or is unknown, fall back to the full body
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol.
+Use the `multi-agent-protocol` skill for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> workflow context -> ask

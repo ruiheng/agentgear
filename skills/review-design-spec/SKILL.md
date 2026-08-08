@@ -1,17 +1,17 @@
 ---
-name: tech-design-review
-description: Review a technical design.
+name: review-design-spec
+description: Review a design specification.
 ---
 
-# Tech-Design Review
+# Review Design Specification
 
-Use agent-deck-workflow for shared transport protocol.
+Use multi-agent-protocol for shared transport protocol.
 
 ## Input Mode
 
 Determine mode from the input, not session metadata:
 
-- message mode: a Waypost body with Action: tech_design_review_requested
+- message mode: a Waypost body with Action: design_spec_review_requested
 - direct-use mode: every other invocation
 
 Message mode requires one named review target:
@@ -54,15 +54,15 @@ Require a readable, self-contained review target and enough problem framing to j
 - direct-use mode: ask one short clarification question when either is missing
 - message mode: use NEEDS_INPUT only when the request cannot identify/read the target or lacks request-owned context required to judge it; list the missing input under Findings and never ask the user
 
-Use NEEDS_REVISION for material design omissions, including gaps that make the proposal unjudgeable or a draft round that relies on an earlier round, a diff, or an “unchanged” reference.
+Use NEEDS_REVISION for material specification omissions, including gaps that make the specification unjudgeable or a draft round that relies on an earlier round, a diff, or an “unchanged” reference.
 
 ## Snapshot Inspection
 
 For draft-round:
 
-- review the named file as the requested design round
+- review the named file as the requested design specification round
 - do not edit it or switch to a newer round
-- require it to contain the full current design; use prior rounds only to compare changes, never to supply missing design content
+- require it to contain the full current design specification; use prior rounds only to compare changes, never to supply missing specification content
 - repository inspection may validate claims, but must not change the reviewed target
 - compare draft rounds as files, not Git revisions
 - on later rounds, compare against the prior artifact from this session's report or Waypost history when useful
@@ -81,7 +81,7 @@ For a normal message-mode review, use:
 
 ~~~markdown
 Task: <task_id>
-Action: tech_design_review_report
+Action: design_spec_review_report
 From: architect_reviewer <reviewer_session_id>
 To: <review_sender_role> <review_sender_session_id>
 Round: <round>
@@ -140,7 +140,7 @@ In message mode:
 3. send a normal report to inbound From for every completed review and NEEDS_INPUT. Wait without sending while asking the limit decision; after user continuation, send the held report; after a stop, end:
    - from_address = agent-deck/<reviewer_session_id>
    - to_address = agent-deck/<inbound_from_session_id>
-   - subject = tech-design review report: <task_id> r<round>
+   - subject = design-spec review report: <task_id> r<round>
    - body = <report>
 4. follow the shared Async sender rule
 

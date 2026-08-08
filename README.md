@@ -84,11 +84,11 @@ and `update` commands always copy skills to the target directory and record
 only installer-managed destinations. The two channels are exclusive: switching
 from one to the other requires `agentgear uninstall --purge` first.
 
-The workflow pack deliberately does not copy the upstream `agent-deck` skill.
-Install it from [Agent Deck](https://github.com/asheshgoplani/agent-deck) in
-each target harness, then use the installed
-`agent-deck-workflow-init-permissions` command to opt into its permission
-integration.
+The workflow pack installs `multi-agent-protocol` but deliberately does not
+copy the upstream `agent-deck` skill. Install it from
+[Agent Deck](https://github.com/asheshgoplani/agent-deck) in each target
+harness, then use the installed `agent-deck-workflow-init-permissions` command
+to opt into its permission integration.
 
 ## Uninstall
 

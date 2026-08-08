@@ -40,7 +40,7 @@ reference to them.
 
 Use explicit-only invocation for opt-in features whose primary result is a
 distinct deliverable rather than a normal chat reply (currently
-`explain-for-me`, `handoff`, `explore-defects`, and `tech-design-assessment`). Set both:
+`explain-for-me`, `handoff`, `explore-defects`, and `assess-design-spec`). Set both:
 
 - Claude Code `SKILL.md`: `disable-model-invocation: true`
 - Codex `agents/openai.yaml`: `policy.allow_implicit_invocation: false`
@@ -56,7 +56,7 @@ currently rejects the Claude-only field; retain it as a cross-harness exception.
 - Agent Deck Worker: persistent, named session for a bounded outcome when history must survive restarts, explicit control, later coordination, or user-visible/intervenable progress matters
 - Agent 2, **Coder** (implementation): executes tasks and applies code changes
 - Agent 3, **Reviewer** (`review-code`): review agent, produces the full review report directly in message body
-- Agent 4, **Architect** (`tech-design-review`): per-topic tech-design reviewer for an exact immutable draft artifact or committed design snapshot
+- Agent 4, **Architect** (`review-design-spec`): per-topic reviewer for an exact immutable design-specification artifact or committed specification snapshot
 - Agent 5, **Browser Tester** (`browser-test`): usually a reusable long-lived runtime validation agent, keeps browser state warm when available, checks behavior with `agent-browser`, and reports evidence back to the requester session
 - Refactor Reviewer (`refactor-review`): advisory reviewer that inspects existing code for duplication and simplification opportunities without making changes
 - Roundtable Moderator (`roundtable`): user-facing discussion controller; creates Waypost group, selects participants, drains group updates, and presents synthesis
@@ -76,8 +76,8 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 ## Core Transport
 
 - `waypost` is the authoritative workflow message layer
-- `agent-deck` is used to start or require target sessions
-- `agent-deck-workflow/references/internal-protocol/shared-protocol.md` owns recv/wait, async sender, and target-status rules
+- Action skills start or require target collaborator sessions through the active backend; `agent-deck` is the current implementation.
+- `multi-agent-protocol/references/internal-protocol/shared-protocol.md` owns recv/wait, async sender, and target-status rules
 - `waypost` MCP is the default transport interface for agents
 - Workflow messages live in message `subject` + `body`
 - use Waypost MCP tools directly; use `waypost_bind` only when custom addresses are needed or Waypost message context is missing
@@ -87,7 +87,7 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 
 1. User asks Planner to prepare work.
 2. After `delegate-task` Selection-Only Use selects a Waypost worker for a code task, Planner runs `delegate-code-task` and sends one code delegate workflow message.
-3. Planner or Coder may start two-architect drafting for an unresolved goal, or request direct review of mature committed tech-design docs.
+3. Planner or Coder may start two-architect drafting for an unresolved goal, or request direct review of mature committed design specifications.
 4. Coder implements changes and commits a delivery snapshot. In delegated coder flow, that commit is already workflow-authorized and overrides generic default commit-approval rules.
 5. Task-level review is planner-controlled: when required, coder runs `review-request`; it creates or reuses a reviewer as a planner child. A `standalone` review has no planner or closeout; its reviewer is a requester child.
 6. Reviewer runs `review-code` and sends either:
@@ -133,15 +133,15 @@ flowchart TD
     Q -->|message: execute_delegated_task| W
     W -->|message: delegated_task_result| Q
     P[Planner] -->|message: execute_delegate_task| C[Coder]
-    X[Original Requester] -->|vague goal: tech_design_draft_requested| DA[Architect Author]
-    DA -->|message: tech_design_review_requested| A[Architect Reviewer]
-    A -->|message: tech_design_review_report| DA
-    DA -->|terse message: tech_design_delivered| X
-    X -->|archives and commits accepted artifact| D[Tracked Design Doc]
-    P -->|mature committed design: tech_design_review_requested| A
-    C -->|mature committed design: tech_design_review_requested| A
-    A -->|message: tech_design_review_report| P
-    A -->|message: tech_design_review_report| C
+    X[Original Requester] -->|vague goal: design_spec_draft_requested| DA[Architect Author]
+    DA -->|message: design_spec_review_requested| A[Architect Reviewer]
+    A -->|message: design_spec_review_report| DA
+    DA -->|terse message: design_spec_delivered| X
+    X -->|archives and commits accepted artifact| D[Tracked Design Specification]
+    P -->|mature committed design: design_spec_review_requested| A
+    C -->|mature committed design: design_spec_review_requested| A
+    A -->|message: design_spec_review_report| P
+    A -->|message: design_spec_review_report| C
     C -. creates/reuses planner-scoped reviewer .-> R[Reviewer]
     C -->|message: review_requested| R
     R -->|message: browser_check_requested| B[Browser Tester]
@@ -159,10 +159,9 @@ flowchart TD
 ## Operational Notes
 
 - `review-code` remains the authoritative full review output
-- `tech-design-review` is a separate advisory lane for immutable draft artifacts or committed design docs; it does not replace code review
-- `tech-design-review-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed proposals may go directly to one reviewer
-- `tech-design-review-request` is a transition alias; use `tech-design-review-workflow` for new work
-- in the two-architect lane, the author writes immutable rounds under `.agent-artifacts/tech-design/<author_session_id>/`; each reviewed file stays unchanged and the reviewer is read-only
+- `review-design-spec` is a separate advisory lane for immutable draft artifacts or committed design specifications; it does not replace code review
+- `coordinate-design-spec` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
+- in the two-architect lane, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and the reviewer is read-only
 - the author sends only the accepted artifact pointer and review decision; the original requester archives that artifact to the formal docs path and commits it
 - draft-review does not transfer workspace ownership, switch branches, or commit intermediate rounds
 - review-existing keeps committed branch history; after acceptance, merge the recorded design branch into its recorded base with normal `git merge`
@@ -201,21 +200,22 @@ Current recommended operating mode:
    Newly created or restarted targets should use the same message recv-first pickup path as any other target.
    Keep nudge text deliberately non-assertive (`NOTICE: There might be new message in waypost.`). Harnesses can replay a nudge after the corresponding delivery was already claimed (observed with Codex; possible elsewhere). Do not replace it with a definite delivery claim: an empty receive after a nudge alone is not a transport fault and should not trigger diagnostics.
 4. Default to unattended final acceptance/closeout; require user confirmation only when the user or workflow policy explicitly makes acceptance human-gated.
-5. Keep transport content in message bodies. Immutable tech-design rounds are product artifacts, not message substitutes.
+5. Keep transport content in message bodies. Immutable Design Specification rounds are product artifacts, not message substitutes.
 6. Keep planner closeout actions batched after acceptance.
 7. When supervisor finishes integrating a planner lane result, clean up the planner-owned structure that was actually used for that run.
 8. Supervisor-side integration uses `git merge`; do not switch to `cherry-pick`, `rebase`, or manual history surgery unless the user explicitly asks.
 
 Use skills:
 
-- Project workflow skill: `agent-deck-workflow`
+- Project workflow skill: `multi-agent-protocol`
 - Receiver wake handler: `check-waypost-messages`
 - Planner closeout: `planner-closeout`
 - Plan dispatch: `dispatch-plan`
 - Plan execution: `execute-plan`
 - Plan report: `plan-report`
-- Tech-design review workflow: `tech-design-review-workflow`
-- Architect review: `tech-design-review`
+- Design Specification coordination: `coordinate-design-spec`
+- Architect review: `review-design-spec`
+- Design Specification assessment: `assess-design-spec`
 - Browser check request: `browser-test-request`
 - Browser tester: `browser-test`
 - Audience-adapted HTML explainer: `explain-for-me`

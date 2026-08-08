@@ -7,7 +7,7 @@ description: Validate browser behavior with agent-browser.
 
 Handle `browser_check_requested` and its setup round trip; report the result to requester.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Input
 
@@ -63,9 +63,9 @@ PASS / FAIL / UNKNOWN
 [What remains unverified]
 ```
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol.
+Use the `multi-agent-protocol` skill for shared protocol.
 
 Resolve by `Action:` before generic fields:
 - all actions: `browser_check_id`: required `Browser Check` header; if absent, fail and request a fresh message; never infer it from Task/Round

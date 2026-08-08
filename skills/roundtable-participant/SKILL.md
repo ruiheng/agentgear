@@ -1,13 +1,13 @@
 ---
 name: roundtable-participant
-description: Respond to an Agent Deck roundtable turn.
+description: Respond to a multi-agent roundtable turn.
 ---
 
 # Roundtable Participant
 
 Speak as the assigned participant. The moderator talks to the user; you talk to the group.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Inputs
 

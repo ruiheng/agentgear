@@ -7,17 +7,17 @@ description: Close out accepted review or coder handoffs.
 
 Handle accepted-review `closeout_delivered` or coder `code_delivery_complete`.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Input
 
 Provide the message body from `closeout_delivered` or `code_delivery_complete`.
 Use this skill only after that terminal handoff is actually received.
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol:
-- `Agent Deck Mode Detection`
+Use the `multi-agent-protocol` skill for shared protocol:
+- `Multi-Agent Mode Detection`
 - `Context Resolution Priority`
 - `Error Handling and Diagnostics`
 
@@ -55,7 +55,7 @@ Branch-plan rule with a Handoff:
 Required closeout command shape:
 
 ```bash
-agentgear run agent-deck-workflow planner-closeout-batch.mjs \
+agentgear run multi-agent-protocol planner-closeout-batch.mjs \
   --task-id <task_id> \
   --task-branch <task_branch> \
   --integration-branch <integration_branch> \

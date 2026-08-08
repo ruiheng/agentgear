@@ -5,7 +5,7 @@ description: Delegate a bounded outcome to an appropriate worker surface, option
 
 # Delegate Task
 
-Use `agent-deck-workflow` for Waypost transport, lifecycle, and tool resolution.
+Use `multi-agent-protocol` for Waypost transport, lifecycle, and tool resolution.
 
 Delegate one bounded outcome; do not run it locally or infer a code-delivery lifecycle.
 

@@ -38,7 +38,7 @@ export function notify({ event, title, message, severity = "info" }) {
   const urgency = normalizedSeverity === "error" ? "critical" : "normal";
   if (process.platform === "linux") {
     const command = resolveCommand("notify-send") ? "notify-send" : resolveCommand("dunstify") ? "dunstify" : null;
-    if (command) run(command, ["-a", "agent-deck-workflow", "-u", urgency, title, message]);
+    if (command) run(command, ["-a", "multi-agent-protocol", "-u", urgency, title, message]);
   } else if (process.platform === "darwin") {
     const escapedTitle = title.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const escapedMessage = message.replace(/\\/g, "\\\\").replace(/"/g, '\\"');

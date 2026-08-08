@@ -1,13 +1,13 @@
 ---
 name: roundtable
-description: Run or manage an Agent Deck roundtable.
+description: Run or manage a multi-agent roundtable.
 ---
 
 # Roundtable
 
 Moderate a group discussion. The user talks to you; participants talk in the Waypost group.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Role
 

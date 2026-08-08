@@ -7,7 +7,7 @@ description: Summarize an accepted review for the planner.
 
 Extract a closeout summary from a full review report.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Purpose
 
@@ -27,14 +27,14 @@ Provide the accepted full review report text.
 ## Output Mode (Fixed)
 
 - output directly in response
-- Agent Deck mode: also deliver the closeout summary to planner through the workflow transport
+- multi-agent mode: also deliver the closeout summary to planner through the workflow transport
 - keep output compact and copy/paste friendly
 - keep closeout in message body instead of a generated Markdown handoff file
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol:
-- `Agent Deck Mode Detection`
+Use the `multi-agent-protocol` skill for shared protocol:
+- `Multi-Agent Mode Detection`
 - `Context Resolution Priority`
 - `Error Handling and Diagnostics`
 

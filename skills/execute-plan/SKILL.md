@@ -8,7 +8,7 @@ description: Execute a supervisor-assigned workspace goal.
 Execute one supervisor-provided goal inside one workspace.
 This session owns one planner lane.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Input
 
@@ -27,9 +27,9 @@ Provide `execute_plan`, or a matching `integration_final` result plus plan conte
 - claiming `execute_plan` does not require planner to implement code personally; dispatch, review, closeout, and final report still count as completing the workflow
 - planner is not done when implementation is done; planner is done only after one final `plan_report_delivered` message is successfully sent to supervisor
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol.
+Use the `multi-agent-protocol` skill for shared protocol.
 
 Skill-specific context resolution:
 Final-review continuation:
@@ -53,7 +53,7 @@ Final-review continuation:
 
 1. read the goal, workspace contract, and review policy from the message body
    - set internal `planner_workspace = workspace` and `worker_workspace = workspace`
-2. run `agentgear run agent-deck-workflow prepare-workspaces.mjs --worker-workspace <worker_workspace> --planner-workspace <planner_workspace> --integration-branch <integration_branch> --planner-session-id <planner_session_id> --supervisor-session-id <supervisor_session_id>`
+2. run `agentgear run multi-agent-protocol prepare-workspaces.mjs --worker-workspace <worker_workspace> --planner-workspace <planner_workspace> --integration-branch <integration_branch> --planner-session-id <planner_session_id> --supervisor-session-id <supervisor_session_id>`
 3. decompose the goal into the smallest reasonable serial task sequence for this workspace
 4. execute that task sequence serially
 5. for each implementation task:

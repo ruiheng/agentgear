@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { main as cliMain } from "../cli/agentgear.mjs";
-import { main as configurePermissions } from "../skills/agent-deck-workflow/scripts/agent-deck-workflow-init-permissions.mjs";
+import { main as configurePermissions } from "../skills/multi-agent-protocol/scripts/agent-deck-workflow-init-permissions.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -63,12 +63,12 @@ test("workflow permissions use the stable launcher and never an old source path"
     ].map(filePath => fs.readFileSync(filePath, "utf8"));
     for (const source of generated) {
       assert.match(source, /agentgear/);
-      assert.match(source, /agent-deck-workflow/);
+      assert.match(source, /multi-agent-protocol/);
       assert.doesNotMatch(source, /\.config[\\/]ai-agent|\/home\/ruiheng\/config_files/);
       assert.doesNotMatch(source, new RegExp(rootDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }
     const claude = JSON.parse(generated[0]);
-    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run agent-deck-workflow *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run multi-agent-protocol *)"), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

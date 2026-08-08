@@ -13,7 +13,7 @@ import {
   writeWaypostOwnershipManifest
 } from "./waypost-permission-spec.mjs";
 
-const usage = `Initialize agent-deck-workflow permissions for Claude Code, Codex, and Gemini CLI.
+const usage = `Initialize Agent Deck permissions for the multi-agent protocol in Claude Code, Codex, and Gemini CLI.
 
 Usage:
   agent-deck-workflow-init-permissions.mjs [project-dir]
@@ -81,7 +81,7 @@ function generatedClaudePermissions(waypostRules) {
     jsonPermission("agent-deck"), jsonPermission("agent-deck *"),
     "Bash(git diff)", "Bash(git diff *)", "Bash(git show)", "Bash(git show *)", "Bash(git status)", "Bash(git status *)", "Bash(git log)", "Bash(git log *)", "Bash(git rev-parse)", "Bash(git rev-parse *)",
     ...adwfForms().map(command => jsonPermission(`${command} *`)),
-    ...launcherForms().map(command => jsonPermission(`${command} run agent-deck-workflow *`)),
+    ...launcherForms().map(command => jsonPermission(`${command} run multi-agent-protocol *`)),
     "Write(/.agent-artifacts/**)"
   ];
   permissions.push(...waypostRules.map(claudeWaypostPermission));
@@ -150,11 +150,11 @@ function configureCodex(projectDir, waypost) {
   log("info", "Configuring Codex escalation rules...");
   const rulesFile = path.join(projectDir, ".codex", "rules", "agent-deck-workflow.rules");
   const rules = [
-    "# Agent Deck Workflow - generated approval rules\n",
+    "# Multi-Agent Protocol - generated approval rules\n",
     codexRule(["agent-deck"], "Agent Deck workflow commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck workflow dispatch",\n    ]'),
     codexRule(["printf"], "Shell formatting helper commands"),
     ...adwfForms().map(command => codexRule([command], "Workflow send+wakeup helper")),
-    ...launcherForms().map(command => codexRule([command, "run", "agent-deck-workflow"], "Workflow scripts through the managed agentgear launcher")),
+    ...launcherForms().map(command => codexRule([command, "run", "multi-agent-protocol"], "Protocol scripts through the managed agentgear launcher")),
     ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Read-only Waypost query")),
     "# Note: file write permissions are controlled separately by the host.\n"
   ].join("\n");
@@ -180,11 +180,11 @@ function configureGemini(projectDir, waypost) {
   log("info", "Configuring Gemini CLI shell policies...");
   const policyFile = path.join(projectDir, ".gemini", "policies", "agent-deck-workflow.toml");
   const policies = [
-    "# Agent Deck Workflow - generated policy rules\n",
+    "# Multi-Agent Protocol - generated policy rules\n",
     geminiRule("allow_agent_deck_cli", ["agent-deck"]),
     ...(waypost.trusted ? [`[[rule]]\nname = "allow_waypost_mcp"\nenabled = true\ndecision = "allow"\ntoolName = "*"\nmcpName = "waypost"\npriority = 950\nmodes = ["default", "autoEdit", "yolo"]\n`] : []),
     ...adwfForms().map((command, index) => geminiRule(`allow_adwf_send_and_wake_${index}`, [command])),
-    ...launcherForms().map((command, index) => geminiRule(`allow_ai_skills_workflow_launcher_${index}`, [command, "run", "agent-deck-workflow"])),
+    ...launcherForms().map((command, index) => geminiRule(`allow_multi_agent_protocol_launcher_${index}`, [command, "run", "multi-agent-protocol"])),
     ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
     "# Note: file write permissions are controlled separately by the host.\n"
   ].join("\n");
@@ -202,8 +202,8 @@ export function main(argv = process.argv.slice(2)) {
   if (!fs.statSync(requestedProjectDir, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`project directory does not exist: ${requestedProjectDir}`);
   const projectDir = fs.realpathSync(requestedProjectDir);
   const waypost = waypostContext(projectDir);
-  process.stdout.write("\n========================================\n  Agent Deck Workflow Permission Setup\n========================================\n\n");
-  log("info", `Initializing agent-deck-workflow permissions for: ${projectDir}`);
+  process.stdout.write("\n========================================\n  Multi-Agent Protocol Permission Setup\n========================================\n\n");
+  log("info", `Initializing Agent Deck permissions for: ${projectDir}`);
   if (!resolveCommand("agent-deck")) {
     log("warn", "agent-deck not found in PATH");
     log("info", "Install it from: https://github.com/asheshgoplani/agent-deck");
@@ -212,8 +212,8 @@ export function main(argv = process.argv.slice(2)) {
   configureCodex(projectDir, waypost);
   configureGemini(projectDir, waypost);
   process.stdout.write("\n========================================\n  Configuration Complete\n========================================\n\n");
-  log("ok", "Permissions configured for agent-deck-workflow");
-  log("info", "Next steps: restart your AI agent session, run 'agent-deck workflow init', then use the workflow skill.");
+  log("ok", "Permissions configured for multi-agent-protocol");
+  log("info", "Next steps: restart your AI agent session, run 'agent-deck workflow init', then use the multi-agent protocol skill.");
 }
 
 if (isMain(import.meta.url)) execute(() => main());

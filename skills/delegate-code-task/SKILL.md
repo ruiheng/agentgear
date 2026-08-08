@@ -1,11 +1,11 @@
 ---
 name: delegate-code-task
-description: Delegate Waypost code work to an Agent Deck coder.
+description: Delegate persistent code work to a coder.
 ---
 
 # Delegate Code Task
 
-Use `agent-deck-workflow` for shared transport, lifecycle, and tool resolution.
+Use `multi-agent-protocol` for shared transport, lifecycle, and tool resolution.
 Use `delegate-task` in Selection-Only Use first when another action owns surface selection. A direct Code Gate transfer may enter here without generic dispatch. This skill owns the workflow code lane; do not dispatch a generic worker first.
 
 ## Code Scope
@@ -128,7 +128,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 1. Prepare workspace records:
 
    ```bash
-   agentgear run agent-deck-workflow prepare-workspaces.mjs \
+   agentgear run multi-agent-protocol prepare-workspaces.mjs \
      --worker-workspace <worker_workspace> \
      --planner-workspace <planner_workspace> \
      --integration-branch <integration_branch> \
@@ -153,7 +153,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 3. Fill `{{TO_SESSION_ID}}`, then send through the lock-owning wrapper:
 
    ```bash
-   agentgear run agent-deck-workflow send-delegate-with-active-task-lock.mjs \
+   agentgear run multi-agent-protocol send-delegate-with-active-task-lock.mjs \
      --workdir <worker_workspace> \
      --task-id <task_id> \
      --integration-branch <integration_branch> \

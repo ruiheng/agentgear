@@ -104,7 +104,7 @@ export function installSelection({
   checkChannelGate(state, requestedChannel);
   checkStateCoherence(state, env);
   const installLauncher = !options.noLauncher;
-  const installWorkflowHelpers = installLauncher && selection.skills.includes("agent-deck-workflow");
+  const installWorkflowHelpers = installLauncher && selection.skills.includes("multi-agent-protocol");
   const plan = targetInstallPlan(state, targets, selection, options);
   checkCommandCollisions(state, env, installLauncher, installWorkflowHelpers, options.force);
 

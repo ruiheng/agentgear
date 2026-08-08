@@ -7,7 +7,7 @@ description: Process a planner's final Waypost report.
 
 Handle one final planner report from `plan_report_delivered`.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Input
 
@@ -21,7 +21,7 @@ Provide the message body from `plan_report_delivered`.
 - skip supervisor-side integration only when the report is blocked, the report has unresolved open items, the user explicitly requested report-only handling, or a concrete git precondition blocks the merge
 - use `git merge` for supervisor-side integration; do not substitute `cherry-pick`, `rebase`, or another git history strategy
 - treat the current supervisor worktree branch as the integration target unless explicit user/workflow context says otherwise; if the target branch is unclear or the worktree is dirty, stop and report the blocker
-- after supervisor-side integration succeeds, run `agentgear run agent-deck-workflow archive-and-remove-planner-group-sessions.mjs --planner-session-id <planner_session_id> --apply`
+- after supervisor-side integration succeeds, run `agentgear run multi-agent-protocol archive-and-remove-planner-group-sessions.mjs --planner-session-id <planner_session_id> --apply`
 - planner cleanup relies on live `agent-deck` state for `<planner_session_id>`; if that live scope is unavailable, keep the result as best-effort/no-op instead of trying to recover scope from old records
 - do not clean up the planner-owned structure before supervisor-side integration has actually completed
 - if the cleanup script exits non-zero, report that failure and stop; best-effort subgroup cleanup warnings are non-fatal and should be surfaced as warnings; do not continue with manual `agent-deck remove` or `group delete` commands unless the user explicitly asks

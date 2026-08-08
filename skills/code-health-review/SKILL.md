@@ -10,7 +10,7 @@ Prefer structural diagnoses that explain multiple symptoms at once instead of li
 
 This skill is advisory only.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Hard Boundary
 
@@ -227,9 +227,9 @@ When invoked directly by the user instead of Waypost message workflow:
 - skip the message header block
 - return the report directly in the conversation
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol.
+Use the `multi-agent-protocol` skill for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`
@@ -239,7 +239,7 @@ Skill-specific context resolution:
 - `requester_role`: explicit -> message body `From` header -> default `requester`
 - `round`: explicit -> message body `Round` header -> default `1`
 
-Execution flow in Agent Deck mode:
+Execution flow in multi-agent mode:
 1. review the requested scope
 2. produce one advisory `code_health_review_report`
 3. use `waypost`

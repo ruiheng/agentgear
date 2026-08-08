@@ -1,30 +1,30 @@
-# Shared Workflow Protocol
+# Multi-Agent Collaboration Protocol
 
 Use this contract for session identity, message boundaries, and delivery lifecycle.
 Action skills own role behavior; companion references own shared execution policy.
 
-## Agent Deck Mode Detection
+## Multi-Agent Mode Detection
 
-Enter Agent Deck mode when any condition matches:
+Enter multi-agent mode when any condition matches:
 
 - workflow metadata includes a task or session id
 - an inbound message carries workflow metadata
-- the user explicitly requests Agent Deck workflow
+- the user explicitly requests coordinated multi-agent work
 
 ## Context Resolution Priority
 
 `explicit input -> message/workflow context -> deterministic default -> ask`
 
-- Resolve the current session from live Agent Deck or Waypost context.
+- Resolve the current collaborator session from the active session manager or Waypost context.
 - Use a session ref only before a real id exists; record and use the real id afterward.
 - Treat a missing required session id as context loss unless the action declares its target on demand.
 
 ## Target Lifecycle Gate
 
-- At first dispatch, or when target identity/workdir is uncertain, create or require the target session.
+- At first dispatch, or when target identity/workdir is uncertain, create or require the target collaborator session.
 - Later, require a confirmed target only when it is known not to be running; otherwise send to its real id.
 - The action skill owns target-specific creation and reuse; follow the shared tool-resolution contract before creating a session without a full command.
-- Creating an Agent Deck session is workflow lifecycle, not a host-subagent API call.
+- Creating a collaborator session is workflow lifecycle, not a host-subagent API call.
 
 ## Message Envelope
 

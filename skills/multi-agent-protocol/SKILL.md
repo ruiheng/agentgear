@@ -1,13 +1,13 @@
 ---
-name: agent-deck-workflow
-description: Use the Agent Deck Waypost protocol.
+name: multi-agent-protocol
+description: Use the shared protocol for multi-agent collaboration.
 ---
 
-# Agent Deck Workflow
+# Multi-Agent Protocol
 
 Use this skill as the shared transport, envelope, and lifecycle layer for multi-session work.
 
-Run a bundled workflow script through `agentgear run agent-deck-workflow <script> [args...]`.
+Run a bundled workflow script through `agentgear run multi-agent-protocol <script> [args...]`.
 The `workflow` pack installer installs that launcher; do not recover the old
 installation-specific path from another repository.
 
@@ -19,14 +19,14 @@ For any workflow turn:
 3. use any extra references that skill requires
 
 Interpret references to the shared workflow protocol as:
-- use the `agent-deck-workflow` skill as the entry point
+- use the `multi-agent-protocol` skill as the entry point
 - then follow `references/internal-protocol/shared-protocol.md`
 
-Use `agent-deck/<agent-deck-session-id>` as the default waypost sender.
+With the current Agent Deck adapter, use `agent-deck/<agent-deck-session-id>` as the default Waypost sender.
 
 ## Shared Context
 
-Use the protocol's Agent Deck Mode Detection and Context Resolution Priority sections.
+Use the protocol's Multi-Agent Mode Detection and Context Resolution Priority sections.
 
 Treat `waypost_*` names in this workflow as MCP tools, not shell commands; use CLI only for capabilities unavailable through MCP.
 

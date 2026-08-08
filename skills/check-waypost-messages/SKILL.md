@@ -3,7 +3,7 @@ name: check-waypost-messages
 description: Claim and process pending Waypost messages.
 ---
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Steps
 

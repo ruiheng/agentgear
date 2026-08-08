@@ -9,23 +9,23 @@
   },
   "packs": {
     "core": {
-      "description": "Standalone skills with no Agent Deck workflow dependency.",
+      "description": "Standalone skills with no multi-agent workflow dependency.",
       "skills": [
         "commit-staged",
         "explain-for-me",
         "explore-defects",
         "handoff",
-        "tech-design-assessment"
+        "assess-design-spec"
       ]
     },
     "workflow": {
-      "description": "Agent Deck and Waypost workflow skills.",
+      "description": "Multi-agent workflow skills using Waypost and the current Agent Deck backend.",
       "requires": {
         "commands": ["agent-deck", "waypost", "git", "node"],
         "upstreams": ["agent-deck"]
       },
       "skills": [
-        "agent-deck-workflow",
+        "multi-agent-protocol",
         "check-waypost-messages",
         "code-health-review",
         "delegate-code-task",
@@ -42,13 +42,12 @@
         "roundtable",
         "roundtable-participant",
         "simplify-review",
-        "tech-design-review",
-        "tech-design-review-request",
-        "tech-design-review-workflow"
+        "coordinate-design-spec",
+        "review-design-spec"
       ]
     },
     "browser": {
-      "description": "Agent Deck browser validation skills.",
+      "description": "Browser-validation skills for the multi-agent workflow.",
       "includes": ["workflow"],
       "requires": {
         "commands": ["agent-browser"]
@@ -64,12 +63,13 @@
     }
   },
   "skills": {
-    "agent-deck-workflow": {"tags": ["workflow", "protocol"]},
+    "assess-design-spec": {"tags": ["design", "standalone"]},
     "browser-test": {"tags": ["browser", "workflow"]},
     "browser-test-request": {"tags": ["browser", "workflow"]},
     "check-waypost-messages": {"tags": ["workflow", "receiver"]},
     "code-health-review": {"tags": ["review", "workflow"]},
     "commit-staged": {"tags": ["git", "standalone"]},
+    "coordinate-design-spec": {"tags": ["design", "workflow"]},
     "delegate-code-task": {"tags": ["delegation", "workflow"]},
     "delegate-task": {"tags": ["delegation", "workflow"]},
     "dispatch-plan": {"tags": ["planning", "workflow"]},
@@ -77,6 +77,7 @@
     "explain-for-me": {"tags": ["communication", "standalone"]},
     "explore-defects": {"tags": ["analysis", "standalone"]},
     "handoff": {"tags": ["communication", "standalone"]},
+    "multi-agent-protocol": {"tags": ["workflow", "protocol"]},
     "plan-report": {"tags": ["planning", "workflow"]},
     "planner-closeout": {"tags": ["planning", "workflow"]},
     "refactor-review": {"tags": ["review", "workflow"]},
@@ -87,9 +88,6 @@
     "roundtable": {"tags": ["discussion", "workflow"]},
     "roundtable-participant": {"tags": ["discussion", "workflow"]},
     "simplify-review": {"tags": ["review", "workflow"]},
-    "tech-design-assessment": {"tags": ["design", "standalone"]},
-    "tech-design-review": {"tags": ["design", "workflow"]},
-    "tech-design-review-request": {"tags": ["design", "workflow"]},
-    "tech-design-review-workflow": {"tags": ["design", "workflow"]}
+    "review-design-spec": {"tags": ["design", "workflow"]}
   }
 }

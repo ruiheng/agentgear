@@ -88,7 +88,7 @@ for (const filePath of walk(skillsRoot)) {
   checkSyntax(filePath);
 }
 
-const workflowScripts = path.join(skillsRoot, "agent-deck-workflow", "scripts");
+const workflowScripts = path.join(skillsRoot, "multi-agent-protocol", "scripts");
 for (const entry of fs.readdirSync(workflowScripts, { withFileTypes: true })) {
   if (!entry.isFile()) continue;
   if (!/\.(?:mjs|js)$/.test(entry.name)) {

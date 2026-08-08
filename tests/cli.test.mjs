@@ -327,7 +327,7 @@ test("workflow installation provisions its explicit helper commands", t => {
   const fixture = environmentFixture();
   try {
     run(["install", "--pack", "workflow", "--target", "codex"], fixture.environment);
-    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "agent-deck-workflow", "SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol", "SKILL.md")), true);
     const state = readState(fixture);
     for (const helper of ["agent-deck-workflow-init-permissions", "adwf-send-and-wake"]) {
       const helperPath = path.join(fixture.localBin, helper);
@@ -335,7 +335,7 @@ test("workflow installation provisions its explicit helper commands", t => {
         t.skip("file links are unavailable on this filesystem");
         return;
       }
-      assert.match(fs.readlinkSync(helperPath), /agentgear[\\/]current[\\/]skills[\\/]agent-deck-workflow/);
+      assert.match(fs.readlinkSync(helperPath), /agentgear[\\/]current[\\/]skills[\\/]multi-agent-protocol/);
       assert.equal(state.commands[helperPath].kind, "workflow-helper");
       assert.equal(state.commands[helperPath].mode, "link");
     }
@@ -444,7 +444,7 @@ test("link restores a removed current link and its recorded command links", asyn
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "agent-deck-workflow", "--target", "codex"]);
+    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "codex"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const commands = [
@@ -472,7 +472,7 @@ test("link restores a removed current link and its recorded command links", asyn
       assert.equal(fs.existsSync(command), false);
     }
 
-    runCheckout(["link", "--skill", "agent-deck-workflow", "--target", "codex"]);
+    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "codex"]);
 
     assert.equal(fs.existsSync(current), true);
     assert.notEqual(fs.realpathSync(current), oldRelease);
@@ -541,7 +541,7 @@ test("full purge removes managed skills and runtime artifacts but preserves unow
 
     const purge = spawnAgentgear(["uninstall", "--purge"], fixture, fixture.environment);
     assert.equal(purge.status, 0, purge.stderr);
-    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "agent-deck-workflow")), false);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol")), false);
     assert.equal(fs.existsSync(unmanagedSkill), true);
     assert.equal(pathExists(path.join(fixture.localBin, "agentgear")), false);
     assert.equal(pathExists(path.join(fixture.localBin, "agent-deck-workflow-init-permissions")), false);
@@ -1242,7 +1242,7 @@ test("link validates documented scripts required by active shared skills", async
 
     const current = path.join(fixture.dataRoot, "current");
     const previousRuntime = fs.realpathSync(current);
-    fs.rmSync(path.join(checkout, "skills", "agent-deck-workflow", "scripts", "prepare-workspaces.mjs"));
+    fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "prepare-workspaces.mjs"));
 
     assert.throws(
       () => runCheckout(["link", "--skill", "handoff", "--target", "codex"]),
@@ -1268,13 +1268,13 @@ test("link validates transitive dependencies of active workflow helpers", async 
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "agent-deck-workflow", "--target", "codex"]);
+    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "codex"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const helper = path.join(fixture.localBin, "adwf-send-and-wake");
     const previousRuntime = fs.realpathSync(current);
     const previousHelper = fs.realpathSync(helper);
-    fs.rmSync(path.join(checkout, "skills", "agent-deck-workflow", "scripts", "workflow-lib.mjs"));
+    fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "workflow-lib.mjs"));
 
     assert.throws(
       () => runCheckout(["link", "--skill", "handoff", "--target", "codex"]),
@@ -1296,18 +1296,18 @@ test("link validates planned workflow helpers before their first publication", a
       recursive: true,
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
-    fs.rmSync(path.join(checkout, "skills", "agent-deck-workflow", "scripts", "workflow-lib.mjs"));
+    fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "workflow-lib.mjs"));
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
 
     assert.throws(
-      () => runCheckout(["link", "--skill", "agent-deck-workflow", "--target", "codex"]),
+      () => runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "codex"]),
       /workflow-lib\.mjs is missing or is not a file/
     );
 
     assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
     assert.equal(pathExists(path.join(fixture.localBin, "agentgear")), false);
     assert.equal(pathExists(path.join(fixture.localBin, "adwf-send-and-wake")), false);
-    assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "agent-deck-workflow")), false);
+    assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol")), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -1381,16 +1381,16 @@ test("link validates commands in documents referenced by active skills", async t
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "agent-deck-workflow", "--target", "codex"]);
+    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "codex"]);
 
     const current = path.join(fixture.dataRoot, "current");
-    const activeSkill = path.join(fixture.home, ".agents", "skills", "agent-deck-workflow");
+    const activeSkill = path.join(fixture.home, ".agents", "skills", "multi-agent-protocol");
     if (!fs.lstatSync(activeSkill).isSymbolicLink()) {
       t.skip("directory links are unavailable on this filesystem");
       return;
     }
     const previousRuntime = fs.realpathSync(current);
-    fs.rmSync(path.join(checkout, "skills", "agent-deck-workflow", "scripts", "resolve-tool-command.js"));
+    fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "resolve-tool-command.js"));
 
     assert.throws(
       () => runCheckout(["link", "--skill", "handoff", "--target", "codex"]),
@@ -1400,7 +1400,7 @@ test("link validates commands in documents referenced by active skills", async t
     assert.equal(fs.realpathSync(current), previousRuntime);
     assert.equal(
       fs.realpathSync(activeSkill),
-      path.join(previousRuntime, "skills", "agent-deck-workflow")
+      path.join(previousRuntime, "skills", "multi-agent-protocol")
     );
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
@@ -1659,7 +1659,7 @@ test("ESM fallback wrappers stay on current when publication fails", async () =>
       }
       return originalSymlink(target, destination, type);
     };
-    runCheckout(["link", "--skill", "agent-deck-workflow", "--target", "codex"]);
+    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "codex"]);
     fs.symlinkSync = originalSymlink;
 
     const current = path.join(fixture.dataRoot, "current");
@@ -1675,7 +1675,7 @@ test("ESM fallback wrappers stay on current when publication fails", async () =>
 
     const stateBefore = fs.readFileSync(fixture.stateFile, "utf8");
     const previousRuntime = fs.realpathSync(current);
-    fs.appendFileSync(path.join(checkout, "skills", "agent-deck-workflow", "SKILL.md"), "\n<!-- publish-must-not-appear -->\n");
+    fs.appendFileSync(path.join(checkout, "skills", "multi-agent-protocol", "SKILL.md"), "\n<!-- publish-must-not-appear -->\n");
     fs.renameSync = (source, destination) => {
       if (path.resolve(destination) === current) {
         const error = new Error("simulated publish failure");
@@ -1685,7 +1685,7 @@ test("ESM fallback wrappers stay on current when publication fails", async () =>
       return originalRename(source, destination);
     };
     assert.throws(
-      () => runCheckout(["link", "--skill", "agent-deck-workflow", "--target", "codex"]),
+      () => runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "codex"]),
       /simulated publish failure/
     );
     fs.renameSync = originalRename;

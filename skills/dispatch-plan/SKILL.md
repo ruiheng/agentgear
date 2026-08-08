@@ -1,6 +1,6 @@
 ---
 name: dispatch-plan
-description: Send a goal to an Agent Deck planner.
+description: Send a goal to a planner.
 ---
 
 # Dispatch Plan
@@ -8,7 +8,7 @@ description: Send a goal to an Agent Deck planner.
 Send one supervisor-assigned goal to a planner session.
 This creates one planner lane or resumes one existing lane by real `planner_session_id`.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Inputs
 

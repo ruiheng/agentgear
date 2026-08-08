@@ -414,7 +414,7 @@ launcher/helper entrypoints. Bare package imports, dynamic imports, CommonJS
 `require`, and arbitrary prose are intentionally outside this install-time
 check. This is the existing bounded protection needed to reject a staged
 snapshot missing a command such as
-`skills/agent-deck-workflow/scripts/resolve-tool-command.js`; `npm run check`
+`skills/multi-agent-protocol/scripts/resolve-tool-command.js`; `npm run check`
 remains an additional quality gate, not a substitute.
 
 ## Shared Mode and Windows Fallback

@@ -7,7 +7,7 @@ description: Review code changes for correctness and security.
 
 Review code changes for logical correctness, design quality, and security.
 
-Workflow protocol baseline: use the `agent-deck-workflow` skill.
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
 
 ## Input
 
@@ -241,10 +241,10 @@ For `integration_final`, insert after `Intent And Constraints`:
 - Review base: [scope base]
 ```
 
-## Agent Deck Mode
+## Multi-Agent Mode
 
-Use the `agent-deck-workflow` skill for shared protocol:
-- `Agent Deck Mode Detection`
+Use the `multi-agent-protocol` skill for shared protocol:
+- `Multi-Agent Mode Detection`
 - `Context Resolution Priority`
 - `Error Handling and Diagnostics`
 
@@ -298,7 +298,7 @@ Default policy when missing:
 - `review_round_convergence_check_threshold = 3`
 - `review_round_hard_stop_threshold = 5`
 
-Execution flow in Agent Deck mode:
+Execution flow in multi-agent mode:
 1. Produce the full review report in the format above
    - for task, preserve supplied Branch Plan and Workspace Handoff unchanged
    - for `integration_final`, preserve Final Review Scope in every report

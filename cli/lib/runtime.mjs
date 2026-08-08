@@ -422,7 +422,7 @@ export function commandEntries(env = process.env) {
       command: name,
       kind: "workflow-helper",
       destination: paths.workflowHelpers[name],
-      relativeModule: path.join("skills", "agent-deck-workflow", "scripts", script)
+      relativeModule: path.join("skills", "multi-agent-protocol", "scripts", script)
     });
   }
   return entries;
@@ -1158,7 +1158,7 @@ export function validateSharedRuntimeConsumers({
     for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
       requiredRuntimeCommand(
         commands,
-        path.join("skills", "agent-deck-workflow", "scripts", script),
+        path.join("skills", "multi-agent-protocol", "scripts", script),
         `planned workflow helper: ${paths.workflowHelpers[name]}`
       );
     }
