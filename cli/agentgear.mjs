@@ -242,6 +242,30 @@ function commandOnPath(command) {
   return false;
 }
 
+function sessionHostReady(catalog, hostName, targets) {
+  const host = catalog.skills.sessionHosts?.[hostName];
+  if (!host) return false;
+
+  let ready = commandOnPath(host.command);
+  print((ready ? "ok      " : "unavailable ") + `session host ${hostName} (${host.command})`);
+
+  if (host.upstream) {
+    const source = catalog.skills.upstreams[host.upstream];
+    if (source?.skillPath) {
+      const skillName = path.basename(source.skillPath);
+      for (const target of targets) {
+        const skillFile = path.join(target.root, skillName, "SKILL.md");
+        const found = fs.existsSync(skillFile);
+        print((found ? "ok      " : "unavailable ") + "upstream skill " + host.upstream + " for " + target.name);
+        if (!found) ready = false;
+      }
+    }
+    if (source?.repository) print("upstream " + host.upstream + ": " + source.repository);
+  }
+  if (host.documentation) print("session host " + hostName + " docs: " + host.documentation);
+  return ready;
+}
+
 function doctor(catalog, options) {
   const selection = selected(catalog, options);
   const targets = resolveTargetRoots(catalog, options);
@@ -263,9 +287,18 @@ function doctor(catalog, options) {
     }
     print("upstream " + upstream + ": " + source.repository);
   }
+  if (selection.requirements.sessionHosts.length > 0) {
+    const readyHosts = selection.requirements.sessionHosts.filter(host => sessionHostReady(catalog, host, targets));
+    if (readyHosts.length === 0) {
+      missing += 1;
+      print("Missing one supported session host: " + selection.requirements.sessionHosts.join(" or ") + ".");
+    } else {
+      print("Supported session host: " + readyHosts.join(", ") + ".");
+    }
+  }
   if (missing > 0) {
     process.exitCode = 1;
-    print("Missing " + missing + " required command(s).");
+    print("Missing or incomplete requirement group(s): " + missing + ".");
   } else {
     print("Requirements satisfied for: " + selection.packs.join(", "));
   }

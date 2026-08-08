@@ -15,7 +15,8 @@ Enter multi-agent mode when any condition matches:
 
 `explicit input -> message/workflow context -> deterministic default -> ask`
 
-- Resolve the current collaborator session from the active session manager or Waypost context.
+- Resolve the current collaborator session and its routeable Waypost address
+  from the active session manager or Waypost context.
 - Use a session ref only before a real id exists; record and use the real id afterward.
 - Treat a missing required session id as context loss unless the action declares its target on demand.
 
@@ -25,6 +26,8 @@ Enter multi-agent mode when any condition matches:
 - Later, require a confirmed target only when it is known not to be running; otherwise send to its real id.
 - The action skill owns target-specific creation and reuse; follow the shared tool-resolution contract before creating a session without a full command.
 - Creating a collaborator session is workflow lifecycle, not a host-subagent API call.
+  Use the generic session-host contract; do not infer the host in an action
+  prompt.
 
 ## Message Envelope
 

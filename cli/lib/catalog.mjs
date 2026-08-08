@@ -21,6 +21,7 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
   const selectedSkills = [];
   const commands = [];
   const upstreams = [];
+  const sessionHosts = [];
   const visiting = new Set();
 
   function addPack(name) {
@@ -38,6 +39,7 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
     selectedPacks.push(name);
     commands.push(...(pack.requires?.commands ?? []));
     upstreams.push(...(pack.requires?.upstreams ?? []));
+    sessionHosts.push(...(pack.requires?.sessionHosts ?? []));
     for (const skill of pack.skills ?? []) {
       if (!catalog.skills.skills[skill]) {
         throw new Error(`Pack ${name} references an unknown skill: ${skill}`);
@@ -57,7 +59,8 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
     skills: unique(selectedSkills),
     requirements: {
       commands: unique(commands),
-      upstreams: unique(upstreams)
+      upstreams: unique(upstreams),
+      sessionHosts: unique(sessionHosts)
     }
   };
 }
@@ -65,6 +68,7 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
 export function validateCatalog(rootDir, catalog) {
   const errors = [];
   const sourceRoot = path.join(rootDir, "skills");
+  const definedSessionHosts = catalog.skills.sessionHosts ?? {};
   const directoryNames = fs.readdirSync(sourceRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
@@ -83,6 +87,21 @@ export function validateCatalog(rootDir, catalog) {
     }
     for (const skill of pack.skills ?? []) {
       if (!catalog.skills.skills[skill]) errors.push(`pack ${name} references unknown skill ${skill}`);
+    }
+    for (const host of pack.requires?.sessionHosts ?? []) {
+      if (!definedSessionHosts[host]) errors.push(`pack ${name} references unknown session host ${host}`);
+    }
+  }
+  for (const [name, host] of Object.entries(definedSessionHosts)) {
+    if (!host || typeof host !== "object" || Array.isArray(host)) {
+      errors.push(`session host ${name} must be an object`);
+      continue;
+    }
+    if (typeof host.command !== "string" || host.command.trim() === "") {
+      errors.push(`session host ${name} is missing command`);
+    }
+    if (host.upstream && !catalog.skills.upstreams[host.upstream]) {
+      errors.push(`session host ${name} references unknown upstream ${host.upstream}`);
     }
   }
   return errors;

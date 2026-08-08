@@ -4,7 +4,19 @@
     "agent-deck": {
       "repository": "https://github.com/asheshgoplani/agent-deck",
       "skillPath": "skills/agent-deck",
-      "reason": "The workflow pack delegates session lifecycle to Agent Deck. It remains upstream-owned and is not copied into this repository."
+      "reason": "Agent Deck remains an optional session-host integration. Its upstream skill is not copied into this repository."
+    }
+  },
+  "sessionHosts": {
+    "agent-deck": {
+      "command": "agent-deck",
+      "upstream": "agent-deck",
+      "description": "Persistent sessions managed by Agent Deck."
+    },
+    "thurbox": {
+      "command": "thurbox-cli",
+      "documentation": "https://thurbox.thurbeen.eu/docs/features.html#headless-cli",
+      "description": "Persistent sessions managed by Thurbox."
     }
   },
   "packs": {
@@ -19,10 +31,10 @@
       ]
     },
     "workflow": {
-      "description": "Multi-agent workflow skills using Waypost and the current Agent Deck backend.",
+      "description": "Multi-agent workflow skills using Waypost and one supported session host.",
       "requires": {
-        "commands": ["agent-deck", "waypost", "git", "node"],
-        "upstreams": ["agent-deck"]
+        "commands": ["waypost", "git", "node"],
+        "sessionHosts": ["agent-deck", "thurbox"]
       },
       "skills": [
         "multi-agent-protocol",

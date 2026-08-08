@@ -3,7 +3,7 @@
 Use this shared checklist after listener, send, worker-start, or closeout failure.
 
 1. Report a concise stderr summary.
-2. Resolve the sender or target with `agent_deck_resolve_session`.
+2. Resolve the sender or target with the generic `session_resolve` operation.
 3. Confirm the command runs in the expected workflow session context.
 4. Check the relevant send, receive, or lifecycle tool result.
 

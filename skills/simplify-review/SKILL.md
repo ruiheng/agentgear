@@ -135,10 +135,10 @@ Skill-specific context resolution:
 Execution flow in multi-agent mode:
 1. review the requested scope
 2. produce one advisory `simplify_review_report`
-3. call `agent_deck_require_session` for the requester session in the current workdir
+3. call `session_require` for the requester session in the current workdir and retain its returned Waypost address
 4. send the report with `waypost_send`
-   - `from_address = agent-deck/<simplify_reviewer_session_id>`
-   - `to_address = agent-deck/<requester_session_id>`
+   - `from_address = <current bound simplify-reviewer Waypost address>`
+   - `to_address = <returned requester Waypost address>`
    - `subject = "simplify review report: <task_id> r<round>"`
    - `body = <simplify review report body>`
 

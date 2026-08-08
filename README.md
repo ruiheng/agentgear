@@ -67,8 +67,8 @@ was deleted (full purge can remove that link).
 The workflow-orchestration features depend on
 [Waypost](https://github.com/ruiheng/waypost). Install Waypost separately and
 ensure its `waypost` command is available on `PATH` before using the workflow
-pack. `agentgear doctor --pack workflow` reports a missing or incompatible
-Waypost installation.
+pack. `agentgear doctor --pack workflow` checks the declared executable and
+session-host prerequisites.
 
 ## Workflow pack
 
@@ -84,11 +84,18 @@ and `update` commands always copy skills to the target directory and record
 only installer-managed destinations. The two channels are exclusive: switching
 from one to the other requires `agentgear uninstall --purge` first.
 
-The workflow pack installs `multi-agent-protocol` but deliberately does not
-copy the upstream `agent-deck` skill. Install it from
-[Agent Deck](https://github.com/asheshgoplani/agent-deck) in each target
-harness, then use the installed `agent-deck-workflow-init-permissions` command
-to opt into its permission integration.
+The workflow pack needs one supported persistent-session host:
+
+- [Agent Deck](https://github.com/asheshgoplani/agent-deck): install its
+  executable and upstream `agent-deck` skill in each target harness. The
+  installed `agent-deck-workflow-init-permissions` helper is an optional
+  Agent Deck permission integration.
+- [Thurbox](https://thurbox.thurbeen.eu/docs/features.html#headless-cli):
+  install `thurbox-cli`.
+
+`agentgear doctor --pack workflow` succeeds when Waypost, Git, Node.js, and at
+least one of those session hosts are ready. Agentgear does not copy either
+host's upstream implementation.
 
 ## Uninstall
 
@@ -135,7 +142,7 @@ initializer.
 | `install` / `update` | Install a frozen release snapshot. |
 | `status` | Show whether each managed skill is linked or copied. |
 | `uninstall` | Remove selected installer-managed skills; `--purge` also removes installer-owned runtime artifacts. |
-| `doctor` | Check declared external commands and upstream requirements. |
+| `doctor` | Check declared external commands, upstream requirements, and supported session hosts. |
 | `run` | Run a script bundled with an installed skill. |
 
 The development-only command is `node ./bin/agentgear-link.mjs` from a source
@@ -154,9 +161,9 @@ This project is licensed under [Apache-2.0](LICENSE) and is configured for a
 public npm release as `@ruiheng/agentgear`. Before publishing, verify the
 release version and matching Git tag; `npm publish` runs `npm run check` first.
 
-All repository-owned executable scripts use Node.js. External tools such as
-`git`, `agent-deck`, and `waypost` remain explicit workflow dependencies and
-are checked by `doctor`.
+All repository-owned executable scripts use Node.js. `git` and `waypost` are
+workflow dependencies; `agent-deck` or `thurbox-cli` provides the persistent
+session host. `doctor` checks the declared requirements.
 
 The bundled tool profiles live in `config/tool-profiles.toml`. Start from
 `config/tool-profiles.local.example.toml`, then override templates, roles, or

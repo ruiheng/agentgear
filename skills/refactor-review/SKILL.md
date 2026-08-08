@@ -146,12 +146,13 @@ Execution flow in multi-agent mode:
 1. review the requested scope
 2. produce one advisory `refactor_review_report`
 3. use `waypost`
-4. first call `agent_deck_require_session` with:
+4. first call `session_require` with:
    - `session_id = <requester_session_id>`
    - `workdir = <current workspace>`
+   - retain the returned requester Waypost address
 5. send the report back with `waypost_send`
-   - `from_address = agent-deck/<refactor_reviewer_session_id>`
-   - `to_address = agent-deck/<requester_session_id>`
+   - `from_address = <current bound refactor-reviewer Waypost address>`
+   - `to_address = <returned requester Waypost address>`
    - `subject = "refactor review report: <task_id> r<round>"`
    - `body = <refactor review report body>`
 

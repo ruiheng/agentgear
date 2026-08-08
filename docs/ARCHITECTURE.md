@@ -17,8 +17,12 @@ are layered from the XDG `agentgear` config directory and the project-local
 Its `[templates]` section supplies reusable command fragments, expanded only
 for `${templates.name}` references in candidate commands.
 
-The workflow pack depends on the upstream Agent Deck skill and executable. The
-upstream source remains external instead of being silently forked here.
+The workflow pack depends on Waypost plus one declared session host. Agent
+Deck remains an optional upstream skill/executable integration; Thurbox uses
+its `thurbox-cli` headless interface. Neither host is silently forked here.
+`catalog/skills.json` is a closed list of supported hosts for installation
+checks, not a runtime plugin registry; Waypost owns live host selection and
+dispatch.
 
 Runtime scripts belong to their owning skill and use Node.js, rather than a
 shell-specific runtime. Build, installer, and test scripts belong at the

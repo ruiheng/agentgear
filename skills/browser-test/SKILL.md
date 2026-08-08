@@ -101,12 +101,13 @@ Execution flow (`browser_check_requested`):
 3. collect runtime evidence
 4. produce one `browser_check_report`
 5. use `waypost`
-6. first call `agent_deck_require_session` with:
+6. first call `session_require` with:
    - `session_id = <requester_session_id>`
    - `workdir = <requester_workspace>`
+   - retain the returned requester Waypost address
 7. send it back to the requester with `waypost_send`
-   - `from_address = agent-deck/<browser_tester_session_id>`
-   - `to_address = agent-deck/<requester_session_id>`
+   - `from_address = <current bound browser-tester Waypost address>`
+   - `to_address = <returned requester Waypost address>`
    - `subject = "browser report: <task_id> r<round>"`
    - `body = <browser-check report body>`
 

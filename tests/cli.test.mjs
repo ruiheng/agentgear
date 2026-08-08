@@ -89,6 +89,13 @@ function spawnAgentgear(argumentsList, fixture, environment) {
   );
 }
 
+function writeExecutable(directory, name) {
+  const filePath = path.join(directory, name);
+  fs.writeFileSync(filePath, "#!/bin/sh\nexit 0\n");
+  fs.chmodSync(filePath, 0o755);
+  return filePath;
+}
+
 test("canonical fingerprints match fixed golden vectors on POSIX filesystems", t => {
   if (process.platform === "win32") {
     // Windows reports different mode bits and wrapper fingerprints require the
@@ -271,6 +278,28 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
 test("lists the catalog and builds every target layout", () => {
   run(["build"]);
   assert.equal(fs.existsSync(path.join(rootDir, "dist", "codex", ".agents", "skills", "handoff", "SKILL.md")), true);
+});
+
+test("workflow doctor accepts either declared session host", () => {
+  const fixture = environmentFixture();
+  try {
+    const bin = path.join(fixture.temporary, "bin");
+    fs.mkdirSync(bin, { recursive: true });
+    for (const command of ["git", "node", "waypost", "thurbox-cli"]) writeExecutable(bin, command);
+    const environment = { ...fixture.environment, PATH: bin };
+
+    const thurboxReady = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+    assert.equal(thurboxReady.status, 0, thurboxReady.stderr);
+    assert.match(thurboxReady.stdout, /ok\s+session host thurbox \(thurbox-cli\)/);
+    assert.match(thurboxReady.stdout, /Supported session host: thurbox\./);
+
+    fs.rmSync(path.join(bin, "thurbox-cli"));
+    const noHost = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+    assert.equal(noHost.status, 1);
+    assert.match(noHost.stdout, /Missing one supported session host: agent-deck or thurbox\./);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
 });
 
 test("release install copies skills, records schema-v2 state, and ordinary uninstall retains the runtime", () => {

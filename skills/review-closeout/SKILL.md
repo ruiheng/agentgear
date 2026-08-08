@@ -41,7 +41,7 @@ Use the `multi-agent-protocol` skill for shared protocol:
 Skill-specific context resolution:
 - `task_id`: explicit -> review report text -> ask
 - `planner_session_id`: explicit -> review context -> ask
-- `planner_workspace`: explicit -> accepted review report `Planner workspace` -> review context -> planner `agent-deck session show --json` path -> ask
+- `planner_workspace`: explicit -> accepted review report `Planner workspace` -> review context -> planner session-manager path -> ask
 - `closeout_sender_session_id`: explicit -> current session id -> review context -> ask
 - `closeout_sender_role`: explicit -> current workflow role -> review context -> default `closeout_executor`
 - `reviewer_session_id`: explicit -> accepted review report `From` header -> review context -> ask
@@ -62,7 +62,7 @@ Branch-plan rule with a Handoff:
 
 If required values are resolved:
 1. normalize identity values before any comparison:
-   - resolve `planner_session_id` / `closeout_sender_session_id` / `reviewer_session_id` refs to UUID via `agent_deck_resolve_session`
+   - resolve `planner_session_id` / `closeout_sender_session_id` / `reviewer_session_id` refs to real ids via `session_resolve`
    - if normalization fails for required identity, ask one short clarification question before sending
 2. choose message action and subject:
    - `closeout_delivered`; `closeout delivered: <task_id>`
@@ -70,13 +70,14 @@ If required values are resolved:
    - if `closeout_sender_session_id == planner_session_id`, skip cross-session delivery and continue locally
    - otherwise send the selected action to planner through `waypost_send`
 4. use `waypost`
-5. first call `agent_deck_require_session` with:
+5. first call `session_require` with:
    - `session_id = <planner_session_id>`
    - `workdir = <planner_workspace>`
    - do not use the reviewer/current workspace unless it is explicitly the planner workspace
+   - retain the returned planner Waypost address
 6. use `waypost_send` with:
-   - `from_address = agent-deck/<closeout_sender_session_id>`
-   - `to_address = agent-deck/<planner_session_id>`
+   - `from_address = <current bound closeout-sender Waypost address>`
+   - `to_address = <returned planner Waypost address>`
    - `subject = <selected subject>`
    - `body = <closeout message body>`
 

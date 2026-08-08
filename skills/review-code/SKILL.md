@@ -328,12 +328,13 @@ Waypost Message body rules (`rework_required`):
 - use the full review report above as the body
 - set `Action: rework_required`
 - use `waypost`
-- first call `agent_deck_require_session` with:
+- first call `session_require` with:
   - `session_id = <requester_session_id>`
   - `workdir = <current workspace>`
+  - retain the returned requester Waypost address
 - send it with `waypost_send`
-  - `from_address = agent-deck/<reviewer_session_id>`
-  - `to_address = agent-deck/<requester_session_id>`
+  - `from_address = <current bound reviewer Waypost address>`
+  - `to_address = <returned requester Waypost address>`
   - `subject = "rework required: <task_id> r<round>"`
   - `body = <full review report>`
 - include enough evidence and fix guidance that the requester can continue from the message body alone
@@ -352,12 +353,13 @@ Waypost Message body rules (`user_requested_iteration`):
 - keep `Action: user_requested_iteration`
 - include enough of the prior review findings that coder can continue without opening external workflow files
 - use `waypost`
-- first call `agent_deck_require_session` with:
+- first call `session_require` with:
   - `session_id = <requester_session_id>`
   - `workdir = <current workspace>`
+  - retain the returned requester Waypost address
 - send it with `waypost_send`
-  - `from_address = agent-deck/<reviewer_session_id>`
-  - `to_address = agent-deck/<requester_session_id>`
+  - `from_address = <current bound reviewer Waypost address>`
+  - `to_address = <returned requester Waypost address>`
   - `subject = "iteration requested: <task_id> r<round>"`
   - `body = <iteration message body>`
 

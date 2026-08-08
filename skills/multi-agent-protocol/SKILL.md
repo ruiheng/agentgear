@@ -22,7 +22,11 @@ Interpret references to the shared workflow protocol as:
 - use the `multi-agent-protocol` skill as the entry point
 - then follow `references/internal-protocol/shared-protocol.md`
 
-With the current Agent Deck adapter, use `agent-deck/<agent-deck-session-id>` as the default Waypost sender.
+## Session Hosts
+
+Before resolving, creating, requiring, or addressing a collaborator session,
+use `references/session-host.md`. Waypost selects Agent Deck or Thurbox; keep
+host detection and provider-specific arguments out of action skills.
 
 ## Shared Context
 

@@ -138,8 +138,9 @@ In message mode:
 1. resolve task_id, round, reviewer_session_id, inbound From identity, and maximum through the shared context rules
 2. apply the baseline gate and review-limit rule
 3. send a normal report to inbound From for every completed review and NEEDS_INPUT. Wait without sending while asking the limit decision; after user continuation, send the held report; after a stop, end:
-   - from_address = agent-deck/<reviewer_session_id>
-   - to_address = agent-deck/<inbound_from_session_id>
+   - first `session_resolve` the inbound target and retain its returned Waypost address
+   - from_address = <current bound reviewer Waypost address>
+   - to_address = <returned inbound target Waypost address>
    - subject = design-spec review report: <task_id> r<round>
    - body = <report>
 4. follow the shared Async sender rule
