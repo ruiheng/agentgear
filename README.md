@@ -13,23 +13,44 @@ npx --yes @ruiheng/agentgear@latest update --pack core --target codex
 ~~~
 
 `update` resolves the newest published version, stages it under the user's XDG
-data directory, then atomically switches the launcher and copies selected
-skills to the target harness. A failed update leaves the previous installed
-skills untouched. Later edits in any local checkout do not affect that release.
+data directory, then publishes it only after the target checks and installation
+steps succeed. A failed update keeps the previously published shared runtime
+active. Later edits in any local checkout do not affect that release.
 
-## Developers: live source links
+## Developers: shared runtime links
 
 ~~~bash
 git clone git@github.com:ruiheng/agentgear.git
 cd agentgear
-node ./bin/agentgear.mjs link --pack all --target codex,claude
+node ./bin/agentgear-link.mjs --pack all --target codex,claude
+# equivalent: npm run link -- --pack all --target codex,claude
 ~~~
 
-`link` points each installed skill and the `agentgear` launcher at this checkout.
-Edits to an existing `SKILL.md`, script, or reference take effect immediately.
-After adding a skill or changing pack membership, rerun the same command, or use
-`node ./bin/agentgear.mjs sync ...`. Switch back to a release snapshot with
+`agentgear-link` is a developer-only command: run it from a source checkout,
+not from an installed `agentgear` launcher or a staged runtime. It is not
+published as a public npm executable. It snapshots the checkout into
+Agentgear's shared XDG runtime and prefers to point each installed skill and
+the `agentgear` launcher at its stable `current` path. After editing the
+checkout, rerun the same command to refresh that runtime:
+
+~~~bash
+node ./bin/agentgear-link.mjs --pack all --target codex,claude
+~~~
+
+When directory links or Windows junctions are unavailable, Agentgear falls back
+to copied skills and small Node command wrappers; rerunning `agentgear-link`
+refreshes those copies explicitly. It refuses that fallback while an existing
+shared-runtime skill, launcher, or helper is still active, so one installation
+cannot be split across old and new runtimes. When links are available, every
+installed skill link sees the new snapshot without being repointed individually.
+The published `agentgear` CLI deliberately has no `link` subcommand. Switch
+back to independent release copies with
 `npx --yes @ruiheng/agentgear@latest update ...`.
+
+Agentgear records ownership of its launcher and workflow helpers. If the stable
+`current` link is removed accidentally, rerun `agentgear-link` from the
+checkout to restore it and the recorded command links. It still refuses an
+unrecorded command link, even when that link happens to target the same path.
 
 ## External dependency: Waypost
 
@@ -46,8 +67,11 @@ node ./bin/agentgear.mjs doctor --pack workflow
 node ./bin/agentgear.mjs install --pack workflow --target codex,claude --scope project
 ~~~
 
-Use `--link` while developing from a checkout. The normal mode copies skills
-to the target directory and records only installer-managed destinations.
+Use `agentgear-link` from a development checkout, and rerun it after local
+edits. The target normally links to Agentgear's shared runtime, with automatic
+copy fallback on filesystems that reject links; the normal `agentgear install`
+and `update` commands always copy skills to the target directory and record
+only installer-managed destinations.
 
 The workflow pack deliberately does not copy the upstream `agent-deck` skill.
 Install it from [Agent Deck](https://github.com/asheshgoplani/agent-deck) in
@@ -64,15 +88,14 @@ agentgear uninstall --pack core --target codex
 agentgear uninstall --skill handoff --target codex
 ~~~
 
-Use `--dry-run` first if desired. The installer refuses to remove locally
-modified copied skills unless `--force` is given. Removing a development link
-removes the link only, never the checkout it points to.
+The installer refuses to remove locally modified copied skills unless `--force`
+is given. Removing a development target removes only the Agentgear-managed link
+or copy, never the checkout it came from.
 
 To remove every installer-managed skill, launcher, workflow helper, recognized
 release snapshot, and install-state file, run a full purge:
 
 ~~~bash
-agentgear uninstall --purge --dry-run
 agentgear uninstall --purge
 ~~~
 
@@ -90,11 +113,15 @@ separate, opt-in workflow permission initializer untouched.
 | `list` | Show available packs and skills. |
 | `build` | Generate portable target layouts under `dist/`. |
 | `install` / `update` | Install a frozen release snapshot. |
-| `link` / `sync` | Install live symlinks from the current developer checkout. |
 | `status` | Show whether each managed skill is linked or copied. |
 | `uninstall` | Remove selected installer-managed skills; `--purge` also removes installer-owned runtime artifacts. |
 | `doctor` | Check declared external commands and upstream requirements. |
 | `run` | Run a script bundled with an installed skill. |
+
+The development-only command is `node ./bin/agentgear-link.mjs` (or
+`npm run link -- ...`) from a source checkout. It accepts the same pack, skill,
+target, scope, destination, `--force`, and `--no-launcher` selection options as
+`agentgear install`; it is intentionally not an `agentgear` subcommand.
 
 ## Development
 

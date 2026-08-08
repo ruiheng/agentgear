@@ -8,25 +8,21 @@ import {
   listPacks,
   listSkills,
   loadCatalog,
-  resolveSelection,
   validateCatalog
 } from "./lib/catalog.mjs";
 import {
-  copyOrLinkSkill,
   destinationMatchesRecord,
-  directoryFingerprint,
-  ensureLauncher,
-  ensureWorkflowHelpers,
   exists,
-  expandHome,
   purgeManagedRuntime,
-  prepareRuntime,
   readInstallState,
   removeInstallStateFile,
   saveInstallState,
   targetState,
-  updateTargetState
+  updateTargetState,
+  verifiedLegacyDevelopmentSourceRoots
 } from "./lib/runtime.mjs";
+import { installSelection, resolveTargetRoots, selected } from "./lib/installer.mjs";
+import { parseOptions } from "./lib/options.mjs";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
@@ -47,228 +43,16 @@ function usage() {
     "  list [--json]",
     "  build",
     "  install [--pack NAME] [--skill NAME] [--target NAME[,NAME]] [--scope global|project]",
-    "          [--project DIR] [--dest DIR] [--link] [--force] [--dry-run] [--no-launcher]",
+    "          [--project DIR] [--dest DIR] [--force] [--no-launcher]",
     "  update [install options]",
-    "  link [install options]",
-    "  sync [install options]",
     "  status [--target NAME[,NAME]] [--scope global|project] [--project DIR] [--dest DIR]",
     "  uninstall (--pack NAME | --skill NAME | --purge) [--target NAME[,NAME]] [--scope global|project]",
-    "            [--project DIR] [--dest DIR] [--force] [--dry-run]",
+    "            [--project DIR] [--dest DIR] [--force]",
     "  doctor [--pack NAME] [--skill NAME]",
     "  run <skill> <script> [args...]",
     "",
-    "install/update create a release snapshot. link/sync point targets directly at",
-    "the current checkout for rapid development. The default pack is core."
+    "install/update copy a release snapshot into targets. The default pack is core."
   ].join("\n");
-}
-
-function csv(value, option) {
-  if (!value) fail("Missing value for " + option);
-  return value.split(",").map(item => item.trim()).filter(Boolean);
-}
-
-function parseOptions(argumentsList) {
-  const options = {
-    packs: [],
-    skills: [],
-    targets: [],
-    scope: "global",
-    project: process.cwd(),
-    destination: undefined,
-    link: false,
-    force: false,
-    dryRun: false,
-    purge: false,
-    noLauncher: false,
-    json: false,
-    positional: []
-  };
-
-  for (let index = 0; index < argumentsList.length; index += 1) {
-    const argument = argumentsList[index];
-    const next = () => {
-      index += 1;
-      if (index >= argumentsList.length) fail("Missing value for " + argument);
-      return argumentsList[index];
-    };
-    switch (argument) {
-      case "--pack":
-        options.packs.push(...csv(next(), argument));
-        break;
-      case "--skill":
-        options.skills.push(...csv(next(), argument));
-        break;
-      case "--target":
-      case "--provider":
-        options.targets.push(...csv(next(), argument));
-        break;
-      case "--scope":
-        options.scope = next();
-        break;
-      case "--project":
-        options.project = next();
-        break;
-      case "--dest":
-        options.destination = next();
-        break;
-      case "--link":
-        options.link = true;
-        break;
-      case "--force":
-        options.force = true;
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--purge":
-        options.purge = true;
-        break;
-      case "--no-launcher":
-        options.noLauncher = true;
-        break;
-      case "--json":
-        options.json = true;
-        break;
-      case "--help":
-      case "-h":
-        options.help = true;
-        break;
-      default:
-        if (argument.startsWith("-")) fail("Unknown option: " + argument);
-        options.positional.push(argument);
-    }
-  }
-
-  if (!["global", "project"].includes(options.scope)) {
-    fail("Invalid scope: " + options.scope + ". Use global or project.");
-  }
-  options.project = path.resolve(options.project);
-  return options;
-}
-
-function selected(catalog, options) {
-  return resolveSelection(catalog, {
-    packs: options.packs,
-    skills: options.skills
-  });
-}
-
-function resolveTargetRoots(catalog, options) {
-  const names = options.targets.length === 0 ? ["codex"] : options.targets;
-  if (options.destination && names.length !== 1) {
-    fail("--dest can be used with exactly one --target");
-  }
-  return names.map(name => {
-    const target = catalog.targets.targets[name];
-    if (!target) fail("Unknown target: " + name);
-    const configuredPath = options.destination || target[options.scope];
-    const root = options.scope === "global"
-      ? path.resolve(expandHome(configuredPath))
-      : path.resolve(options.project, configuredPath);
-    return { name, root };
-  });
-}
-
-function ensureSourceSkills(contentRoot, selection) {
-  for (const skill of selection.skills) {
-    const skillFile = path.join(contentRoot, "skills", skill, "SKILL.md");
-    if (!fs.existsSync(skillFile)) fail("Missing canonical skill: " + skillFile);
-  }
-}
-
-function targetInstallPlan(state, targets, selection, contentRoot, options) {
-  const errors = [];
-  const plan = [];
-  for (const target of targets) {
-    const recorded = targetState(state, target.root);
-    for (const skill of selection.skills) {
-      const source = path.join(contentRoot, "skills", skill);
-      const destination = path.join(target.root, skill);
-      const record = recorded.skills[skill];
-      const destinationExists = exists(destination);
-      if (destinationExists && !record && !options.force) {
-        errors.push("Unmanaged skill already exists: " + destination);
-      } else if (destinationExists && record && !destinationMatchesRecord(destination, record) && !options.force) {
-        errors.push("Installer-managed skill changed locally: " + destination + " (use --force to replace it)");
-      }
-      plan.push({ target, skill, source, destination, record, destinationExists });
-    }
-  }
-  if (errors.length > 0) fail(errors.join("\n"));
-  return plan;
-}
-
-function removeDestination(destination, dryRun, printLine) {
-  if (dryRun) {
-    printLine("would replace skill: " + destination);
-    return;
-  }
-  fs.rmSync(destination, { recursive: true, force: true });
-}
-
-function install(catalog, options) {
-  const selection = selected(catalog, options);
-  const targets = resolveTargetRoots(catalog, options);
-  const runtime = prepareRuntime({
-    sourceRoot: rootDir,
-    link: options.link,
-    dryRun: options.dryRun,
-    print
-  });
-  const contentRoot = options.dryRun ? rootDir : runtime.root;
-  ensureSourceSkills(contentRoot, selection);
-  const state = readInstallState();
-  const plan = targetInstallPlan(state, targets, selection, contentRoot, options);
-
-  if (!options.noLauncher) {
-    ensureLauncher({
-      sourceRoot: rootDir,
-      runtime,
-      force: options.force,
-      dryRun: options.dryRun,
-      print
-    });
-    if (selection.skills.includes("agent-deck-workflow")) {
-      ensureWorkflowHelpers({
-        sourceRoot: rootDir,
-        runtime,
-        force: options.force,
-        dryRun: options.dryRun,
-        print
-      });
-    }
-  }
-
-  for (const target of targets) {
-    const record = targetState(state, target.root);
-    for (const item of plan.filter(candidate => candidate.target.name === target.name)) {
-      if (item.destinationExists) removeDestination(item.destination, options.dryRun, print);
-      copyOrLinkSkill({
-        source: item.source,
-        destination: item.destination,
-        link: options.link,
-        dryRun: options.dryRun,
-        print
-      });
-      if (!options.dryRun) {
-        record.skills[item.skill] = {
-          source: fs.realpathSync(item.source),
-          mode: options.link ? "link" : "copy",
-          fingerprint: options.link ? null : directoryFingerprint(item.source),
-          runtimeId: runtime.id,
-          installedAt: new Date().toISOString()
-        };
-      }
-    }
-    if (!options.dryRun) updateTargetState(state, target.root, record);
-  }
-
-  if (!options.dryRun) saveInstallState(state);
-  const channel = options.link ? "development link" : "release snapshot";
-  print("Installed " + selection.skills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
-  if (selection.requirements.commands.length > 0) {
-    print("Run: agentgear doctor --pack " + selection.packs.at(-1));
-  }
 }
 
 function status(catalog, options) {
@@ -315,30 +99,13 @@ function uninstall(catalog, options) {
       if (exists(destination) && !destinationMatchesRecord(destination, item) && !options.force) {
         fail("Refusing to remove locally changed skill: " + destination + " (use --force to remove it)");
       }
-      if (options.dryRun) {
-        print("would remove skill: " + destination);
-      } else {
-        fs.rmSync(destination, { recursive: true, force: true });
-        delete record.skills[skill];
-      }
+      fs.rmSync(destination, { recursive: true, force: true });
+      delete record.skills[skill];
     }
-    if (!options.dryRun) updateTargetState(state, target.root, record);
+    updateTargetState(state, target.root, record);
   }
-  if (!options.dryRun) saveInstallState(state);
+  saveInstallState(state);
   print("Uninstall complete.");
-}
-
-function developmentSourceRoots(state) {
-  const roots = [];
-  for (const record of Object.values(state.targets)) {
-    for (const [skill, item] of Object.entries(record.skills ?? {})) {
-      if (item?.mode !== "link" || typeof item.source !== "string") continue;
-      const skillsDirectory = path.dirname(item.source);
-      if (path.basename(skillsDirectory) !== "skills" || path.basename(item.source) !== skill) continue;
-      roots.push(path.dirname(skillsDirectory));
-    }
-  }
-  return [...new Set(roots)];
 }
 
 function purgeTargetRoots(catalog, options, state) {
@@ -375,31 +142,14 @@ function purge(catalog, options) {
   }
 
   const state = readInstallState();
-  const knownSourceRoots = developmentSourceRoots(state);
+  const legacySourceRoots = verifiedLegacyDevelopmentSourceRoots(state);
   const targets = purgeTargetRoots(catalog, options, state);
   const plan = purgePlan(state, targets, options);
-  const selectedRoots = new Set(targets.map(target => target.root));
-  const hasRemainingSkills = Object.keys(state.targets).some(root => !selectedRoots.has(root));
 
   for (const item of plan) {
-    if (options.dryRun) {
-      print("would remove skill: " + item.destination);
-      continue;
-    }
     fs.rmSync(item.destination, { recursive: true, force: true });
     const record = targetState(state, item.target.root);
     delete record.skills[item.skill];
-  }
-
-  if (options.dryRun) {
-    if (hasRemainingSkills) {
-      print("would retain shared runtime because other managed skills remain.");
-    } else {
-      purgeManagedRuntime({ sourceRoot: rootDir, knownSourceRoots, dryRun: true, print });
-      removeInstallStateFile({ dryRun: true, print });
-    }
-    print("Purge complete (dry run).");
-    return;
   }
 
   for (const target of targets) {
@@ -411,8 +161,8 @@ function purge(catalog, options) {
     saveInstallState(state);
     print("Shared runtime retained because other managed skills remain.");
   } else {
-    purgeManagedRuntime({ sourceRoot: rootDir, knownSourceRoots, dryRun: false, print });
-    removeInstallStateFile({ dryRun: false, print });
+    purgeManagedRuntime({ legacySourceRoots, state, print });
+    removeInstallStateFile({ print });
   }
   print("Purge complete.");
 }
@@ -558,16 +308,8 @@ export function main(commandArguments = process.argv.slice(2)) {
       build(catalog);
       break;
     case "install":
-      install(catalog, options);
-      break;
     case "update":
-      options.link = false;
-      install(catalog, options);
-      break;
-    case "link":
-    case "sync":
-      options.link = true;
-      install(catalog, options);
+      installSelection({ catalog, options, sourceRoot: rootDir, print });
       break;
     case "status":
       status(catalog, options);
