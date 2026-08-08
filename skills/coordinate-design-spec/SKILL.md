@@ -97,14 +97,14 @@ review-existing additionally requires:
 - design_spec_branch, design_spec_base_branch, committed design_specs_in_scope listing every reviewed doc and design asset
 - existing architect_session_id, or optional new architect_session_ref defaulting to architect-<task_id>
 
-## Architect Tool Resolution
+## Architect Launch Resolution
 
 Pass the target workdir when resolving:
 
 - author: `--role architect_author`
 - reviewer: `--role architect_reviewer`
 
-Do not substitute either role. Record each selected `*_tool_profile`, `*_tool_cmd`, and optional startup message under the shared tool-resolution contract.
+Do not substitute either role. Record each selected resolver candidate in lane context; do not put its command, Thurbox key, or startup metadata in messages.
 
 ## Round Resolution
 
@@ -119,18 +119,12 @@ Resolve round: explicit input or inbound message -> latest persisted workflow co
 
 Resolve requester identity from explicit input, then current session context. Resolve archive_branch by the rule above; stop on detached HEAD or an unclear landing branch.
 
-Resolve both deterministic refs with agent_deck_resolve_session. For each target:
+Resolve both deterministic refs with `session_resolve`. For each target:
 
-- found: verify its workdir and group, then call agent_deck_require_session with its real id and expected workdir
-- not found: resolve its command with its resolver role above as <target_tool_cmd>, then call agent_deck_create_session with:
-  - ensure_title = <deterministic ref for this target>
-  - ensure_cmd = <target_tool_cmd>
-  - workdir = <current workspace>
-  - parent_session_id = <requester_session_id>
-  - group_path = <requester session group; empty string for root>
-  - no_parent_link = false
+- found: verify its returned path, then call `session_require` with its returned host, real id, and expected workdir;
+- not found: require the requester parent, resolve the target's architect role, then call `session_create` with the deterministic ref and selected opaque launch candidate.
 
-Require distinct author and reviewer real ids; stop if they match. Record both ids and derive the artifact directory from the author id. After interrupted setup, repeat this resolve-first flow; never create a target that resolves. After review history exists, recover missing real ids from Agent Deck or Waypost history and stop if recovery fails.
+Require distinct author and reviewer real ids; stop if they match. Record both ids, hosts, and sole addresses, and derive the artifact directory from the author id. After interrupted setup, repeat this resolve-first flow; never create a target that resolves. After review history exists, recover missing real ids from Waypost history and stop if recovery fails.
 
 Send only the author. Omit empty optional sections:
 
@@ -188,7 +182,7 @@ Treat a later design_spec_draft_requested as a decision or constraint delta: reu
 
 Require committed docs, their design branch, and the recorded base branch. Never guess the base.
 
-Resolve the reviewer id from explicit input, workflow context, then persisted Waypost history. If prior-review context exists but the real id remains missing, stop; do not create a context-free replacement. Create a reviewer only for a clearly new lane, using resolver role `architect_reviewer` and the same parent/workdir settings as above.
+Resolve the reviewer id from explicit input, workflow context, then persisted Waypost history. If prior-review context exists but the real id remains missing, stop; do not create a context-free replacement. Create a reviewer only for a clearly new lane, using resolver role `architect_reviewer` and the same verified parent/workdir settings as above.
 
 Before each review request, resolve <reviewed_commit> = git rev-parse <design_spec_branch>, then apply the review-existing path gate:
 
@@ -250,7 +244,7 @@ Later rounds use the same header, plus:
 - [changed context; restore any context needed for recovery]
 ~~~
 
-Do not paste or summarize the design specification, or hand-write a diff. Send from agent-deck/<review_sender_session_id> to agent-deck/<reviewer_session_id> with subject design-spec review: <task_id> r<round>, then follow the shared Async sender rule.
+Do not paste or summarize the design specification, or hand-write a diff. Send from `waypost_status.default_sender` to the recorded reviewer address with subject `design-spec review: <task_id> r<round>`, then follow the shared Async sender rule.
 
 ## User Completion
 
@@ -347,7 +341,7 @@ On design_spec_delivered:
 5. choose the formal tracked docs path; stop if it has unrelated uncommitted changes
 6. if substantive changes are needed, return them to the author for a new reviewed round while preserving Max Review Rounds
 7. copy the accepted artifact to the formal tracked docs path, resolve trivial non-substantive issues locally, and commit that file only
-8. after the archive commit succeeds, remove both architect sessions
+8. after the archive commit succeeds, report the architect sessions as provider-managed; generic workflow code does not remove them
 9. treat the tracked committed doc as authoritative and cite it in later implementation work
 10. follow User Completion with the tracked doc and archive commit
 

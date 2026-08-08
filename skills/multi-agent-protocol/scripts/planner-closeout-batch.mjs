@@ -3,14 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  commandJson, currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic, appendJsonLine
+  currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic, appendJsonLine
 } from "./workflow-lib.mjs";
 import { notifyWorkflowEvent } from "./notify-workflow-event.mjs";
 
 const usage = `Planner closeout batch with strict required-action ordering.
 
 Required actions (hard-fail): merge the task branch, then append a planner progress record.
-Optional actions: message acknowledgement, active-task-lock cleanup, mirrored workspace-record cleanup, branch pruning, notifications, and health gate.
+Optional actions: message acknowledgement, active-task-lock cleanup, mirrored workspace-record cleanup, branch pruning, and notifications.
 
 Usage:
   planner-closeout-batch.mjs [options]
@@ -27,17 +27,11 @@ Options:
   --progress-file <path>           Progress JSONL path
   --task-dir <path>                Required task worktree for task lock cleanup
   --worker-dir <path>              Alias for --task-dir
-  --planner-session-id <id|title>  Planner session ref
-  --coder-session-id <id|title>    Coder session ref
-  --reviewer-session-id <id|title> Reviewer session ref
-  --architect-session-id <id|title> Architect session ref
-  --profile <name>                 Agent-deck profile
-  --max-worker-sessions <n>        Health gate cap (default: 2)
+  --planner-session-id <id>        Required opaque planner session id
   --merge-mode <mode>              ff-only|ff|no-ff (default: ff-only)
   --allow-dirty                    Allow dirty planner worktree
   --override-workspaces            Replace workspace records after confirmation
   --run-prune [--prune-apply]      Run optional branch cleanup
-  --run-health-gate | --skip-health-gate
   --ack-delivery-id <id> --ack-lease-token <token>
   -h, --help                       Show help`;
 
@@ -63,28 +57,6 @@ function taskBranchRef(value) {
   return /^(?:task\/|refs\/heads\/task\/|refs\/remotes\/[^/]+\/task\/)/.test(value);
 }
 
-function agentDeckSession(ref) {
-  return commandJson("agent-deck", ["session", "show", ref, "--json"]);
-}
-
-function resolveSessionId(ref) {
-  const id = stringField(agentDeckSession(ref), "id");
-  if (!id) fail(`failed to resolve agent-deck session id for '${ref}'`);
-  return id;
-}
-
-function sessionExists(ref) {
-  return Boolean(stringField(agentDeckSession(ref), "id"));
-}
-
-function lockIsStale(lock) {
-  const addressRef = value => value.startsWith("agent-deck/") ? value.slice("agent-deck/".length) : "";
-  const workerRefs = [addressRef(stringField(lock, "to_address")), stringField(lock, "coder_session_ref")].filter(Boolean);
-  const fallbackRefs = [stringField(lock, "planner_session_id"), addressRef(stringField(lock, "from_address"))].filter(Boolean);
-  const refs = workerRefs.length ? workerRefs : fallbackRefs;
-  return refs.length > 0 && refs.every(ref => !sessionExists(ref));
-}
-
 function sameArtifactRoot(left, right) {
   const normalize = value => value.replace(/[\\/]+$/, "");
   if (normalize(left) === normalize(right)) return true;
@@ -97,10 +69,6 @@ function releaseLock(root, taskId) {
   if (!fs.statSync(lockDir, { throwIfNoEntry: false })?.isDirectory()) return { status: "not_present", failed: false };
   try {
     const lock = readJson(lockFile);
-    if (lockIsStale(lock)) {
-      fs.rmSync(lockDir, { recursive: true, force: true });
-      return { status: "stale_released", failed: false };
-    }
     const lockTask = stringField(lock, "task_id");
     if (!lockTask) return { status: "metadata_missing", failed: true, warning: `active-task lock metadata missing: ${lockFile}; remove ${lockDir} manually if the task is already finished` };
     if (lockTask !== taskId) return { status: "task_mismatch", failed: true, warning: `active-task lock belongs to task_id=${lockTask}, not ${taskId}: ${lockDir}; remove it manually after verification` };
@@ -113,10 +81,10 @@ function releaseLock(root, taskId) {
 
 export function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
-    values: ["--task-id", "--task-branch", "--integration-branch", "--worker-workspace", "--planner-workspace", "--worker-artifact-root", "--planner-artifact-root", "--artifact-root", "--progress-file", "--task-dir", "--worker-dir", "--planner-session-id", "--coder-session-id", "--reviewer-session-id", "--architect-session-id", "--profile", "--max-worker-sessions", "--merge-mode", "--ack-delivery-id", "--ack-lease-token"],
-    flags: ["--allow-dirty", "--override-planner-workspace", "--override-workspaces", "--run-prune", "--prune-apply", "--run-health-gate", "--skip-health-gate"],
+    values: ["--task-id", "--task-branch", "--integration-branch", "--worker-workspace", "--planner-workspace", "--worker-artifact-root", "--planner-artifact-root", "--artifact-root", "--progress-file", "--task-dir", "--worker-dir", "--planner-session-id", "--merge-mode", "--ack-delivery-id", "--ack-lease-token"],
+    flags: ["--allow-dirty", "--override-planner-workspace", "--override-workspaces", "--run-prune", "--prune-apply"],
     defaults: {
-      taskId: "", taskBranch: "", integrationBranch: "", workerWorkspace: "", plannerWorkspace: "", workerArtifactRoot: "", plannerArtifactRoot: "", artifactRoot: "", progressFile: "", taskDir: "", workerDir: "", plannerSessionId: "", coderSessionId: "", reviewerSessionId: "", architectSessionId: "", profile: "", maxWorkerSessions: "2", mergeMode: "ff-only", allowDirty: false, overridePlannerWorkspace: false, overrideWorkspaces: false, runPrune: false, pruneApply: false, runHealthGate: false, skipHealthGate: false, ackDeliveryId: "", ackLeaseToken: ""
+      taskId: "", taskBranch: "", integrationBranch: "", workerWorkspace: "", plannerWorkspace: "", workerArtifactRoot: "", plannerArtifactRoot: "", artifactRoot: "", progressFile: "", taskDir: "", workerDir: "", plannerSessionId: "", mergeMode: "ff-only", allowDirty: false, overridePlannerWorkspace: false, overrideWorkspaces: false, runPrune: false, pruneApply: false, ackDeliveryId: "", ackLeaseToken: ""
     }
   });
   if (options.help) {
@@ -129,12 +97,11 @@ export function main(argv = process.argv.slice(2)) {
   if (!options.integrationBranch) fail("--integration-branch is required");
   if (!options.workerWorkspace) fail("--worker-workspace is required");
   if (!options.plannerWorkspace) fail("--planner-workspace is required");
-  if (!/^\d+$/.test(options.maxWorkerSessions)) fail("--max-worker-sessions must be a non-negative integer");
+  if (!options.plannerSessionId) fail("--planner-session-id is required");
   if (!["ff-only", "ff", "no-ff"].includes(options.mergeMode)) fail("--merge-mode must be one of: ff-only|ff|no-ff");
   if (options.pruneApply && !options.runPrune) fail("--prune-apply requires --run-prune");
   if (Boolean(options.ackDeliveryId) !== Boolean(options.ackLeaseToken)) fail(options.ackLeaseToken ? "--ack-lease-token requires --ack-delivery-id" : "--ack-delivery-id requires --ack-lease-token");
   requireCommand("git");
-  requireCommand("agent-deck");
   if (options.ackDeliveryId) requireCommand("waypost");
   const workerWorkspace = workspace(options.workerWorkspace, "workspace");
   const plannerWorkspace = workspace(options.plannerWorkspace, "workspace");
@@ -144,12 +111,7 @@ export function main(argv = process.argv.slice(2)) {
   const plannerArtifactRoot = options.plannerArtifactRoot || options.artifactRoot || path.join(plannerWorkspace, ".agent-artifacts");
   const taskBranch = options.taskBranch || `task/${options.taskId}`;
   const progressFile = options.progressFile || path.join(plannerArtifactRoot, "workflow-progress", "progress.jsonl");
-  const plannerSessionRef = options.plannerSessionId || stringField(commandJson("agent-deck", ["session", "current", "--json"]), "id");
-  if (!plannerSessionRef) fail("failed to resolve current agent-deck session id; pass --planner-session-id");
-  const coderRef = options.coderSessionId || `coder-${options.taskId}`;
-  const reviewerRef = options.reviewerSessionId || `reviewer-${options.taskId}`;
-  const architectRef = options.architectSessionId || `architect-${options.taskId}`;
-  const healthGate = options.skipHealthGate ? false : (options.runHealthGate || true);
+  const plannerSessionRef = options.plannerSessionId;
   if (taskBranchRef(options.integrationBranch)) fail(`refusing task-scoped integration branch '${options.integrationBranch}' for task branch '${taskBranch}'; pass the real non-task landing branch with --integration-branch`);
   if (taskBranch === options.integrationBranch) fail("--task-branch must differ from integration branch");
   if (git(plannerWorkspace, ["rev-parse", "--verify", options.integrationBranch]).status !== 0) fail(`integration branch does not exist in planner workspace: ${options.integrationBranch}`);
@@ -165,14 +127,9 @@ export function main(argv = process.argv.slice(2)) {
   if (fs.statSync(workerLockDir, { throwIfNoEntry: false })?.isDirectory()) {
     let lock;
     try { lock = readJson(workerLockFile); } catch { blocker("planner_closeout_lock_metadata_missing", `workspace active-task lock metadata missing: ${workerLockFile}`); }
-    if (lockIsStale(lock)) {
-      warn(`stale workspace active-task lock ignored because its recorded session no longer exists: ${workerLockDir}`);
-      fs.rmSync(workerLockDir, { recursive: true, force: true });
-    } else {
-      if (stringField(lock, "task_id") !== options.taskId) blocker("planner_closeout_lock_task_mismatch", `workspace active-task lock belongs to task_id=${stringField(lock, "task_id") || "<unknown>"}, not ${options.taskId}: ${workerLockDir}`);
-      if (!stringField(lock, "integration_branch")) blocker("planner_closeout_lock_branch_missing", `workspace active-task lock missing integration_branch: ${workerLockFile}`);
-      if (stringField(lock, "integration_branch") !== options.integrationBranch) blocker("planner_closeout_lock_branch_mismatch", `workspace active-task lock integration branch mismatch: lock='${stringField(lock, "integration_branch")}' closeout='${options.integrationBranch}'`);
-    }
+    if (stringField(lock, "task_id") !== options.taskId) blocker("planner_closeout_lock_task_mismatch", `workspace active-task lock belongs to task_id=${stringField(lock, "task_id") || "<unknown>"}, not ${options.taskId}: ${workerLockDir}`);
+    if (!stringField(lock, "integration_branch")) blocker("planner_closeout_lock_branch_missing", `workspace active-task lock missing integration_branch: ${workerLockFile}`);
+    if (stringField(lock, "integration_branch") !== options.integrationBranch) blocker("planner_closeout_lock_branch_mismatch", `workspace active-task lock integration branch mismatch: lock='${stringField(lock, "integration_branch")}' closeout='${options.integrationBranch}'`);
   }
   if (!options.allowDirty && (git(plannerWorkspace, ["diff", "--quiet"]).status !== 0 || git(plannerWorkspace, ["diff", "--cached", "--quiet"]).status !== 0)) blocker("planner_closeout_dirty_worktree", `dirty planner worktree/index at '${plannerWorkspace}'; commit or stash first (or pass --allow-dirty)`);
   const scriptDir = currentScriptDirectory(import.meta.url);
@@ -189,8 +146,7 @@ export function main(argv = process.argv.slice(2)) {
   const recordBranch = stringField(record, "integration_branch");
   if (!recordPlanner) blocker("planner_closeout_workspace_planner_missing", `planner workspace record missing planner_session_id: ${recordFile}`);
   if (!recordBranch) blocker("planner_closeout_workspace_branch_missing", `planner workspace record missing integration_branch: ${recordFile}`);
-  const plannerId = resolveSessionId(plannerSessionRef);
-  if (recordPlanner !== plannerId) blocker("planner_closeout_workspace_planner_mismatch", `planner workspace planner mismatch: record='${recordPlanner}' closeout='${plannerId}'`);
+  if (recordPlanner !== plannerSessionRef) blocker("planner_closeout_workspace_planner_mismatch", `planner workspace planner mismatch: record='${recordPlanner}' closeout='${plannerSessionRef}'`);
   if (recordBranch !== options.integrationBranch) blocker("planner_closeout_workspace_branch_mismatch", `planner workspace integration branch mismatch: record='${recordBranch}' closeout='${options.integrationBranch}'`);
 
   const original = git(plannerWorkspace, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
@@ -237,7 +193,7 @@ export function main(argv = process.argv.slice(2)) {
   }
 
   let pruneStatus = "skipped";
-  let healthStatus = "skipped";
+  const healthStatus = "not_applicable";
   let workspaceLockStatus = "not_checked";
   let taskWorkspaceLockStatus = "not_checked";
   let workspaceRecordStatus = "not_checked";
@@ -291,15 +247,6 @@ export function main(argv = process.argv.slice(2)) {
     if (result.status === 0) pruneStatus = "ok";
     else { pruneStatus = "failed"; optionalFails += 1; warn(`optional prune failed rc=${result.status}`); }
   }
-  if (healthGate) {
-    const args = ["--task-id", options.taskId, "--worker-workspace", workerWorkspace, "--planner-session-id", plannerSessionRef, "--coder-session-id", coderRef, "--reviewer-session-id", reviewerRef, "--architect-session-id", architectRef, "--artifact-root", plannerArtifactRoot, "--max-worker-sessions", options.maxWorkerSessions];
-    if (options.profile) args.push("--profile", options.profile);
-    const result = invokeNodeScript(path.join(scriptDir, "closeout-health-gate.mjs"), args);
-    if (result.stdout) process.stdout.write(result.stdout);
-    if (result.stderr) process.stderr.write(result.stderr);
-    if (result.status === 0) healthStatus = "ok";
-    else { healthStatus = "failed"; optionalFails += 1; warn(`optional health gate failed rc=${result.status}`); }
-  }
   if (optionalFails === 0) {
     const result = invokeNodeScript(path.join(scriptDir, "prepare-workspaces.mjs"), ["--worker-workspace", workerWorkspace, "--planner-workspace", plannerWorkspace, "--planner-session-id", plannerSessionRef, "--worker-artifact-root", workerArtifactRoot, "--planner-artifact-root", plannerArtifactRoot, "--release-workspaces"]);
     if (result.status === 0) workspaceRecordStatus = result.stdout.includes("status=already_absent") ? "already_absent" : "released";
@@ -309,7 +256,7 @@ export function main(argv = process.argv.slice(2)) {
   }
   writeState();
   if (optionalFails > 0) {
-    if (optionalFails !== 1 || healthStatus !== "failed") notify("planner_closeout_required_ok_optional_warn", "warn", `Planner closeout required actions done: ${options.taskId}`, `Required actions succeeded; ${optionalFails} optional action(s) failed.`);
+    notify("planner_closeout_required_ok_optional_warn", "warn", `Planner closeout required actions done: ${options.taskId}`, `Required actions succeeded; ${optionalFails} optional action(s) failed.`);
     process.stdout.write(`planner_closeout_ok_with_optional_warn task_id=${options.taskId} state=${stateFile} optional_fail_count=${optionalFails}\n`);
   } else {
     notify("planner_closeout_ok", "info", `Planner closeout completed: ${options.taskId}`, "Required and optional actions completed.");

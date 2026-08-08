@@ -53,30 +53,33 @@ currently rejects the Claude-only field; retain it as a cross-harness exception.
 
 - Agent 1, **Planner** (`delegate-task`, `delegate-code-task`, `execute-plan`, `planner-closeout`): planning agent, chooses an execution surface, prepares execution briefs, can execute a supervisor-assigned task list inside one workspace, and completes planner-side closeout
 - Supervisor: generic upstream report target; may dispatch a plan to a planner and receive one final plan report back
-- Agent Deck Worker: persistent, named session for a bounded outcome when history must survive restarts, explicit control, later coordination, or user-visible/intervenable progress matters
+- Persistent-session Worker: a named host session for a bounded outcome when history must survive restarts, explicit control, later coordination, or user-visible/intervenable progress matters
 - Agent 2, **Coder** (implementation): executes tasks and applies code changes
 - Agent 3, **Reviewer** (`review-code`): review agent, produces the full review report directly in message body
 - Agent 4, **Architect** (`review-design-spec`): per-topic reviewer for an exact immutable design-specification artifact or committed specification snapshot
 - Agent 5, **Browser Tester** (`browser-test`): usually a reusable long-lived runtime validation agent, keeps browser state warm when available, checks behavior with `agent-browser`, and reports evidence back to the requester session
 - Refactor Reviewer (`refactor-review`): advisory reviewer that inspects existing code for duplication and simplification opportunities without making changes
 - Roundtable Moderator (`roundtable`): user-facing discussion controller; creates Waypost group, selects participants, drains group updates, and presents synthesis
-- Roundtable Participant (`roundtable-participant`): agent-deck session that reads a group stream as one participant and posts concise role-specific replies
+- Roundtable Participant (`roundtable-participant`): persistent host session that reads a group stream as one participant and posts concise role-specific replies
 - User: makes acceptance decisions only when the workflow explicitly requires human gating
 
 ## Execution Surfaces
 
 - local execution: immediate work owned by the current session
 - native harness subagent: short, independent parallel work with no durable session or later message coordination
-- Agent Deck worker: a persistent, user-visible session with history across restarts and explicit workspace/tool control; start it directly for user-led work, or attach Waypost when a requester needs later coordination or a result
+- persistent-session worker: a persistent, user-visible host session with history across restarts and explicit workspace/tool control; start it directly for user-led work, or attach Waypost when a requester needs later coordination or a result
 
-Choose the lightest surface that preserves the task's lifecycle. Parallelism alone does not justify Agent Deck. Do not use Agent Deck to emulate a native harness subagent.
+Choose the lightest surface that preserves the task's lifecycle. Parallelism alone does not justify a persistent host session. Do not use one to emulate a native harness subagent.
 
 `$delegate-task [$skill | skill] ...` uses only its first input token as an optional skill, classifies delivery effects, and forwards required known context/source. Code-owned work uses `delegate-code-task`.
 
 ## Core Transport
 
 - `waypost` is the authoritative workflow message layer
-- Action skills start or require target collaborator sessions through the active backend; `agent-deck` is the current implementation.
+- Action skills start or require target collaborator sessions through Waypost's
+  generic `session_resolve`, `session_require`, and `session_create` tools.
+  Waypost selects the active supported host; prompts retain the host returned
+  by those tools instead of assuming Agent Deck.
 - `multi-agent-protocol/references/internal-protocol/shared-protocol.md` owns recv/wait, async sender, and target-status rules
 - `waypost` MCP is the default transport interface for agents
 - Workflow messages live in message `subject` + `body`
@@ -89,7 +92,7 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 2. After `delegate-task` Selection-Only Use selects a Waypost worker for a code task, Planner runs `delegate-code-task` and sends one code delegate workflow message.
 3. Planner or Coder may start two-architect drafting for an unresolved goal, or request direct review of mature committed design specifications.
 4. Coder implements changes and commits a delivery snapshot. In delegated coder flow, that commit is already workflow-authorized and overrides generic default commit-approval rules.
-5. Task-level review is planner-controlled: when required, coder runs `review-request`; it creates or reuses a reviewer as a planner child. A `standalone` review has no planner or closeout; its reviewer is a requester child.
+5. Task-level review is planner-controlled: when required, coder runs `review-request`; it creates or reuses a reviewer with the verified planner parent. A `standalone` review has no planner or closeout; its reviewer uses the verified requester parent.
 6. Reviewer runs `review-code` and sends either:
    - `rework_required` back to Coder, or
    - `browser_check_requested` to Browser Tester, or
@@ -99,17 +102,17 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 9. Repeat until quality is acceptable under workflow policy; unattended mode auto-accepts no-must-fix results by default unless the user or policy explicitly requires a human gate.
 10. After task acceptance, Reviewer runs `review-closeout` and sends one closeout Waypost message to Planner.
 11. Planner runs `planner-closeout` from that `closeout_delivered` body and batches merge/progress/next-task work.
-12. Coder, Reviewer, and Architect can be fully exited; Browser Tester stays long-lived.
+12. Coder, Reviewer, Architect, and Browser Tester lifecycle is provider-managed; generic workflow closeout does not delete sessions.
 
 ## Supervisor-To-Planner Plan Execution
 
 1. Supervisor runs `dispatch-plan` and sends one `execute_plan` message to a planner.
 2. That planner owns one workspace and the internal task decomposition needed to complete the assigned goal.
-3. Planner chooses local execution, a native harness subagent when available, or Agent Deck for each implementation task. Persistent Waypost Agent Deck code work uses `delegate-code-task`; local and harness code work use planner-owned branch, commit, review, and closeout.
+3. Planner chooses local execution, a native harness subagent when available, or a persistent host session for each implementation task. Persistent Waypost code work uses `delegate-code-task`; local and harness code work use planner-owned branch, commit, review, and closeout.
 4. For each task, planner may choose `Per-task review: required` or `skip`.
 5. After the assigned goal is complete, planner may request one final integrated review from its own integration branch.
 6. Planner sends one `plan_report_delivered` summary back to supervisor.
-7. After receiving a completed report with no open items, supervisor merges the planner integration branch, then cleans up the planner-owned structure for that run.
+7. After receiving a completed report with no open items, supervisor merges the planner integration branch and reports the planner session as provider-managed.
 
 ## Roundtable Discussion Workflow
 
@@ -118,18 +121,18 @@ Use `roundtable` when the user wants a multi-agent discussion, brainstorm, criti
 1. User talks only to the moderator.
 2. Moderator clarifies intent, proposes participants, and creates a `group/roundtable-...` Waypost group.
 3. Moderator registers itself as group notification subscriber with `waypost_group_add_subscriber`.
-4. Participants are real child agent-deck sessions of the moderator, with tool commands resolved through role `roundtable_participant`.
+4. Participants are persistent host sessions with the moderator as their verified same-host parent, using launch candidates resolved through role `roundtable_participant`.
 5. Moderator sends clarified user intent to the group and nudges selected participants with personal control messages; the first turn is parallel by default, later turns are targeted unless the user asks for sequential round-robin.
 6. Participants read group unread messages with `waypost_recv` plus `as_person`, then post one group reply.
 7. Group subscriber updates arrive as normal personal `group_message_available` deliveries, so the moderator uses normal `check-waypost-messages` pickup and then runs `roundtable` Moderator Group Check.
 8. Moderator presents synthesis to the user with per-participant `message_id` traceability; raw group history remains the source of truth.
-9. Ending keeps sessions and Waypost message history by default; explicit cleanup removes participant sessions and the Agent Deck participant group after final synthesis.
+9. Ending keeps sessions and Waypost message history by default. Generic workflow code does not delete provider-owned participant sessions.
 
 ## Flow Diagram
 
 ```mermaid
 flowchart TD
-    Q[Requester / User] -->|direct startup| W[Agent Deck Worker]
+    Q[Requester / User] -->|direct startup| W[Persistent-session Worker]
     Q -->|message: execute_delegated_task| W
     W -->|message: delegated_task_result| Q
     P[Planner] -->|message: execute_delegate_task| C[Coder]
@@ -173,13 +176,13 @@ flowchart TD
 - `execute-plan` is the planner-side runtime action for a supervisor-assigned task list in one workspace
 - `plan-report` is the supervisor-side runtime action for the final report from that planner
 - `check-waypost-messages` routes generic delegation actions to `delegate-task`, code delegation to `delegate-code-task`, and `group/roundtable-*` `group_message_available` to `roundtable`; replace the group name-pattern rule with an explicit mapping if another group workflow is added
-- planner-owned coder/reviewer/architect/refactor-reviewer sessions are created as child sessions through `agent_deck_create_session` with explicit parent group; root group is empty and valid
-- use Agent Deck for work a user may want to observe, steer, resume, or revisit; expose its session id/title in the user-facing dispatch result
+- planner-owned coder/reviewer/architect/refactor-reviewer sessions use the verified planner parent through generic Waypost session tools
+- use a persistent host session for work a user may want to observe, steer, resume, or revisit; expose its returned session id in the user-facing dispatch result
 - `$explain-for-me` writes `.agent-artifacts/explain-for-me/<id>/index.html`; remote viewing uses an on-demand artifact URI or loopback/SSH tunnel.
 - delegated task/integration reviewers are parented to planner, not coder; standalone reviewers are parented to requester
-- Prefer child sessions when agent Deck can represent ownership and cleanup directly.
+- Prefer same-host child sessions when the provider can represent parent ownership directly.
 - A planner may be top-level outside `dispatch-plan`; do not assume every planner is a child session.
-- Current agent-deck session hierarchy cannot always express deeper workflow ownership once a planner is already a child; keep any subgroup/group-path fallback inside the session manager rather than the workflow contract.
+- Generic workflow contracts do not rely on host groups or provider-specific cleanup semantics.
 - The receiver should always read message `body` first
 - A received workflow message is executable work, not a notification to acknowledge and ignore
 - Use `check-waypost-messages` as the receiver-side wake handler
@@ -190,7 +193,7 @@ flowchart TD
 - Use `waypost_list` with `state: acked` only when you need to find a specific older persisted delivery to reread
 - External files are supplemental references only, not the default transport
 
-## Incremental Automation with Agent Deck
+## Incremental Workflow Automation
 
 Current recommended operating mode:
 
@@ -202,7 +205,7 @@ Current recommended operating mode:
 4. Default to unattended final acceptance/closeout; require user confirmation only when the user or workflow policy explicitly makes acceptance human-gated.
 5. Keep transport content in message bodies. Immutable Design Specification rounds are product artifacts, not message substitutes.
 6. Keep planner closeout actions batched after acceptance.
-7. When supervisor finishes integrating a planner lane result, clean up the planner-owned structure that was actually used for that run.
+7. When supervisor finishes integrating a planner lane result, release workflow workspace state and report provider-managed sessions; do not delete them through generic workflow code.
 8. Supervisor-side integration uses `git merge`; do not switch to `cherry-pick`, `rebase`, or manual history surgery unless the user explicitly asks.
 
 Use skills:
@@ -221,4 +224,4 @@ Use skills:
 - Audience-adapted HTML explainer: `explain-for-me`
 - Refactor review request: `refactor-review-request`
 - Refactor advisor: `refactor-review`
-- Agent Deck skill + docs bundle: use `agent-deck`; docs live under its `references/`
+- Agent Deck integration (optional): use `agent-deck`; its host-specific docs live under its `references/`

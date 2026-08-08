@@ -11,11 +11,15 @@ upstream dependencies. It is intentionally separate from `SKILL.md` metadata:
 frontmatter decides when an agent loads a skill; the catalog decides how a human
 installs and operates a collection.
 
-`config/tool-profiles.toml` is packaged runtime configuration. User overrides
-are layered from the XDG `agentgear` config directory and the project-local
-`tool-profiles.local.toml`; neither depends on the maintainer's old dotfiles.
-Its `[templates]` section supplies reusable command fragments, expanded only
-for `${templates.name}` references in candidate commands.
+`config/tool-profiles.toml` maps workflow roles to ordered launch candidates.
+Each candidate has a full command line and may carry a user-maintained
+Thurbox agent key. User overrides are layered from the XDG `agentgear` config
+directory and the project-local `tool-profiles.local.toml`. The resolver
+returns those opaque values to a workflow action; Waypost selects the host and
+consumes only its applicable value. Waypost never owns this mapping or reads
+Thurbox configuration. The resolver's explicit `--check-config` maintenance
+command may inspect the user's Thurbox `agents.toml` to warn about missing or
+unknown keys; normal workflow resolution does not perform that inspection.
 
 The workflow pack depends on Waypost plus one declared session host. Agent
 Deck remains an optional upstream skill/executable integration; Thurbox uses

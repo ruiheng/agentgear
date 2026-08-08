@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  commandJson, execute, fail, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic
+  execute, fail, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic
 } from "./workflow-lib.mjs";
 import { notifyWorkflowEvent } from "./notify-workflow-event.mjs";
 
@@ -16,7 +16,7 @@ Options:
   --worker-workspace <path>       Required worker/shared workspace path
   --planner-workspace <path>      Required planner closeout workspace path
   --integration-branch <ref>      Required non-task landing branch for prepare/refresh mode
-  --planner-session-id <id|title> Planner session ref (default: current agent-deck session id)
+  --planner-session-id <id>       Required opaque planner session id
   --supervisor-session-id <id|title> Optional supervisor session id/ref
   --worker-artifact-root <path>   Worker artifact root (default: <worker-workspace>/.agent-artifacts)
   --planner-artifact-root <path>  Planner artifact root (default: <planner-workspace>/.agent-artifacts)
@@ -38,26 +38,6 @@ function requireGitWorkspace(workspace) {
   if (!fs.statSync(workspace, { throwIfNoEntry: false })?.isDirectory()) fail(`workspace does not exist: ${workspace}`);
   if (git(workspace, ["rev-parse", "--is-inside-work-tree"]).status !== 0) fail(`workspace is not inside a git repository: ${workspace}`);
   return fs.realpathSync(workspace);
-}
-
-function agentDeckSession(ref) {
-  return commandJson("agent-deck", ["session", "show", ref, "--json"]);
-}
-
-function resolveCurrentSessionId() {
-  const id = stringField(commandJson("agent-deck", ["session", "current", "--json"]), "id");
-  if (!id) fail("failed to resolve current agent-deck session id; pass --planner-session-id");
-  return id;
-}
-
-function resolveSessionId(ref) {
-  const id = stringField(agentDeckSession(ref), "id");
-  if (!id) fail(`failed to resolve agent-deck session id for '${ref}'`);
-  return id;
-}
-
-function tryResolveSessionId(ref) {
-  return stringField(agentDeckSession(ref), "id");
 }
 
 function isTaskBranchRef(ref) {
@@ -168,6 +148,7 @@ export function main(argv = process.argv.slice(2)) {
   }
   if (!options.workerWorkspace) fail("--worker-workspace is required");
   if (!options.plannerWorkspace) fail("--planner-workspace is required");
+  if (!options.plannerSessionId) fail("--planner-session-id is required");
   const release = options.releaseWorkspaces || options.releasePlannerWorkspace;
   const override = options.overrideWorkspaces || options.overridePlannerWorkspace;
   if (release && override) fail("--release-workspaces cannot be combined with --override-workspaces");
@@ -176,7 +157,6 @@ export function main(argv = process.argv.slice(2)) {
   if (release && options.supervisorSessionId) fail("--supervisor-session-id is not allowed with --release-workspaces");
   if (release && options.allowDirty) fail("--allow-dirty is not allowed with --release-workspaces");
   requireCommand("git");
-  requireCommand("agent-deck");
   const workerWorkspace = requireGitWorkspace(options.workerWorkspace);
   const plannerWorkspace = requireGitWorkspace(options.plannerWorkspace);
   const workerArtifactRoot = options.workerArtifactRoot || path.join(workerWorkspace, ".agent-artifacts");
@@ -184,15 +164,13 @@ export function main(argv = process.argv.slice(2)) {
   const workerRecord = path.join(workerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspace.json");
   const plannerRecord = path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspace.json");
   const recordFiles = [...new Set([workerRecord, plannerRecord])];
-  const plannerInput = options.plannerSessionId || resolveCurrentSessionId();
-  const plannerSessionId = resolveSessionId(plannerInput);
+  const plannerSessionId = options.plannerSessionId;
 
   const releaseMatches = filePath => {
     const record = readJson(filePath);
     const recordPlanner = value(record, "planner_session_id");
     if (!recordPlanner) fail(`workspace record missing planner_session_id: ${filePath}`);
-    const resolved = tryResolveSessionId(recordPlanner);
-    if (recordPlanner !== plannerSessionId && recordPlanner !== plannerInput && resolved !== plannerSessionId) fail(`workspace record planner mismatch: record='${recordPlanner}' expected='${plannerSessionId}' file='${filePath}'`);
+    if (recordPlanner !== plannerSessionId) fail(`workspace record planner mismatch: record='${recordPlanner}' expected='${plannerSessionId}' file='${filePath}'`);
     if (value(record, "worker_workspace") !== workerWorkspace) fail(`workspace record worker path mismatch: record='${value(record, "worker_workspace")}' expected='${workerWorkspace}' file='${filePath}'`);
     if (value(record, "planner_workspace") !== plannerWorkspace) fail(`workspace record planner path mismatch: record='${value(record, "planner_workspace")}' expected='${plannerWorkspace}' file='${filePath}'`);
   };
@@ -232,20 +210,13 @@ export function main(argv = process.argv.slice(2)) {
   const canonicalFile = existing[0];
   validateRecordSet(canonicalFile, recordFiles, plannerSessionId);
   const record = readJson(canonicalFile);
-  const recordPlannerRef = value(record, "planner_session_id");
-  const recordPlannerId = tryResolveSessionId(recordPlannerRef);
-  if (!recordPlannerId) {
-    const checkout = ensureDetachedWorkerHead(workerWorkspace, options.integrationBranch, commit, options.allowDirty);
-    writeSet("stale_replaced");
-    output("stale_replaced", checkout);
-    return;
-  }
-  if (recordPlannerId !== plannerSessionId) fail(`workspace record planner mismatch: record='${recordPlannerId}' expected='${plannerSessionId}' file='${canonicalFile}'`);
+  const recordPlannerId = value(record, "planner_session_id");
+  if (recordPlannerId !== plannerSessionId) fail(`workspace record planner mismatch: record='${recordPlannerId}' expected='${plannerSessionId}' file='${canonicalFile}'; use --override-workspaces only after explicit confirmation`);
   if (value(record, "integration_branch") !== options.integrationBranch) fail(`workspace record integration branch mismatch: record='${value(record, "integration_branch")}' expected='${options.integrationBranch}' file='${canonicalFile}'`);
   if (value(record, "supervisor_session_id") && options.supervisorSessionId && value(record, "supervisor_session_id") !== options.supervisorSessionId) fail(`workspace record supervisor mismatch: record='${value(record, "supervisor_session_id")}' expected='${options.supervisorSessionId}' file='${canonicalFile}'`);
   if (value(record, "worker_workspace") && value(record, "worker_workspace") !== workerWorkspace) fail(`workspace record worker path mismatch: record='${value(record, "worker_workspace")}' expected='${workerWorkspace}' file='${canonicalFile}'`);
   if (value(record, "planner_workspace") && value(record, "planner_workspace") !== plannerWorkspace) fail(`workspace record planner path mismatch: record='${value(record, "planner_workspace")}' expected='${plannerWorkspace}' file='${canonicalFile}'`);
-  const needsRefresh = recordPlannerRef !== recordPlannerId || (options.supervisorSessionId && value(record, "supervisor_session_id") !== options.supervisorSessionId) || !value(record, "worker_workspace") || !value(record, "planner_workspace") || missingRecord;
+  const needsRefresh = (options.supervisorSessionId && value(record, "supervisor_session_id") !== options.supervisorSessionId) || !value(record, "worker_workspace") || !value(record, "planner_workspace") || missingRecord;
   const checkout = ensureDetachedWorkerHead(workerWorkspace, options.integrationBranch, commit, options.allowDirty);
   if (needsRefresh) {
     writeSet("matched_refreshed");

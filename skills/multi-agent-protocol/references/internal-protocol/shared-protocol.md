@@ -24,7 +24,8 @@ Enter multi-agent mode when any condition matches:
 
 - At first dispatch, or when target identity/workdir is uncertain, create or require the target collaborator session.
 - Later, require a confirmed target only when it is known not to be running; otherwise send to its real id.
-- The action skill owns target-specific creation and reuse; follow the shared tool-resolution contract before creating a session without a full command.
+- The action skill owns target-specific creation and reuse; follow the shared
+  tool-resolution and session-host contracts before creating a session.
 - Creating a collaborator session is workflow lifecycle, not a host-subagent API call.
   Use the generic session-host contract; do not infer the host in an action
   prompt.

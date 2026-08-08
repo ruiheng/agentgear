@@ -82,7 +82,7 @@ Optional command additions:
 - do not start planner closeout speculatively while coder or reviewer work is still in progress
 - run the planner closeout script for `closeout_delivered` and completed `code_delivery_complete` only
 - for `temporary; cleanup=planner`, require a complete Handoff, then require `task_dir` and `worker_workspace` to resolve to the same path before batch or cleanup; otherwise retain both paths and report the mismatch
-- for `temporary; cleanup=planner`, after batch success, try to remove or rehome sessions using `task_dir`; remove the listed non-primary worktree only when none remains. Report `cleanup=complete` on success; otherwise retain it and report `cleanup=pending`. This best-effort cleanup does not delay, reopen, or replay delivery.
+- for `temporary; cleanup=planner`, after batch success, remove the listed non-primary worktree only when no workflow work remains. Generic workflow code does not remove or rehome host sessions. Report `cleanup=complete` on success; otherwise retain it and report `cleanup=pending`. This best-effort cleanup does not delay, reopen, or replay delivery.
 - after planner closeout, later tasks in the same workflow must run workspace prepare again before their own closeout path
 - do not dispatch another planner lane into the same workspace merely because the reservation record was released; let the supervisor/dispatcher schedule lanes
 - if the shared workspace still shows active coder changes when closeout starts, stop and report the blocker instead of altering workspace state around those changes

@@ -10,7 +10,7 @@ Use `delegate-task` in Selection-Only Use first when another action owns surface
 
 ## Code Scope
 
-- Use this only for the workflow-owned Waypost code lane. Local, harness-subagent, and explicit user-owned direct Deck work retain their own lifecycle.
+- Use this only for the workflow-owned Waypost code lane. Local, harness-subagent, and explicit user-owned direct work retain their own lifecycle.
 - Keep code tasks serial. Decompose locally; ask only if splitting changes scope, priority, or tradeoffs.
 
 ## Brief Quality
@@ -52,10 +52,10 @@ Use the shared context priority. Resolve before dispatch:
 - workflow policy: unattended with automatic acceptance when no must-fix finding; use a human gate only when explicitly requested
 - `special_requirements`: explicit -> delegated context; preserve verbatim; omit when absent
 
-Resolve a tool command only when creating a session:
+Resolve a launch candidate only when creating a session:
 
 - coder: explicit full command -> intended current-tool continuity -> shared role `coder`
-- preserve existing session tool metadata
+- preserve existing session launch metadata
 - do not create the reviewer during delegate dispatch; preserve explicit reviewer routing in the body. `review-request` resolves or reuses it on demand.
 
 ## Message Body
@@ -78,7 +78,7 @@ Round: 1
 [One sentence]
 
 ## Session Contract
-- Why Agent Deck: <session_reason>
+- Why persistent session: <session_reason>
 
 ## Context
 - Parent goal: [only if it affects local choices]
@@ -114,7 +114,7 @@ Round: 1
 - If skipped: after commit and validation, send `code_delivery_complete` to planner
 - On a blocker before an accepted task review: send `code_delivery_complete` to planner under either policy
 - After any successful review request or terminal handoff above, end this turn. Do nothing until the next instruction.
-- Reviewer routing: ref=<reviewer_session_ref>; id=<reviewer_session_id>; profile=<reviewer_tool_profile>; cmd=<reviewer_tool_cmd> [required only; omit absent values]
+- Reviewer routing: ref=<reviewer_session_ref>; id=<reviewer_session_id> [required only; omit absent values]
 - Workflow policy: [only when non-default]
 
 ## Special Requirements
@@ -137,18 +137,15 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 
    Stop on workspace or integration-branch mismatch. Use `--override-workspaces` only after explicit user confirmation.
 
-2. Resolve the coder id/ref:
+2. Resolve the coder id/ref through the shared session-host contract:
 
-   - found: `agent_deck_require_session` with its real id and `worker_workspace`
-   - not found: resolve its tool command, then call `agent_deck_create_session` with:
-     - `ensure_title = <coder_session_ref>`
-     - `ensure_cmd = <coder_tool_cmd>`
-     - `workdir = <worker_workspace>`
-     - `parent_session_id = <planner_session_id>`
-     - `group_path = <planner group; empty for root>`
-     - `no_parent_link = false`
+   - reuse a found coder with `session_require` and its returned host, real id,
+     path, and address;
+   - otherwise require the planner parent, resolve role `coder`, and create
+     `<coder_session_ref>` with its selected opaque launch candidate.
 
-   Use the returned real id. Do not create the reviewer; `review-request` resolves or reuses it on demand.
+   Record the returned host, real id, and sole address. Do not create the
+   reviewer; `review-request` resolves or reuses it on demand.
 
 3. Fill `{{TO_SESSION_ID}}`, then send through the lock-owning wrapper:
 
@@ -159,6 +156,8 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
      --integration-branch <integration_branch> \
      --planner-session-id <planner_session_id> \
      --coder-session-id <coder_session_id> \
+     --from-address <waypost_status.default_sender> \
+     --to-address <coder returned address> \
      --coder-session-ref <coder_session_ref> \
      --task-branch <task_branch> \
      --subject "delegate code: <task_id> -> coder" \
@@ -173,8 +172,8 @@ After dispatch:
 
 - follow the shared Async sender rule
 - treat the worker worktree as coder-owned until closeout, even when planner and worker paths are equal
-- leave the coder session usable until closeout; closeout removes it when possible and reports `cleanup=pending` on failure
-- keep any reviewer planner-scoped and in the same worker workspace
+- leave the coder session provider-managed after closeout; report only workspace cleanup status
+- keep any reviewer under the planner parent and in the same worker workspace
 - planner attempts recorded temporary-worktree cleanup after closeout and reports `cleanup=complete` or `cleanup=pending`; neither changes delivery completion
 
 ## Coder Receive
@@ -218,14 +217,14 @@ Round: final
 ```
 
 - Omit `## User Decisions` when no temporary scope decision exists.
-- For `Outcome: completed`, send only when review is skipped. For `Outcome: blocked`, send under either policy; include any existing delivery commit. Send from `agent-deck/<coder_session_id>` to `agent-deck/<planner_session_id>`, subject `code delivery complete: <task_id>`; ack the claimed instruction only after send succeeds. The planner reports the blocker or runs closeout; do not run `review-closeout` or claim an accepted review.
+- For `Outcome: completed`, send only when review is skipped. For `Outcome: blocked`, send under either policy; include any existing delivery commit. Send from the current `waypost_status.default_sender` to the recorded planner address with subject `code delivery complete: <task_id>`; ack the claimed instruction only after send succeeds. The planner reports the blocker or runs closeout; do not run `review-closeout` or claim an accepted review.
 
 ## User-Facing Result
 
 Return only:
 
 - delegated objective
-- Agent Deck reason
+- persistent-session reason
 - task and integration branches
 - coder session id
 - temporary workspace and cleanup status, when applicable

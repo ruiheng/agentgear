@@ -10,6 +10,19 @@ function resolveAgentgearConfigDir(env = process.env, homeDir = os.homedir()) {
   return path.resolve(xdgConfigHome, "agentgear");
 }
 
+function resolveThurboxConfigDir(env = process.env, homeDir = os.homedir()) {
+  const configuredDir = String(env.THURBOX_CONFIG_DIR || "").trim();
+  if (configuredDir) {
+    return path.resolve(configuredDir);
+  }
+  const xdgConfigHome = env.XDG_CONFIG_HOME || path.join(homeDir, ".config");
+  return path.resolve(xdgConfigHome, "thurbox");
+}
+
+function resolveThurboxAgentsConfigPath(env = process.env, homeDir = os.homedir()) {
+  return path.join(resolveThurboxConfigDir(env, homeDir), "agents.toml");
+}
+
 function uniquePaths(paths) {
   return [...new Set(paths.filter(Boolean).map((configPath) => path.resolve(configPath)))];
 }
@@ -31,6 +44,10 @@ function resolveDefaultLocalConfigPaths(
 
 const DEFAULT_CONFIG_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../config/tool-profiles.toml");
 const DEFAULT_LOCAL_CONFIG_PATH = path.join(resolveAgentgearConfigDir(), "tool-profiles.local.toml");
+const DEFAULT_LOCAL_CONFIG_EXAMPLE_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../config/tool-profiles.local.example.toml"
+);
 const DEFAULT_LOCAL_CONFIG_PATHS = resolveDefaultLocalConfigPaths();
 
 const ROLE_COMPATIBILITY_ALIASES = Object.freeze({
@@ -40,19 +57,21 @@ const ROLE_COMPATIBILITY_ALIASES = Object.freeze({
 
 const HELP_TEXT = `Usage: resolve-tool-command.js [options]
 
-Resolve a tool command from an explicit command, profile, inherited command, or role default.
+Resolve ordered launch candidates from an explicit command, profile, inherited command, or role default.
 
 Options:
   --role <role>                  Resolve the profile configured for a role
   --profile <profile>            Resolve an explicit profile
-  --command <command>            Use an explicit tool command
-  --inherit-command <command>    Use an existing inherited tool command
+  --command <command>            Use an explicit full command line
+  --inherit-command <command>    Use an existing inherited full command line
   --show-list                    Include all usable tool candidates
   --list-roles                   List configured role names
   --workdir <path>               Inspect commands in the target workdir
   --target-path <PATH>           Inspect commands with the target PATH
   --config <path>                Use a specific tool-profiles.toml
   --local-config <path>          Apply a local tool profile override
+  --init-local-config            Create the XDG user override from the bundled example
+  --check-config                 Validate resolver configuration and Thurbox agent keys
   --format <json|text>           Select output format (default: json)
   --json                         Use JSON output
   -h, --help                     Show this help message
@@ -443,6 +462,252 @@ function loadToolConfig(
   return mergedConfig;
 }
 
+function initializeLocalConfig({ destinationPath, examplePath } = {}) {
+  const requestedDestinationPath =
+    destinationPath ?? path.join(resolveAgentgearConfigDir(), "tool-profiles.local.toml");
+  const requestedExamplePath = examplePath ?? DEFAULT_LOCAL_CONFIG_EXAMPLE_PATH;
+  if (
+    typeof requestedDestinationPath !== "string" ||
+    !requestedDestinationPath.trim()
+  ) {
+    throw new Error("local config destination path must be non-empty");
+  }
+  if (typeof requestedExamplePath !== "string" || !requestedExamplePath.trim()) {
+    throw new Error("local config example path must be non-empty");
+  }
+
+  const resolvedDestinationPath = path.resolve(requestedDestinationPath);
+  const resolvedExamplePath = path.resolve(requestedExamplePath);
+  if (!fs.existsSync(resolvedExamplePath)) {
+    throw new Error(`local config example not found: ${resolvedExamplePath}`);
+  }
+  const contents = fs.readFileSync(resolvedExamplePath, "utf8");
+  fs.mkdirSync(path.dirname(resolvedDestinationPath), { recursive: true });
+  try {
+    fs.writeFileSync(resolvedDestinationPath, contents, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch (error) {
+    if (error && error.code === "EEXIST") {
+      throw new Error(
+        `refusing to overwrite existing local config: ${resolvedDestinationPath}`
+      );
+    }
+    throw error;
+  }
+  return resolvedDestinationPath;
+}
+
+function parseThurboxAgentsToml(text) {
+  const agentKeys = [];
+  const lines = text.split(/\r?\n/);
+  let inAgent = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = stripInlineComment(lines[i]).trim().replace(/^\uFEFF/, "");
+    if (!line) {
+      continue;
+    }
+
+    const arraySectionMatch = line.match(/^\[\[(.+)\]\]$/);
+    if (arraySectionMatch) {
+      inAgent = arraySectionMatch[1].trim() === "agents";
+      continue;
+    }
+    if (/^\[(.+)]$/.test(line)) {
+      inAgent = false;
+      continue;
+    }
+    if (!inAgent) {
+      continue;
+    }
+
+    const eqIndex = line.indexOf("=");
+    if (eqIndex === -1) {
+      throw new Error(`invalid Thurbox agent assignment on line ${i + 1}`);
+    }
+    const key = line.slice(0, eqIndex).trim();
+    if (key !== "name") {
+      continue;
+    }
+    const agentKey = parseTomlValue(line.slice(eqIndex + 1).trim());
+    if (typeof agentKey !== "string" || !agentKey.trim()) {
+      throw new Error(
+        `Thurbox agent name must be a non-empty string on line ${i + 1}`
+      );
+    }
+    agentKeys.push(agentKey.trim());
+  }
+
+  return [...new Set(agentKeys)];
+}
+
+function collectConfiguredCandidates(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("tool profile config must be an object");
+  }
+  if (!config.roles || typeof config.roles !== "object" || Array.isArray(config.roles)) {
+    throw new Error("tool profile config roles must be a table");
+  }
+  if (
+    !config.profiles ||
+    typeof config.profiles !== "object" ||
+    Array.isArray(config.profiles)
+  ) {
+    throw new Error("tool profile config profiles must be a table");
+  }
+
+  for (const [role, profileName] of Object.entries(config.roles)) {
+    if (typeof profileName !== "string" || !profileName.trim()) {
+      throw new Error(`tool role must name a non-empty profile: ${role}`);
+    }
+    if (!Object.prototype.hasOwnProperty.call(config.profiles, profileName)) {
+      throw new Error(`tool role references an unknown profile: ${role} -> ${profileName}`);
+    }
+  }
+
+  const configuredCandidates = [];
+  for (const profileName of Object.keys(config.profiles).sort()) {
+    const profile = config.profiles[profileName];
+    if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+      throw new Error(`tool profile must be a table: ${profileName}`);
+    }
+    const strategy = profile.strategy ?? "ordered";
+    if (strategy !== "ordered") {
+      throw new Error(`unsupported tool profile strategy: ${strategy}`);
+    }
+    if (!Array.isArray(profile.candidates) || !profile.candidates.length) {
+      throw new Error(`tool profile must declare at least one candidate: ${profileName}`);
+    }
+
+    for (let candidateIndex = 0; candidateIndex < profile.candidates.length; candidateIndex += 1) {
+      configuredCandidates.push({
+        profile: profileName,
+        candidate_index: candidateIndex,
+        candidate: normalizeToolCandidate(
+          profile.candidates[candidateIndex],
+          profileName,
+          candidateIndex,
+          config.templates
+        ),
+      });
+    }
+  }
+  return configuredCandidates;
+}
+
+function inspectThurboxCli({
+  inspectCommand = inspectToolCommand,
+  inspectionOptions = {},
+} = {}) {
+  return inspectCommand("thurbox-cli", {
+    cwd: process.cwd(),
+    cwdTrusted: true,
+    pathEnv: process.env.PATH,
+    pathTrusted: true,
+    ...inspectionOptions,
+  });
+}
+
+function checkToolConfig(
+  config,
+  {
+    inspectCommand = inspectToolCommand,
+    inspectionOptions = {},
+    thurboxInspection,
+    thurboxConfigPath = resolveThurboxAgentsConfigPath(),
+    readFile = fs.readFileSync,
+  } = {}
+) {
+  const configuredCandidates = collectConfiguredCandidates(config);
+  const inspection =
+    thurboxInspection ?? inspectThurboxCli({ inspectCommand, inspectionOptions });
+  const thurboxAvailable = inspection?.availability === "available";
+  const result = {
+    valid: true,
+    thurbox: {
+      available: thurboxAvailable,
+    },
+    warnings: [],
+  };
+
+  if (!thurboxAvailable) {
+    if (inspection && inspection.reason) {
+      result.thurbox.reason = inspection.reason;
+    }
+    return result;
+  }
+
+  const resolvedThurboxConfigPath = path.resolve(thurboxConfigPath);
+  result.thurbox.agents_config_path = resolvedThurboxConfigPath;
+  let configuredAgentKeys;
+  try {
+    configuredAgentKeys = parseThurboxAgentsToml(
+      readFile(resolvedThurboxConfigPath, "utf8")
+    );
+    result.thurbox.agent_keys = configuredAgentKeys;
+    if (!configuredAgentKeys.length) {
+      result.warnings.push({
+        code: "thurbox_agents_config_empty",
+        agents_config_path: resolvedThurboxConfigPath,
+      });
+    }
+  } catch (error) {
+    configuredAgentKeys = null;
+    result.warnings.push({
+      code: "thurbox_agents_config_unreadable",
+      agents_config_path: resolvedThurboxConfigPath,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const configuredAgentKeySet = configuredAgentKeys
+    ? new Set(configuredAgentKeys)
+    : null;
+  for (const { profile, candidate_index, candidate } of configuredCandidates) {
+    if (!candidate.thurbox_agent_key) {
+      result.warnings.push({
+        code: "missing_thurbox_agent_key",
+        profile,
+        candidate_index,
+      });
+      continue;
+    }
+    if (
+      configuredAgentKeySet &&
+      !configuredAgentKeySet.has(candidate.thurbox_agent_key)
+    ) {
+      result.warnings.push({
+        code: "unknown_thurbox_agent_key",
+        profile,
+        candidate_index,
+        thurbox_agent_key: candidate.thurbox_agent_key,
+        agents_config_path: resolvedThurboxConfigPath,
+      });
+    }
+  }
+
+  return result;
+}
+
+function describeConfigWarning(warning) {
+  if (warning.code === "missing_thurbox_agent_key") {
+    return `${warning.profile} candidate ${warning.candidate_index + 1}: missing thurbox_agent_key`;
+  }
+  if (warning.code === "unknown_thurbox_agent_key") {
+    return `${warning.profile} candidate ${warning.candidate_index + 1}: thurbox_agent_key ${JSON.stringify(warning.thurbox_agent_key)} is not declared in ${warning.agents_config_path}`;
+  }
+  if (warning.code === "thurbox_agents_config_empty") {
+    return `Thurbox agents configuration has no [[agents]] names: ${warning.agents_config_path}`;
+  }
+  if (warning.code === "thurbox_agents_config_unreadable") {
+    return `cannot read Thurbox agents configuration ${warning.agents_config_path}: ${warning.message}`;
+  }
+  return JSON.stringify(warning);
+}
+
 function applyRoleCompatibility(config) {
   const sourceRoles = config.roles || {};
   const roles = { ...sourceRoles };
@@ -771,10 +1036,25 @@ function normalizeToolCandidate(candidate, profileName, candidateIndex, template
         candidateIndex
     );
   }
+  if (
+    candidate.thurbox_agent_key !== undefined &&
+    (typeof candidate.thurbox_agent_key !== "string" ||
+      !candidate.thurbox_agent_key.trim())
+  ) {
+    throw new Error(
+      "tool candidate thurbox_agent_key must be non-empty when set: " +
+        profileName +
+        " candidate " +
+        candidateIndex
+    );
+  }
 
   return {
     ...candidate,
     command: expandCommandTemplate(candidate.command, templates),
+    ...(candidate.thurbox_agent_key === undefined
+      ? {}
+      : { thurbox_agent_key: candidate.thurbox_agent_key.trim() }),
   };
 }
 
@@ -836,6 +1116,9 @@ function resolveProfileCommand(
   };
   if (!showList && selectedCandidate.startup_message !== undefined) {
     resolved.startup_message = selectedCandidate.startup_message;
+  }
+  if (selectedCandidate.thurbox_agent_key !== undefined) {
+    resolved.thurbox_agent_key = selectedCandidate.thurbox_agent_key;
   }
   if (unavailableToolCmds.length) {
     resolved.unavailable_tool_cmds = unavailableToolCmds;
@@ -954,6 +1237,9 @@ function parseArgs(argv) {
     targetPath: "",
     configPath: DEFAULT_CONFIG_PATH,
     localConfigPaths: resolveDefaultLocalConfigPaths(),
+    localConfigExplicit: false,
+    initLocalConfig: false,
+    checkConfig: false,
     format: "json",
     help: false,
   };
@@ -980,6 +1266,11 @@ function parseArgs(argv) {
       options.configPath = argv[++i] || "";
     } else if (arg === "--local-config") {
       options.localConfigPaths = [argv[++i] || ""];
+      options.localConfigExplicit = true;
+    } else if (arg === "--init-local-config") {
+      options.initLocalConfig = true;
+    } else if (arg === "--check-config") {
+      options.checkConfig = true;
     } else if (arg === "--format") {
       options.format = argv[++i] || "json";
     } else if (arg === "--json") {
@@ -1001,7 +1292,58 @@ function runCli(argv) {
     return;
   }
 
+  if (options.initLocalConfig && options.checkConfig) {
+    throw new Error("--init-local-config and --check-config cannot be combined");
+  }
+
+  if (options.initLocalConfig) {
+    if (options.format !== "json" && options.format !== "text") {
+      throw new Error(`unsupported output format: ${options.format}`);
+    }
+    const destinationPath = initializeLocalConfig();
+    if (options.format === "text") {
+      process.stdout.write(`created local config: ${destinationPath}\n`);
+    } else {
+      process.stdout.write(`${JSON.stringify({ created: destinationPath }, null, 2)}\n`);
+    }
+    return;
+  }
+
+  if (options.checkConfig && options.localConfigExplicit) {
+    for (const localConfigPath of options.localConfigPaths) {
+      if (!localConfigPath || !fs.existsSync(localConfigPath)) {
+        throw new Error(
+          `local tool profile config not found: ${path.resolve(localConfigPath || "")}`
+        );
+      }
+    }
+  }
+
   const config = loadToolConfig(options.configPath, options.localConfigPaths);
+  if (options.checkConfig) {
+    if (options.format !== "json" && options.format !== "text") {
+      throw new Error(`unsupported output format: ${options.format}`);
+    }
+    const checked = checkToolConfig(config);
+    if (options.format === "text") {
+      const thurboxStatus = checked.thurbox.available
+        ? `available (${checked.thurbox.agents_config_path})`
+        : "not available";
+      process.stdout.write(
+        [
+          "resolver configuration is valid",
+          `thurbox-cli: ${thurboxStatus}`,
+          `warnings: ${checked.warnings.length}`,
+        ].join("\n") + "\n"
+      );
+    } else {
+      process.stdout.write(`${JSON.stringify(checked, null, 2)}\n`);
+    }
+    for (const warning of checked.warnings) {
+      process.stderr.write(`warning: ${describeConfigWarning(warning)}\n`);
+    }
+    return;
+  }
   if (options.listRoles) {
     const roles = listConfiguredRoles(config);
     if (options.format === "text") {
@@ -1058,18 +1400,27 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
 export {
   DEFAULT_CONFIG_PATH,
   DEFAULT_LOCAL_CONFIG_PATH,
+  DEFAULT_LOCAL_CONFIG_EXAMPLE_PATH,
   DEFAULT_LOCAL_CONFIG_PATHS,
+  checkToolConfig,
+  collectConfiguredCandidates,
+  describeConfigWarning,
   inspectToolCommand,
+  inspectThurboxCli,
   expandCommandTemplate,
+  initializeLocalConfig,
   listConfiguredRoles,
   applyRoleCompatibility,
   loadToolConfig,
   mergeToolConfigs,
+  parseThurboxAgentsToml,
   parseToolProfilesToml,
   parseTomlValue,
   resolveAgentgearConfigDir,
   resolveCwdLocalConfigPath,
   resolveDefaultLocalConfigPaths,
+  resolveThurboxConfigDir,
+  resolveThurboxAgentsConfigPath,
   resolveToolCommand,
   resolveProfileCommand,
   runCli,

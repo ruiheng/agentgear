@@ -117,9 +117,6 @@ Browser Check: <browser_check_id>
 ## Known Constraints
 [Any known setup limits or missing prerequisites]
 
-## Tool Context
-- Browser tester tool profile: [browser_tester_tool_profile or `explicit`]
-- Browser tester tool cmd: [browser_tester_tool_cmd]
 ```
 
 ## Waypost Message Send
@@ -130,29 +127,22 @@ Recommended subject:
 Use the `waypost` MCP tools:
 - use `waypost`
 - resolve the browser tester target before send:
-  - if `browser_tester_session_id` is already known, call `agent_deck_require_session`
-    - `session_id = <browser_tester_session_id>`
-    - `workdir = <browser_tester_workspace>`
-    - keep the existing browser tester tool metadata; do not resolve a fresh `browser_tester_tool_cmd`
-  - otherwise call `agent_deck_resolve_session`
-    - `session = <browser_tester_session_ref>`
-  - if that ref resolves and its returned `path` matches `<browser_tester_workspace>`, call `agent_deck_require_session`
-    - `session_id = <resolved browser_tester_session_id>`
-    - `workdir = <browser_tester_workspace>`
-    - keep the existing browser tester tool metadata; do not resolve a fresh `browser_tester_tool_cmd`
-  - if that ref does not resolve, or it resolves to a different workspace path, call `agent_deck_create_session`
-    - first resolve `browser_tester_tool_profile` / `browser_tester_tool_cmd` by the shared tool-resolution contract for role `browser_tester`
-      - preserve explicit full `browser_tester_tool` unchanged when provided
-      - otherwise resolve the role `browser_tester` command
-    - `ensure_title = <browser_tester_session_ref>`
-    - `ensure_cmd = <browser_tester_tool_cmd>`
-    - `workdir = <browser_tester_workspace>`
-    - `no_parent_link = true`
-- use the returned `session_id` as the authoritative `browser_tester_session_id`
+  - if `browser_tester_session_id` is already known, call `session_require`
+    with its returned host, real id, and `workdir = <browser_tester_workspace>`
+  - otherwise call `session_resolve` with `browser_tester_session_ref`
+  - if that ref resolves and its returned `path` matches
+    `<browser_tester_workspace>`, call `session_require`
+  - if it does not resolve, require a requester parent in the same workspace,
+    resolve role `browser_tester`, then call `session_create` with the selected
+    opaque launch candidate. If the requested tester workspace differs from
+    the requester parent workspace, ask the user to create the direct tester
+    session manually instead.
+- record the returned host, real id, and sole address as the authoritative
+  `browser_tester_session_id` route
 - fill `{{TO_SESSION_ID}}` in the message body before sending
 - call `waypost_send` with:
-  - `from_address = agent-deck/<requester_session_id>`
-  - `to_address = agent-deck/<browser_tester_session_id>`
+  - `from_address = waypost_status.default_sender`
+  - `to_address = <browser tester returned address>`
   - `subject = "browser check: <task_id> r<round>"`
   - `body = <browser-check message body>`
 
@@ -163,8 +153,8 @@ Use the `waypost` MCP tools:
 - prefer reusing the long-lived `browser-tester` session for this environment
 - if a resolved `browser-tester` ref points at a different workspace, ignore that hit and create a workspace-local browser tester instead
 - if no reusable `browser-tester` session exists in the requested workspace, create it from this request flow and continue
-- carry both requester and browser-tester workspaces in the message body so later `agent_deck_require_session` calls can verify the correct worktree
-- on require paths, preserve existing session tool metadata
+- carry both requester and browser-tester workspaces in the message body so later `session_require` calls can verify the correct worktree
+- on require paths, preserve existing session launch metadata
 - once this request resolves or creates the target, use the returned real `browser_tester_session_id` for the actual message send
 - a review-driven report returns to reviewer; otherwise it returns to the supplied requester
 - setup questions go to Setup Contact; reports always return to requester
@@ -172,4 +162,4 @@ Use the `waypost` MCP tools:
 - if browser-tester edits are allowed, request body must say so explicitly and provide the branch name
 - browser-tester edits are only for display-adjacent code
 - review-driven tester edits are provisional; delivery owner must submit them in a new review round before acceptance
-- leave `listener_message` empty unless a rare bootstrap/control case truly needs a pre-message startup instruction
+- do not add a pre-message startup instruction; the durable request is the bootstrap path

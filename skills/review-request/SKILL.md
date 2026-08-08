@@ -149,7 +149,7 @@ Identity rules:
 - use the bound Waypost sender context for sender validation
 
 Reviewer continuity:
-- treat a known real `reviewer_session_id` as authoritative and reuse it with `agent_deck_require_session`
+- treat a known real `reviewer_session_id` as authoritative and reuse it with `session_require`
 - otherwise resolve `reviewer_session_ref`; create a reviewer only when no real id resolves
 
 Commit reference rule:
@@ -310,19 +310,13 @@ Preferred path: use the `waypost` MCP tools.
 Workflow send sequence:
 1. use `waypost`
 2. compose the body with `{{TO_SESSION_ID}}` where the real reviewer session id must appear
-3. choose candidate: known `reviewer_session_id`, otherwise resolve `reviewer_session_ref`
-4. if a candidate resolves, call `agent_deck_require_session` with its real id and `workdir = <current workspace>`
-5. otherwise resolve reviewer tool metadata by the shared tool-resolution contract for role `reviewer`, then call `agent_deck_create_session` with:
-     - `ensure_title = <reviewer_session_ref>`
-     - `ensure_cmd = <reviewer_tool_cmd>`
-     - `workdir = <current workspace>`
-     - `task` / `integration_final`: `parent_session_id = <planner_session_id>`, `group_path = <planner session group; empty string for root>`
-     - `standalone`: `parent_session_id = <requester_session_id>`, `group_path = <requester session group; empty string for root>`
-     - `no_parent_link = false`
-6. use the returned `session_id` as the authoritative `reviewer_session_id`
+3. choose candidate: known `reviewer_session_id`, otherwise resolve `reviewer_session_ref` with `session_resolve`
+4. if a candidate resolves, call `session_require` with its returned host, real id, and `workdir = <current workspace>`
+5. otherwise resolve role `reviewer` through the shared tool-resolution contract. Require the parent first, using `<planner_session_id>` for `task` / `integration_final` or `<requester_session_id>` for `standalone`; then call `session_create` for `<reviewer_session_ref>` with the selected opaque launch candidate.
+6. record the returned host, real id, and sole address as the authoritative reviewer route
 7. fill the final body and call `waypost_send` with:
-   - `from_address = agent-deck/<requester_session_id>`
-   - `to_address = agent-deck/<reviewer_session_id>`
+   - `from_address = waypost_status.default_sender`
+   - `to_address = <reviewer returned address>`
    - `subject = "review request: <task_id> r<round>"`
    - `body = <review-request message body>`
 

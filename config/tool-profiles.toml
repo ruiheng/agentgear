@@ -1,6 +1,11 @@
 version = 2
 
-# Optional candidate startup_message is used only for a new session.
+# Optional candidate startup_message is for an explicit legacy Agent Deck
+# helper only; generic Waypost session creation delivers its task after create.
+# Optional thurbox_agent_key is user-maintained in a local override and is
+# passed unchanged to Thurbox when that host is selected.
+# Run resolve-tool-command.js --check-config to validate local key names when
+# thurbox-cli is available.
 # `${templates.name}` in a candidate command expands [templates].name.
 
 [templates]

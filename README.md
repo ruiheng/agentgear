@@ -97,6 +97,37 @@ The workflow pack needs one supported persistent-session host:
 least one of those session hosts are ready. Agentgear does not copy either
 host's upstream implementation.
 
+### Resolve session launch values
+
+Workflow roles such as `planner`, `coder`, and `reviewer` are resolved by
+`config/tool-profiles.toml`, with user and project overrides in
+`tool-profiles.local.toml`. A candidate's `command` is the full command line
+for Agent Deck-like hosts. Thurbox users add a matching
+`thurbox_agent_key` beside that command in their own override; it must match
+their Thurbox configuration. Waypost receives those opaque values only when a
+new session is created and does not own a second mapping file.
+
+Initialize the user-local override from the bundled example, without replacing
+an existing file:
+
+~~~bash
+agentgear run multi-agent-protocol resolve-tool-command.js --init-local-config
+~~~
+
+From a source checkout, invoke the same script with
+`node skills/multi-agent-protocol/scripts/resolve-tool-command.js`.
+
+Check the merged resolver configuration explicitly. The command validates the
+resolver structure and, when `thurbox-cli` is available, checks configured
+`thurbox_agent_key` values against Thurbox's `agents.toml` (honoring
+`THURBOX_CONFIG_DIR` when set, otherwise the XDG config path). Missing or
+unknown keys are warnings; they do not make the check fail. Use `--format text`
+for a human-readable summary.
+
+~~~bash
+agentgear run multi-agent-protocol resolve-tool-command.js --check-config --format text
+~~~
+
 ## Uninstall
 
 Remove a selected pack or skill from a target:
@@ -165,14 +196,13 @@ All repository-owned executable scripts use Node.js. `git` and `waypost` are
 workflow dependencies; `agent-deck` or `thurbox-cli` provides the persistent
 session host. `doctor` checks the declared requirements.
 
-The bundled tool profiles live in `config/tool-profiles.toml`. Start from
-`config/tool-profiles.local.example.toml`, then override templates, roles, or
-candidates with `$XDG_CONFIG_HOME/agentgear/tool-profiles.local.toml` (or
+`config/tool-profiles.toml` is the shared role-to-launch-candidate resolver.
+Start from `config/tool-profiles.local.example.toml`, then override templates,
+roles, or candidates with
+`$XDG_CONFIG_HOME/agentgear/tool-profiles.local.toml` (or
 `~/.config/agentgear/tool-profiles.local.toml`) and a project-local
-`tool-profiles.local.toml`; the project-local layer wins.
-
-`[templates]` defines reusable command fragments. `${templates.name}` in a
-candidate `command` expands the named value, while other `${...}` text is
-preserved. Within each configuration layer, an `architect` override also
-applies to `architect_author` and `architect_reviewer` unless that layer sets a
-child role explicitly.
+`tool-profiles.local.toml`; the project-local layer wins. A candidate may set
+`thurbox_agent_key`; it must match that user's Thurbox configuration. The
+workflow resolver does not infer keys during normal session creation. Use its
+explicit `--check-config` command when you want Agentgear to verify the local
+key names.

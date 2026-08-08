@@ -22,7 +22,7 @@ Provide `execute_plan`, or a matching `integration_final` result plus plan conte
 - the planner should auto-advance whenever the next step is clear
 - if a blocker cannot be resolved locally, stop and ask the user directly
 - do not send routine blocker message to supervisor
-- select code tasks through `delegate-task` Selection-Only; only persistent Waypost Agent Deck work uses `delegate-code-task`
+- select code tasks through `delegate-task` Selection-Only; persistent Waypost code work uses `delegate-code-task`
 - code-changing tasks are complete only after commit, any required review, closeout merge, and progress recording
 - claiming `execute_plan` does not require planner to implement code personally; dispatch, review, closeout, and final report still count as completing the workflow
 - planner is not done when implementation is done; planner is done only after one final `plan_report_delivered` message is successfully sent to supervisor
@@ -59,8 +59,8 @@ Final-review continuation:
 5. for each implementation task:
    - before starting the task, run workspace prepare for the recorded workspace and integration branch
    - use `delegate-task` Selection-Only; never generic Dispatch
-   - use Direct Planner Implementation only when its local gate passes; otherwise use a native harness when available, a justified persistent Waypost Agent Deck worker via `delegate-code-task` (pass `session_reason` and `Per-task review`), or Planner-Owned Nonpersistent Fallback
-   - a direct user-led Deck session is outside this workflow-owned delivery lane
+   - use Direct Planner Implementation only when its local gate passes; otherwise use a native harness when available, a justified persistent Waypost worker via `delegate-code-task` (pass `session_reason` and `Per-task review`), or Planner-Owned Nonpersistent Fallback
+   - a direct user-led host session is outside this workflow-owned delivery lane
 6. cross-session work may take unbounded time; after sending it, follow the shared Async sender rule
    - for a persistent code worker, handle a later `code_delivery_complete` with `planner-closeout` before starting the next task; only skipped review may complete through it, while a blocker retains task state
 7. when the goal is complete:
@@ -81,7 +81,7 @@ Use this only after `delegate-task` Selection-Only Use selects local execution. 
 - narrow verification is sufficient
 - delegation would be pure coordination overhead
 
-If any condition fails, do not use the direct fast path: use Native Harness Implementation when available; use `delegate-code-task` only when Agent Deck has an independent lifecycle or user-interaction reason; otherwise use Planner-Owned Nonpersistent Fallback.
+If any condition fails, do not use the direct fast path: use Native Harness Implementation when available; use `delegate-code-task` only when a persistent host session has an independent lifecycle or user-interaction reason; otherwise use Planner-Owned Nonpersistent Fallback.
 
 ## Native Harness Implementation
 
@@ -89,7 +89,7 @@ Use this only after `delegate-task` Selection-Only Use selects a native harness 
 
 ## Planner-Owned Nonpersistent Fallback
 
-Use this when the task fails the direct gate, no native harness is available, and Agent Deck is not justified. The planner is the executor under Planner-Owned Code Delivery; create no worker session or Waypost task.
+Use this when the task fails the direct gate, no native harness is available, and a persistent host session is not justified. The planner is the executor under Planner-Owned Code Delivery; create no worker session or Waypost task.
 
 ## Planner-Owned Code Delivery
 
@@ -108,7 +108,7 @@ Use this after direct, harness, or planner-owned fallback selection. The planner
 6. stage and commit the task change without asking the user for routine commit confirmation
 7. if `Per-task review: required`:
    - run `review-request` with `requester_role = planner`, `review_lane = task`, the recorded branch plan, workspace handoff (`worker_workspace`, `task_dir = worker_workspace`, `workspace_lifecycle = shared; cleanup=none`), and the delivery commit or task branch as scope
-   - let `review-request` create or reuse the reviewer on demand with `parent_session_id = <planner_session_id>` and the planner session group, including empty string for root
+   - let `review-request` create or reuse the reviewer on demand with the verified planner parent
    - after `review-request` sends the request, follow the shared Async sender rule
    - when a later inbound reviewer acceptance produces `closeout_delivered`, handle it with `planner-closeout` before marking the task done
 8. if `Per-task review: skip`, run workspace prepare for this planner-owned task, then run `planner-closeout-batch.mjs` directly with the recorded `task_branch`, `integration_branch`, `worker_workspace`, `planner_workspace`, `task_id`, and task dir before marking the task done; a persistent Waypost coder instead returns `code_delivery_complete` for `planner-closeout`
@@ -119,11 +119,11 @@ Ask the user only for real scope/tradeoff decisions, explicit human gates, dirty
 
 ## Decision Rules
 
-- `delegate-task` Selection-Only owns execution-surface selection; `delegate-code-task` owns only persistent Waypost Agent Deck code work
+- `delegate-task` Selection-Only owns execution-surface selection; `delegate-code-task` owns only persistent Waypost code work
 - understanding the implementation does not by itself authorize direct implementation
-- direct work needs local selection and its gate; otherwise use a harness, independently justified Deck, or nonpersistent fallback
+- direct work needs local selection and its gate; otherwise use a harness, independently justified persistent host session, or nonpersistent fallback
 - Planner-Owned Code Delivery owns branch, commit, review, and closeout for local, harness, and nonpersistent work; fallback creates no worker/session
-- Deck needs durable history, explicit control, or user-visible/intervenable execution; difficulty alone is not enough
+- a persistent host session needs durable history, explicit control, or user-visible/intervenable execution; difficulty alone is not enough
 - keep the decomposition local to this planner; supervisor assigns the goal, not the internal task breakdown
 - do not treat completed implementation, review, or closeout as plan completion; the plan completes only after `plan_report_delivered` is successfully sent to supervisor
 - if user input is needed for scope, priority, or tradeoff, ask the user directly and stop

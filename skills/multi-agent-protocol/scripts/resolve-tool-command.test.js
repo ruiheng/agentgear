@@ -6,16 +6,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  checkToolConfig,
   expandCommandTemplate,
+  initializeLocalConfig,
   inspectToolCommand,
   listConfiguredRoles,
   loadToolConfig,
+  parseThurboxAgentsToml,
   parseTomlValue,
   parseToolProfilesToml,
   mergeToolConfigs,
   resolveAgentgearConfigDir,
   resolveCwdLocalConfigPath,
   resolveDefaultLocalConfigPaths,
+  resolveThurboxConfigDir,
+  resolveThurboxAgentsConfigPath,
   resolveToolCommand,
   runCli,
 } from "./resolve-tool-command.js";
@@ -134,6 +139,32 @@ test("resolveAgentgearConfigDir follows XDG config conventions", () => {
   );
 });
 
+test("resolveThurboxAgentsConfigPath follows XDG config conventions", () => {
+  assert.equal(
+    resolveThurboxAgentsConfigPath(
+      { XDG_CONFIG_HOME: "/tmp/custom-config" },
+      "/home/tester"
+    ),
+    "/tmp/custom-config/thurbox/agents.toml"
+  );
+  assert.equal(
+    resolveThurboxAgentsConfigPath({}, "/home/tester"),
+    "/home/tester/.config/thurbox/agents.toml"
+  );
+});
+
+test("resolveThurboxAgentsConfigPath honors Thurbox's config directory override", () => {
+  const env = {
+    THURBOX_CONFIG_DIR: "/srv/thurbox-config",
+    XDG_CONFIG_HOME: "/tmp/ignored",
+  };
+  assert.equal(resolveThurboxConfigDir(env, "/home/tester"), "/srv/thurbox-config");
+  assert.equal(
+    resolveThurboxAgentsConfigPath(env, "/home/tester"),
+    "/srv/thurbox-config/agents.toml"
+  );
+});
+
 test("resolveDefaultLocalConfigPaths layers user then current directory overrides", () => {
   assert.deepEqual(
     resolveDefaultLocalConfigPaths(
@@ -149,6 +180,26 @@ test("resolveDefaultLocalConfigPaths layers user then current directory override
   assert.equal(
     resolveCwdLocalConfigPath("/workspace/project"),
     "/workspace/project/tool-profiles.local.toml"
+  );
+});
+
+test("initializeLocalConfig copies the example without overwriting a user file", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-command-init-"));
+  const examplePath = path.join(tmpDir, "example.toml");
+  const destinationPath = path.join(tmpDir, "nested", "tool-profiles.local.toml");
+  fs.writeFileSync(examplePath, "[roles]\nreviewer = \"reviewer_local\"\n", "utf8");
+
+  assert.equal(
+    initializeLocalConfig({ destinationPath, examplePath }),
+    destinationPath
+  );
+  assert.equal(
+    fs.readFileSync(destinationPath, "utf8"),
+    "[roles]\nreviewer = \"reviewer_local\"\n"
+  );
+  assert.throws(
+    () => initializeLocalConfig({ destinationPath, examplePath }),
+    /refusing to overwrite existing local config/
   );
 });
 
@@ -175,7 +226,7 @@ candidates = [
   ]);
 });
 
-test("parseToolProfilesToml reads candidate tables and startup messages", () => {
+test("parseToolProfilesToml reads candidate tables, startup messages, and Thurbox keys", () => {
   const config = parseToolProfilesToml(`
 version = 2
 
@@ -185,6 +236,7 @@ strategy = "ordered"
 [[profiles.reviewer_default.candidates]]
 command = "codex --model gpt-5.6-luna"
 startup_message = "Follow the review workflow.\\nWait for the review request."
+thurbox_agent_key = "codex"
 
 [[profiles.reviewer_default.candidates]]
 command = "claude --model sonnet"
@@ -196,9 +248,178 @@ command = "claude --model sonnet"
       command: "codex --model gpt-5.6-luna",
       startup_message:
         "Follow the review workflow.\nWait for the review request.",
+      thurbox_agent_key: "codex",
     },
     { command: "claude --model sonnet" },
   ]);
+});
+
+test("parseThurboxAgentsToml reads configured agent names", () => {
+  assert.deepEqual(
+    parseThurboxAgentsToml(`
+default = "claude"
+
+[[agents]]
+name = "claude"
+command = "claude"
+
+[[agents]]
+name = "codex" # Inline comments are allowed.
+command = "codex"
+
+[[agents]]
+name = "codex"
+command = "codex --model gpt-5.6"
+`),
+    ["claude", "codex"]
+  );
+});
+
+test("checkToolConfig warns about missing and unknown Thurbox agent keys", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-command-check-"));
+  const thurboxConfigPath = path.join(tmpDir, "thurbox", "agents.toml");
+  fs.mkdirSync(path.dirname(thurboxConfigPath), { recursive: true });
+  fs.writeFileSync(
+    thurboxConfigPath,
+    `[[agents]]
+name = "codex"
+command = "codex"
+`,
+    "utf8"
+  );
+
+  const checked = checkToolConfig(
+    {
+      version: 2,
+      roles: { reviewer: "reviewer_default" },
+      templates: {},
+      profiles: {
+        reviewer_default: {
+          candidates: [
+            { command: "codex --model gpt-5.6", thurbox_agent_key: "codex" },
+            { command: "claude --model sonnet" },
+            { command: "agy", thurbox_agent_key: "unknown" },
+          ],
+        },
+      },
+    },
+    {
+      thurboxInspection: { availability: "available" },
+      thurboxConfigPath,
+    }
+  );
+
+  assert.equal(checked.valid, true);
+  assert.deepEqual(checked.thurbox.agent_keys, ["codex"]);
+  assert.deepEqual(
+    checked.warnings.map(({ code, profile, candidate_index, thurbox_agent_key }) => ({
+      code,
+      profile,
+      candidate_index,
+      thurbox_agent_key,
+    })),
+    [
+      {
+        code: "missing_thurbox_agent_key",
+        profile: "reviewer_default",
+        candidate_index: 1,
+        thurbox_agent_key: undefined,
+      },
+      {
+        code: "unknown_thurbox_agent_key",
+        profile: "reviewer_default",
+        candidate_index: 2,
+        thurbox_agent_key: "unknown",
+      },
+    ]
+  );
+});
+
+test("checkToolConfig skips Thurbox key warnings when thurbox-cli is unavailable", () => {
+  const checked = checkToolConfig(
+    {
+      version: 2,
+      roles: { reviewer: "reviewer_default" },
+      templates: {},
+      profiles: {
+        reviewer_default: {
+          candidates: [{ command: "codex --model gpt-5.6" }],
+        },
+      },
+    },
+    {
+      thurboxInspection: {
+        availability: "unavailable",
+        reason: "not_found_on_command_path",
+      },
+    }
+  );
+
+  assert.deepEqual(checked, {
+    valid: true,
+    thurbox: {
+      available: false,
+      reason: "not_found_on_command_path",
+    },
+    warnings: [],
+  });
+});
+
+test("checkToolConfig reports an unreadable Thurbox configuration as a warning", () => {
+  const checked = checkToolConfig(
+    {
+      version: 2,
+      roles: { reviewer: "reviewer_default" },
+      templates: {},
+      profiles: {
+        reviewer_default: {
+          candidates: [{ command: "codex --model gpt-5.6", thurbox_agent_key: "codex" }],
+        },
+      },
+    },
+    {
+      thurboxInspection: { availability: "available" },
+      thurboxConfigPath: "/tmp/thurbox/agents.toml",
+      readFile() {
+        throw new Error("permission denied");
+      },
+    }
+  );
+
+  assert.deepEqual(checked.warnings, [
+    {
+      code: "thurbox_agents_config_unreadable",
+      agents_config_path: "/tmp/thurbox/agents.toml",
+      message: "permission denied",
+    },
+  ]);
+});
+
+test("checkToolConfig rejects invalid resolver mappings", () => {
+  assert.throws(
+    () =>
+      checkToolConfig(
+        {
+          version: 2,
+          roles: { reviewer: "missing_profile" },
+          templates: {},
+          profiles: {},
+        },
+        { thurboxInspection: { availability: "unavailable" } }
+      ),
+    /tool role references an unknown profile/
+  );
+});
+
+test("CLI check rejects an explicitly missing local override", () => {
+  const missingPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "tool-command-missing-local-")),
+    "missing.toml"
+  );
+  assert.throws(
+    () => runCli(["--check-config", "--local-config", missingPath]),
+    /local tool profile config not found/
+  );
 });
 
 test("parseToolProfilesToml reads and expands command templates", () => {
@@ -659,6 +880,7 @@ test("resolveToolCommand returns ordered candidates with startup messages", () =
           {
             command: firstCommand,
             startup_message: "Follow the review workflow.",
+            thurbox_agent_key: "codex",
           },
           {
             command: secondCommand,
@@ -676,6 +898,7 @@ test("resolveToolCommand returns ordered candidates with startup messages", () =
   });
   assert.equal(selected.resolved_tool_cmd, firstCommand);
   assert.equal(selected.startup_message, "Follow the review workflow.");
+  assert.equal(selected.thurbox_agent_key, "codex");
 
   const listed = resolveToolCommand({
     role: "reviewer",
@@ -687,6 +910,7 @@ test("resolveToolCommand returns ordered candidates with startup messages", () =
     {
       command: firstCommand,
       startup_message: "Follow the review workflow.",
+      thurbox_agent_key: "codex",
     },
     {
       command: secondCommand,
@@ -738,6 +962,32 @@ test("resolveToolCommand rejects an empty configured startup_message", () => {
         },
       }),
     /startup_message must be non-empty when set/
+  );
+});
+
+test("resolveToolCommand rejects an empty configured Thurbox agent key", () => {
+  assert.throws(
+    () =>
+      resolveToolCommand({
+        profile: "reviewer_default",
+        inspectCommand: availableInspection,
+        config: {
+          version: 2,
+          roles: {},
+          profiles: {
+            reviewer_default: {
+              strategy: "ordered",
+              candidates: [
+                {
+                  command: "codex --model gpt-5.6-luna",
+                  thurbox_agent_key: " ",
+                },
+              ],
+            },
+          },
+        },
+      }),
+    /thurbox_agent_key must be non-empty when set/
   );
 });
 

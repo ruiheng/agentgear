@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  commandJson, currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, sleep, stringField, writeJsonAtomic
+  currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, writeJsonAtomic
 } from "./workflow-lib.mjs";
 
 const usage = `Send one delegated task with workflow-owned active-task lock protection.
@@ -17,6 +17,8 @@ Required:
   --integration-branch <ref>      Non-task landing branch
   --planner-session-id <id>       Planner sender session id
   --coder-session-id <id>         Coder target session id
+  --from-address <address>        Explicit Waypost sender address
+  --to-address <address>          Explicit Waypost recipient address
   --coder-session-ref <ref>       Coder session ref/title
   --task-branch <ref>             Task branch
   --subject <text>                Waypost Message subject
@@ -26,7 +28,6 @@ Optional:
   --artifact-root <path>          Artifact root (default: <workdir>/.agent-artifacts)
   --content-type <type>           Waypost Message content type (default: text/markdown)
   --schema-version <value>        Waypost Message schema version (default: 1)
-  --wake-delay-seconds <n>        Delay before target wake send (default: 10)
   --json                          Emit JSON summary
   -h, --help                      Show help`;
 
@@ -71,39 +72,30 @@ function mutateLock(lockFile, mutate) {
 
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
-    values: ["--workdir", "--task-id", "--integration-branch", "--planner-session-id", "--coder-session-id", "--coder-session-ref", "--task-branch", "--subject", "--body-file", "--artifact-root", "--content-type", "--schema-version", "--wake-delay-seconds"],
+    values: ["--workdir", "--task-id", "--integration-branch", "--planner-session-id", "--coder-session-id", "--from-address", "--to-address", "--coder-session-ref", "--task-branch", "--subject", "--body-file", "--artifact-root", "--content-type", "--schema-version"],
     flags: ["--json"],
-    defaults: { artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", wakeDelaySeconds: "10", json: false }
+    defaults: { artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", json: false }
   });
   if (options.help) {
     process.stdout.write(`${usage}\n`);
     return;
   }
-  for (const [key, label] of [["workdir", "--workdir"], ["taskId", "--task-id"], ["integrationBranch", "--integration-branch"], ["plannerSessionId", "--planner-session-id"], ["coderSessionId", "--coder-session-id"], ["coderSessionRef", "--coder-session-ref"], ["taskBranch", "--task-branch"], ["subject", "--subject"], ["bodyFile", "--body-file"]]) {
+  for (const [key, label] of [["workdir", "--workdir"], ["taskId", "--task-id"], ["integrationBranch", "--integration-branch"], ["plannerSessionId", "--planner-session-id"], ["coderSessionId", "--coder-session-id"], ["fromAddress", "--from-address"], ["toAddress", "--to-address"], ["coderSessionRef", "--coder-session-ref"], ["taskBranch", "--task-branch"], ["subject", "--subject"], ["bodyFile", "--body-file"]]) {
     if (!options[key]) fail(`${label} is required`);
   }
   requireCommand("waypost");
-  requireCommand("agent-deck");
   if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) fail(`workdir does not exist: ${options.workdir}`);
   options.workdir = fs.realpathSync(options.workdir);
   if (!options.artifactRoot) options.artifactRoot = path.join(options.workdir, ".agent-artifacts");
   const lockDir = path.join(options.artifactRoot.replace(/[\\/]+$/, ""), "active-task.lock");
   const lockFile = path.join(lockDir, "lock.json");
 
-  const coder = commandJson("agent-deck", ["session", "show", options.coderSessionId, "--json"]);
-  const resolvedId = stringField(coder, "id");
-  if (!resolvedId) fail(`coder session is not reachable: ${options.coderSessionId}`);
-  if (resolvedId !== options.coderSessionId) fail(`--coder-session-id must be a resolved session id; got ${options.coderSessionId}, resolved to ${resolvedId}`);
-  const sessionPath = stringField(coder, "path");
-  if (!sessionPath || !fs.statSync(sessionPath, { throwIfNoEntry: false })?.isDirectory()) fail(`coder session workspace does not exist: ${sessionPath || options.coderSessionId}`);
-  if (fs.realpathSync(sessionPath) !== options.workdir) fail(`coder session workspace mismatch: --workdir=${options.workdir}, session.path=${fs.realpathSync(sessionPath)}`);
-
   const scriptDir = currentScriptDirectory(import.meta.url);
   const lockResult = invokeNodeScript(path.join(scriptDir, "acquire-active-task-lock.mjs"), [
     "--workdir", options.workdir, "--task-id", options.taskId, "--integration-branch", options.integrationBranch,
     "--planner-session-id", options.plannerSessionId, "--coder-session-id", options.coderSessionId,
     "--coder-session-ref", options.coderSessionRef, "--task-branch", options.taskBranch,
-    "--from-address", `agent-deck/${options.plannerSessionId}`, "--to-address", `agent-deck/${options.coderSessionId}`,
+    "--from-address", options.fromAddress, "--to-address", options.toAddress,
     "--subject", options.subject, "--artifact-root", options.artifactRoot
   ]);
   if (lockResult.status !== 0) fail(`failed to acquire active-task lock: ${(lockResult.stderr || lockResult.stdout).trim()}`);
@@ -120,7 +112,7 @@ export async function main(argv = process.argv.slice(2)) {
       .split("{{TO_SESSION_ID}}").join(options.coderSessionId)
       .split("{{TO_SESSION_REF}}").join(options.coderSessionRef);
     validateBody(body, options);
-    const send = run("waypost", ["send", "--to", `agent-deck/${options.coderSessionId}`, "--from", `agent-deck/${options.plannerSessionId}`, "--subject", options.subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-"], { input: body });
+    const send = run("waypost", ["send", "--to", options.toAddress, "--from", options.fromAddress, "--subject", options.subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-"], { input: body });
     if (send.status !== 0) fail(`waypost send failed: ${(send.stderr || send.stdout).trim() || `exit code ${send.status}`}`, 3, "SEND_FAILED");
     completed = true;
     rollback = false;
@@ -138,19 +130,14 @@ export async function main(argv = process.argv.slice(2)) {
       lock.message_id = receipt.message_id || null;
       lock.sent_at = nowIso();
     });
-    const delay = Number(options.wakeDelaySeconds);
-    if (Number.isFinite(delay) && delay > 0) await sleep(delay * 1000);
-    const wake = run("agent-deck", ["session", "send", "--no-wait", options.coderSessionId, "NOTICE: There might be new message in waypost."]);
-    const wakeupStatus = wake.status === 0 ? "sent" : "failed";
     const summary = {
       status: "sent", task_id: options.taskId, from_session_id: options.plannerSessionId, to_session_id: options.coderSessionId,
       to_session_ref: options.coderSessionRef, subject: options.subject, delivery_id: receipt.delivery_id, message_id: receipt.message_id || null,
-      blob_id: receipt.blob_id || null, wakeup_status: wakeupStatus, wake_output: (wake.stderr || wake.stdout).trim() || null,
+      blob_id: receipt.blob_id || null, wakeup_status: "waypost_managed",
       lock_dir: lockDir, lock_file: lockFile, lock_output: lockResult.stdout.trim()
     };
     if (options.json) process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-    else process.stdout.write(`delegate_dispatch_ok task_id=${options.taskId} delivery_id=${receipt.delivery_id} wakeup_status=${wakeupStatus} lock_dir=${lockDir}\n`);
-    if (wakeupStatus === "failed") process.stderr.write(`WAKE_FAILED: delegate delivery ${receipt.delivery_id} was queued but target wakeup failed: ${(wake.stderr || wake.stdout).trim() || `exit code ${wake.status}`}\n`);
+    else process.stdout.write(`delegate_dispatch_ok task_id=${options.taskId} delivery_id=${receipt.delivery_id} wakeup_status=waypost_managed lock_dir=${lockDir}\n`);
   } finally {
     if (rollback && !completed && fs.existsSync(lockFile)) {
       try {

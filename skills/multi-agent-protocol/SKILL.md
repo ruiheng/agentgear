@@ -34,9 +34,12 @@ Use the protocol's Multi-Agent Mode Detection and Context Resolution Priority se
 
 Treat `waypost_*` names in this workflow as MCP tools, not shell commands; use CLI only for capabilities unavailable through MCP.
 
-## Tool Resolution
+## Launch Resolution
 
-Use `references/tool-resolution.md` for the shared tool-resolution contract before creating a new session.
+Before creating a new session, read `references/session-host.md` and
+`references/tool-resolution.md`. Resolve a workflow role to opaque launch
+candidate values; never invent a command line or Thurbox agent key in an
+action prompt.
 
 ## Error Handling and Diagnostics
 

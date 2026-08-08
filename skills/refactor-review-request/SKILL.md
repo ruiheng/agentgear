@@ -93,9 +93,6 @@ Round: <round>
 - no implementation
 - preserve existing behavior unless explicitly stated otherwise
 
-## Tool Context
-- Reviewer tool profile: [reviewer_tool_profile or `explicit`]
-- Reviewer tool cmd: [reviewer_tool_cmd]
 ```
 
 Round `>1` to the same reviewer session: send only delta.
@@ -120,9 +117,6 @@ Round: <round>
 ## Optional Review Focus
 [Unresolved question deserving emphasis or `None`; do not limit the full scoped review]
 
-## Tool Context
-- Reviewer tool profile: [reviewer_tool_profile or `existing-session`]
-- Reviewer tool cmd: [reviewer_tool_cmd or `existing-session`]
 ```
 
 ## Waypost Message Send
@@ -133,24 +127,13 @@ Recommended subject:
 Use the `waypost` MCP tools:
 1. use `waypost`
 2. compose the body with `{{TO_SESSION_ID}}` where the real reviewer session id must appear
-3. if this is round `1` for a new reviewer session, resolve `reviewer_tool_profile` / `reviewer_tool_cmd` by the shared tool-resolution contract for role `reviewer`
-   - preserve explicit full `reviewer_tool` unchanged when provided
-   - otherwise resolve the role `reviewer` command
-4. if this is round `1` for a new reviewer session, call `agent_deck_create_session`
-   - `ensure_title = <refactor_reviewer_session_ref>`
-   - `ensure_cmd = <reviewer_tool_cmd>`
-   - `workdir = <current workspace>`
-   - `parent_session_id = <requester_session_id>`
-   - `group_path = <requester session group; empty string for root>`
-   - `no_parent_link = false`
-   - record the returned `refactor_reviewer_session_id` and carry it in all later workflow turns
-5. otherwise call `agent_deck_require_session`
-   - `session_id = <refactor_reviewer_session_id>`
-   - `workdir = <current workspace>`
-6. use the returned `session_id` as the authoritative `refactor_reviewer_session_id`
+3. resolve an existing reviewer by real id or ref with `session_resolve`.
+4. if it is found, call `session_require` with its returned host, real id, and `workdir = <current workspace>`.
+5. otherwise resolve role `reviewer`, require the requester parent, and call `session_create` for `<refactor_reviewer_session_ref>` with the selected opaque launch candidate. Record the returned host, real id, and sole address for later turns.
+6. use the returned real id as the authoritative `refactor_reviewer_session_id`
 7. fill the final body and call `waypost_send` with:
-   - `from_address = agent-deck/<requester_session_id>`
-   - `to_address = agent-deck/<refactor_reviewer_session_id>`
+   - `from_address = waypost_status.default_sender`
+   - `to_address = <refactor reviewer returned address>`
    - `subject = "refactor review request: <task_id> r<round>"`
    - `body = <refactor review request body>`
 
@@ -162,6 +145,6 @@ Use the `waypost` MCP tools:
 - focus on one coherent code area or one review goal per request
 - later rounds to the same reviewer should be delta-only
 - if reviewer continuity changes, resend full context
-- create new refactor-reviewer sessions through `agent_deck_create_session` with `parent_session_id = <requester_session_id>`, `group_path = <requester session group; empty string for root>`, and `no_parent_link = false`
+- create new refactor-reviewer sessions through `session_create` with a verified requester parent
 - after the first create step, later workflow turns must reuse the real `refactor_reviewer_session_id`; do not fall back to `refactor_reviewer_session_ref`
 - follow the shared Async sender rule for the advisory report

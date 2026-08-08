@@ -36,8 +36,7 @@ When allocating a new planner lane:
 - one planner lane owns one session, workspace lifecycle, integration branch, and serial task decomposition in one workspace
 - set `planner_workspace = worker_workspace = workspace`; do not switch workspace or start another active lane there except an explicit resume
 - workspace reservation records prepare task closeout; they do not schedule planner-lane exclusivity
-- prefer a child session for the dispatched planner when agent-deck can represent the workflow directly that way
-- when deeper nesting needs subgroup fallback, keep that inside the session manager; do not expose it in the workflow contract
+- create the planner as a child of the supervisor through the selected session host; do not expose host grouping in the workflow contract
 - when creating a new planner session and no planner title/ref is provided, use `planner-YYYYMMDD-HHMM-<slug>`; do not use bare `planner`
 - `integration_branch` is the planner-owned branch for this dispatched plan, not the supervisor landing branch
 - for a new plan, resolve `source_ref`: explicit `review_base` -> current supervisor `HEAD`; run `git rev-parse --verify <source_ref>^{commit}`, store its OID as `review_base`, and create a fresh `integration_branch` from it before sending
@@ -45,8 +44,8 @@ When allocating a new planner lane:
 - do not silently reuse an existing planner integration branch from an earlier run; reuse is allowed only when the user explicitly says this dispatch is resuming that same unfinished plan
 - if the requested or derived `integration_branch` already exists and resume was not explicit, choose a new branch name or ask; do not dispatch onto an old branch tip
 - create the planner integration branch without switching the supervisor worktree; start from the recorded `review_base` OID
-- if `planner_tool` is omitted, honor an explicit `planner_tool_profile` first; otherwise prefer the current session tool/command from agent-deck session metadata for continuity; otherwise resolve the planner role default through the shared tool-resolution contract
-- when `planner_session_id` is already known, treat the planner session as existing and carry forward its recorded `planner_tool_profile` / `planner_tool_cmd`; do not resolve a fresh planner command
+- if `planner_tool` is omitted, honor an explicit `planner_tool_profile` first; otherwise use recorded workflow continuity or resolve the planner role default through the shared tool-resolution contract
+- when `planner_session_id` is already known, treat the planner session as existing and carry forward its recorded launch metadata; do not resolve a replacement
 - default `per_task_review = required`
 - default `final_review = skip`
 - blockers stop with a user question; do not add blocker message to supervisor
@@ -82,15 +81,11 @@ Round: 1
 - Per-task review: [required | skip]
 - Final integration review: [required | skip]
 
-## Tool Policy
-- Planner tool profile: [planner_tool_profile or `inherited`]
-- Planner tool cmd: [planner_tool_cmd]
-
 ## Planning Contract
 - Planner owns task decomposition and sequencing inside this workspace
 - Keep task execution serial in this workspace
 - Do not rely on workspace reservation records as cross-task locks; prepare the workspace again for each task closeout path
-- Use `delegate-task` Selection-Only: Direct only after its gate passes; otherwise use a native harness, independently justified persistent Waypost Agent Deck via `delegate-code-task`, or planner-owned nonpersistent delivery. Never generic Dispatch.
+- Use `delegate-task` Selection-Only: Direct only after its gate passes; otherwise use a native harness, independently justified persistent Waypost session via `delegate-code-task`, or planner-owned nonpersistent delivery. Never generic Dispatch.
 - Planner owns branch, commit, review, and closeout for local, harness, and nonpersistent delivery.
 - Planner-local execution and any later delegated work both stay in the one workspace recorded above
 - Any self-implemented code change still requires workspace prep, explicit task branch from `integration_branch`, commit, any required review, closeout merge, and final supervisor report
@@ -108,11 +103,11 @@ Round: 1
 3. resolve `workspace`
 4. set internal `planner_workspace = workspace` and `worker_workspace = workspace`
 5. resolve `planner_session_ref`; when creating a new planner and no existing ref/id is provided, generate `planner-YYYYMMDD-HHMM-<slug>` from the workspace or goal
-6. resolve planner tool policy only when allocating a new planner lane, following the shared tool-resolution contract for role `planner`
-   - if `planner_session_id` is already known, skip this resolution step and carry forward the existing planner tool metadata
+6. resolve planner launch policy only when allocating a new planner lane, following the shared tool-resolution contract for role `planner`
+   - if `planner_session_id` is already known, skip this resolution step and carry forward the existing planner launch metadata
    - if explicit `planner_tool` is provided, preserve it unchanged as `planner_tool_cmd`
    - otherwise, if explicit `planner_tool_profile` is provided, resolve role `planner` with that profile
-   - otherwise, if current session metadata provides the supervisor's current full tool command, reuse it as `planner_tool_cmd` and record `planner_tool_profile = inherited`
+   - otherwise, if workflow context records a supervisor launch candidate for continuity, reuse it
    - otherwise resolve the default role `planner` command
    - record both `planner_tool_profile` and `planner_tool_cmd`
 7. resolve `integration_branch`
@@ -122,31 +117,22 @@ Round: 1
    - do not switch the supervisor worktree onto that branch
    - if the preferred branch name already exists and resume was not explicit, choose a new unique suffix instead of reusing that ref
    - on resume, preserve the recorded `review_base`
-9. use `waypost`
-10. if this dispatch is allocating a new planner lane, call `agent_deck_create_session` for the planner target
-   - `ensure_title = <planner_session_ref>`
-   - `ensure_cmd = <planner_tool_cmd>`
-   - `workdir = <planner_workspace>`
-   - `parent_session_id = <supervisor_session_id>`
-   - `group_path = <supervisor session group; empty string for root>`
-   - `no_parent_link = false`
-   - record the returned `planner_session_id` and carry it in all later workflow turns for that lane
-11. otherwise call `agent_deck_require_session`
-   - `session_id = <planner_session_id>`
-   - `workdir = <planner_workspace>`
-12. use the returned `session_id` as the authoritative `planner_session_id`
+9. call `waypost_status` and resolve the planner target by its real id or ref.
+10. if this dispatch allocates a new planner lane, require the supervisor parent, then call `session_create` for `<planner_session_ref>` with the selected opaque launch candidate, the parent real id, and `<planner_workspace>`.
+11. otherwise call `session_require` with the returned host, real planner id, and `<planner_workspace>`.
+12. record the returned host, real id, and sole address as the authoritative planner route for later workflow turns.
 13. fill `{{TO_SESSION_ID}}`
 14. send with:
-   - `from_address = agent-deck/<supervisor_session_id>`
-   - `to_address = agent-deck/<planner_session_id>`
+   - `from_address = waypost_status.default_sender`
+   - `to_address = <planner returned address>`
    - `subject = "plan dispatch: <plan_id>"`
    - `body = <execute-plan message body>`
 15. follow the shared Async sender rule for planner reports
 
 Rules:
-- use `agent_deck_create_session` only when allocating a new planner lane; use `agent_deck_require_session` when resuming an existing planner session
-- new planner lanes must pass `group_path = <supervisor session group; empty string for root>` with `parent_session_id`; do not rely on path-derived default grouping
+- use `session_create` only when allocating a new planner lane; use `session_require` when resuming an existing planner session
+- new planner lanes must use a verified same-host supervisor parent; do not rely on host grouping
 - after a planner lane is created, later workflow turns must reuse the real `planner_session_id`; do not resume a normal workflow turn by `planner_session_ref`
-- do not create planner sessions through direct `agent-deck` CLI in the normal path
+- do not create planner sessions through a host CLI in the normal path
 - treat MCP session create/require as a synchronous step; wait for it to return before composing or sending message content
-- record both `planner_tool_profile` and `planner_tool_cmd` in workflow context; use the command for session creation and the profile as policy metadata
+- record selected resolver metadata in workflow context; use its opaque values only for session creation and recovery

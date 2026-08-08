@@ -22,14 +22,13 @@ Resolve by priority: explicit input -> current roundtable context -> message bod
 
 - `roundtable_id`: stable id, default `rt-YYYYMMDD-HHMM-<slug>`
 - `group_address`: `Group-Address` control header -> current context -> default `group/roundtable-<roundtable_id>`
-- `moderator_session_id`: current agent-deck session id
-- `moderator_group_path`: current agent-deck group path, default current session group
+- `moderator_session_id`: current session id from Waypost context
 - `moderator_person`: `As-Person` control header -> current context -> default `moderator`
-- `moderator_notify_address`: `agent-deck/<moderator_session_id>`
-  - use this as moderator group-send `from_address`; waypost maps it to `moderator` read state and suppresses the moderator's own subscriber delivery
+- `moderator_notify_address`: `waypost_status.default_sender`
+  - use this as moderator group-send `from_address`; Waypost maps it to
+    `moderator` read state and suppresses the moderator's own subscriber delivery
 - `participant_session_ref`: default `roundtable-<roundtable_id>-<participant_slug>`
-- `participant_group_path`: explicit -> if moderator group is root, `roundtable-<roundtable_id>`; otherwise `<moderator_group_path>/roundtable-<roundtable_id>`
-- `participant_session_id`: real id returned by `agent_deck_create_session`
+- `participant_session_id`: real id returned by `session_create`
 - `participant_person`: `participant/<slug>`
 - `participant_tool_profile`: explicit -> participant config -> default resolver role `roundtable_participant`
 - `participant_tool_cmd`: explicit full command -> resolved command
@@ -40,25 +39,19 @@ Resolve by priority: explicit input -> current roundtable context -> message bod
 1. Clarify the topic until the user's goal, audience, constraints, and stop condition are clear.
    - Record the stop condition and check it after each synthesis.
 2. Propose 3-5 participants and ask for user confirmation before creating sessions.
-   - Include each participant's name, role, viewpoint, and tool profile.
+   - Include each participant's name, role, and viewpoint.
    - Default set when the user gives no preference: systems thinker, builder, skeptic, user advocate, contrarian.
 3. Use `waypost` MCP tools:
    - `waypost_group_create` with `group_address`
    - `waypost_group_add_member` for `moderator`
-   - `waypost_group_add_subscriber` with `notify_address = agent-deck/<moderator_session_id>` and `person = moderator`
+   - `waypost_group_add_subscriber` with `notify_address = moderator_notify_address` and `person = moderator`
    - `waypost_group_add_member` for each `participant/<slug>`
 4. Resolve every new participant tool through the shared tool-resolution contract for role `roundtable_participant`.
 5. Resolve each participant session.
-   - First try `agent_deck_resolve_session` for an explicit existing `participant_session_id` or known `participant_session_ref`.
-   - If an existing session is found, use `agent_deck_require_session` with the explicit workdir.
-   - If none exists, create it with `agent_deck_create_session`.
-   - `ensure_title = <participant_session_ref>`
-   - `ensure_cmd = <participant_tool_cmd>`
-   - `workdir = current workspace`
-   - `parent_session_id = <moderator_session_id>`
-   - `group_path = <participant_group_path>`
-   - `no_parent_link = false`
-   - pass the optional resolved `participant_tool_startup_message` as `startup_instruction`; leave `listener_message` empty because the control message is the bootstrap path and wakeup is best-effort
+   - First try `session_resolve` for an explicit existing `participant_session_id` or known `participant_session_ref`.
+   - If an existing session is found, use `session_require` with its returned host, real id, and current workspace.
+   - If none exists, require the moderator parent, resolve role `roundtable_participant`, then create `<participant_session_ref>` with the selected opaque launch candidate.
+   - Record each returned host, real id, and sole address. The personal control message is the bootstrap path; do not inject a startup instruction.
 6. Send the opening user-intent message to the group with `waypost_send group:true`, `to_address = group_address`, and `from_address = moderator_notify_address`.
 7. Send each participant one personal control message with Action `roundtable_participant_turn`; first turns are parallel by default.
 
@@ -117,8 +110,6 @@ Round: <round>
 - Group: <group_address>
 - Person: <participant_person>
 - Role: <participant role>
-- Tool profile: <participant_tool_profile>
-- Tool cmd: <participant_tool_cmd>
 
 ## Moderator Request
 [what this participant should address now]
@@ -152,6 +143,5 @@ When the user explicitly asks to clean up or archive:
 
 1. Drain moderator group unread messages first.
 2. Produce the final synthesis before deleting anything.
-3. Remove participant sessions with `agent-deck remove <participant_session_id>`.
-4. Delete the participant Agent Deck group with `agent-deck group delete <participant_group_path>` only after participant sessions are gone.
-5. Do not delete the Waypost group unless the user explicitly asks to delete the raw discussion history.
+3. Report participant sessions as provider-managed; generic workflow code does not remove them.
+4. Do not delete the Waypost group unless the user explicitly asks to delete the raw discussion history.

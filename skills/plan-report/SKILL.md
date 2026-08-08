@@ -17,14 +17,12 @@ Provide the message body from `plan_report_delivered`.
 
 - treat this report as the final summary for that planner lane unless the body says it is blocked
 - surface completion status, integration branch, completed tasks, review summary, and open items
-- default completed-plan action is: merge the planner integration branch into the current supervisor branch, then clean up the planner-owned structure recorded for that lane
+- default completed-plan action is: merge the planner integration branch into the current supervisor branch, then report the planner session as provider-managed
 - skip supervisor-side integration only when the report is blocked, the report has unresolved open items, the user explicitly requested report-only handling, or a concrete git precondition blocks the merge
 - use `git merge` for supervisor-side integration; do not substitute `cherry-pick`, `rebase`, or another git history strategy
 - treat the current supervisor worktree branch as the integration target unless explicit user/workflow context says otherwise; if the target branch is unclear or the worktree is dirty, stop and report the blocker
-- after supervisor-side integration succeeds, run `agentgear run multi-agent-protocol archive-and-remove-planner-group-sessions.mjs --planner-session-id <planner_session_id> --apply`
-- planner cleanup relies on live `agent-deck` state for `<planner_session_id>`; if that live scope is unavailable, keep the result as best-effort/no-op instead of trying to recover scope from old records
-- do not clean up the planner-owned structure before supervisor-side integration has actually completed
-- if the cleanup script exits non-zero, report that failure and stop; best-effort subgroup cleanup warnings are non-fatal and should be surfaced as warnings; do not continue with manual `agent-deck remove` or `group delete` commands unless the user explicitly asks
+- do not clean up the planner-owned host structure before supervisor-side integration has actually completed
+- generic workflow code does not delete sessions or host groups. If the user explicitly wants host cleanup, use a provider-specific operation after reporting successful integration.
 - do not ask for another workflow step unless the report explicitly says the plan is blocked, follow-up is required, or a concrete merge/cleanup blocker needs user action
 - keep message JSON internal unless the user explicitly asks
 
@@ -34,5 +32,5 @@ Provide the message body from `plan_report_delivered`.
 - include the planner session id
 - include the integration branch
 - include whether supervisor-side merge ran
-- include whether planner cleanup ran
+- include that planner session cleanup is provider-managed
 - include any open items that still need user attention

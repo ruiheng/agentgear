@@ -22,17 +22,17 @@ Classify before selecting a transport or dispatching.
 Use the lightest delegated surface that preserves the task's lifecycle:
 
 - During Selection-Only Use, record local execution when the owning action can perform it.
-- Use a native harness subagent, when available, for short independent parallel work. It is disposable: the harness owns bounded execution and its result; the caller owns any code delivery. Do not create or address an Agent Deck session for it.
-- Use Agent Deck when work needs persistent history, explicit tool/workspace control, later Waypost coordination, or a user-visible session to inspect, steer, or resume.
-- State one concrete lifecycle or user-interaction reason for Agent Deck; difficulty or parallelism alone is insufficient.
+- Use a native harness subagent, when available, for short independent parallel work. It is disposable: the harness owns bounded execution and its result; the caller owns any code delivery. Do not create or address a persistent session for it.
+- Use a persistent session host when work needs persistent history, explicit tool/workspace control, later Waypost coordination, or a user-visible session to inspect, steer, or resume.
+- State one concrete lifecycle or user-interaction reason for a persistent session; difficulty or parallelism alone is insufficient.
 
-For a named execution skill, use Agent Deck: Waypost when the requester has an address, otherwise direct. Use a native harness subagent only when the user explicitly requests disposable work.
+For a named execution skill, use a persistent Waypost session when the requester has an address. Without a portable parent, ask the user to create a direct host session first, then resolve it. Use a native harness subagent only when the user explicitly requests disposable work.
 
 ## Selection-Only Use
 
 When another action owns dispatch, use the selection rules above and stop before `Context` or `Dispatch`.
 
-- Record the selected surface and, for Agent Deck, its concrete `session_reason` for the owning action.
+- Record the selected surface and, for a persistent session, its concrete `session_reason` for the owning action.
 - If the owning action has a stricter direct-execution gate, use it only for that fast path. It may retain a planner-owned nonpersistent fallback without creating a worker.
 - Do not resolve sessions, compose a task contract, create a worker, or send `execute_delegated_task`.
 - Workflow-owned code -> `delegate-code-task`; record direct user-owned code as a separate surface.
@@ -45,7 +45,7 @@ When another action owns dispatch, use the selection rules above and stop before
 
 ## Select Transport
 
-- **Direct session:** no addressable requester session, or the user wants to work with the session directly. Start a fresh worker with its task contract as the workflow startup instruction; the shared tool-resolution contract prepends an optional profile startup message. The user observes and steers it in Agent Deck; no automatic Waypost return is expected. Code is allowed only for explicit user-owned direct delivery.
+- **Direct session:** no addressable requester session, or the user wants to work with the session directly. Generic creation has no portable parent, so require the user to create the host session and provide its id/ref. The user observes and steers it there; no automatic Waypost return is expected. Code is allowed only for explicit user-owned direct delivery.
 - **Waypost worker:** an addressable requester session exists and later coordination or a returned result is needed. Send `execute_delegated_task`; the worker returns `delegated_task_result`. This is non-code only.
 
 Do not invent a requester address. For a direct continuation, surface the existing session and let the user steer it there rather than injecting a second task from this session.
@@ -71,21 +71,21 @@ Use shared context priority; resolve only fields for the selected transport.
 - `session_reason`: explicit -> infer one concrete reason -> ask
 - `worker_session_ref`: explicit -> context -> `worker-<task_id>`
 - `worker_session_id`: explicit real id -> workflow context -> omit
-- Waypost only: `requester_session_id`: explicit -> live Agent Deck/Waypost context -> ask; `requester_role`: explicit -> workflow role -> `requester`
+- Waypost only: `requester_session_id`: explicit -> live Waypost context -> ask; `requester_role`: explicit -> workflow role -> `requester`
 - `special_requirements`: explicit -> delegated context; preserve verbatim; omit when absent
 
-Resolve a command only when creating a worker: explicit full command -> intended current-tool continuity -> shared `<worker_tool_role>` role. Preserve an existing session's recorded command.
+Resolve a launch candidate only when creating a worker: explicit full command -> intended current-tool continuity -> shared `<worker_tool_role>` role. Preserve an existing session's recorded launch metadata.
 
 ## Task Contract
 
-Use this as the direct workflow startup instruction; prepend the Waypost envelope below for a Waypost worker. The shared tool-resolution contract prepends an optional profile startup message. For a temporary worktree, include its cleanup owner and workspace.
+Use this as the direct task contract. Prepend the Waypost envelope below for a Waypost worker. For a temporary worktree, include its cleanup owner and workspace.
 
 ```markdown
 ## Objective
 [One sentence]
 
 ## Session Contract
-- Why Agent Deck: <session_reason>
+- Why persistent session: <session_reason>
 - Task kind: <generic | code-changing>
 - Code delivery: <N/A | user-owned direct>
 - Worker workspace: <worker_workspace>
@@ -139,19 +139,19 @@ Round: 1
 - require `source_material` when execution depends on requester-only material
 - if `execution_skill = explain-for-me`, require `shared; cleanup=none`; do not dispatch a temporary worker
 
-1. Resolve the worker by real id or ref with `agent_deck_resolve_session`.
+1. Resolve the worker by real id or ref with `session_resolve`.
 
 2. For a direct session:
 
    - require `shared; cleanup=none`; a temporary lifecycle must use a Waypost worker
-   - found: call `agent_deck_require_session` with its real id and workspace; report it for the user to continue
-   - absent: resolve its tool command by the shared tool-resolution contract, then call `agent_deck_create_session` with `ensure_title`, `ensure_cmd`, `workdir`, `no_parent_link = true`, and `startup_instruction = <optional tool startup message followed by task contract>`
+   - found: call `session_require` with its returned host, real id, and workspace; report its returned address for the user to continue
+   - absent: stop and ask the user to create the direct session manually. Do not create a parentless generic session or inject a startup instruction.
 
 3. For a Waypost worker:
 
-   - found: call `agent_deck_require_session` with its real id and workspace
-   - absent: resolve its tool command by the shared tool-resolution contract, then call `agent_deck_create_session` with `ensure_title`, `ensure_cmd`, `workdir`, `parent_session_id = <requester_session_id>`, `group_path = <requester group; empty for root>`, `no_parent_link = false`, and the optional resolved `startup_instruction`; do not add workflow task text there
-   - fill `{{TO_SESSION_ID}}`, then call `waypost_send` from `agent-deck/<requester_session_id>` to `agent-deck/<worker_session_id>`, subject `delegate: <task_id> -> worker`
+   - found: call `session_require` with its returned host, real id, and workspace
+   - absent: require the requester parent, resolve role `<worker_tool_role>`, then call `session_create` with the selected opaque launch candidate and `parent_session_id = <requester_session_id>`
+   - record the returned real id and sole address; fill `{{TO_SESSION_ID}}`, then call `waypost_send` from `waypost_status.default_sender` to that address, subject `delegate: <task_id> -> worker`
    - follow the shared Async sender rule
 
 Until completion or explicit transfer, do not alter a worker-owned shared workspace; temporary cleanup is best-effort after terminal delivery.
@@ -188,7 +188,7 @@ Round: final
 - [item or `None`]
 ```
 
-- Call `waypost_send` from `agent-deck/<worker_session_id>` to `agent-deck/<requester_session_id>`, subject `delegated task result: <task_id>`; ack the claimed input only after it succeeds. On failure, do not ack; settle it under the shared Receiver Contract.
+- Call `waypost_send` from the current `waypost_status.default_sender` to the recorded requester address, subject `delegated task result: <task_id>`; ack the claimed input only after it succeeds. On failure, do not ack; settle it under the shared Receiver Contract.
 
 For direct user-owned code sessions only:
 
@@ -200,13 +200,13 @@ For direct user-owned code sessions only:
 
 On `delegated_task_result`, treat it as the worker's terminal update and continue requester-owned work. Do not infer a code, review, commit, or closeout workflow.
 
-- For `temporary; cleanup=requester`, record and ACK the terminal result, then try to remove or rehome sessions using `Worker workspace`; remove the listed non-primary worktree only when none remains. Report `cleanup=complete` on success; on failure retain it and report `cleanup=pending`. Do not delay or reopen delivery.
+- For `temporary; cleanup=requester`, record and ACK the terminal result, then remove the listed non-primary worktree only when no workflow work remains. Generic workflow code does not remove or rehome host sessions. Report `cleanup=complete` on success; on failure retain it and report `cleanup=pending`. Do not delay or reopen delivery.
 
 ## User-Facing Result
 
 For initial dispatch, return only:
 
-- delegated objective and Agent Deck reason
+- delegated objective and persistent-session reason
 - worker session id, title, and workspace
 - temporary-workspace cleanup status, when applicable
 - any blocker or send failure
