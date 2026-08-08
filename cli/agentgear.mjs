@@ -106,6 +106,10 @@ function uninstall(catalog, options) {
     fail("No agentgear installation state recorded.");
   }
 
+  // Preflight the complete uninstall scope before any mutation: a mismatch on
+  // any selected artifact aborts with every artifact and the state file
+  // unchanged, so a late mismatch can never leave earlier deletions recorded.
+  const removals = [];
   for (const target of targets) {
     const record = targetState(state, target.root);
     for (const skill of selection.skills) {
@@ -118,9 +122,16 @@ function uninstall(catalog, options) {
       if (exists(destination) && !destinationMatchesRecord(destination, item)) {
         fail("Refusing to remove locally changed skill: " + destination);
       }
-      fs.rmSync(destination, { recursive: true, force: true });
-      delete record.skills[skill];
+      removals.push({ target, record, skill, destination });
     }
+  }
+
+  for (const { record, skill, destination } of removals) {
+    fs.rmSync(destination, { recursive: true, force: true });
+    delete record.skills[skill];
+  }
+  for (const target of targets) {
+    const record = targetState(state, target.root);
     updateTargetState(state, target.root, record);
   }
   saveInstallState(state);
@@ -169,16 +180,20 @@ function purge(catalog, options) {
     print("No agentgear installation state recorded; nothing to purge.");
     return;
   }
-  const hasExplicitTarget = options.targets.length > 0 || options.destination || options.scope === "project";
   const targets = purgeTargetRoots(catalog, options, state);
   const { plan, preserved } = purgePlan(state, targets);
   for (const destination of preserved) {
     print("preserved locally changed skill: " + destination);
   }
 
-  // Full purge preflights the recorded releases and `current` before any
-  // destructive external removal; runtime ambiguity preserves everything.
-  if (!hasExplicitTarget) {
+  // Project the post-purge target state before any mutation. Whenever the
+  // purge would leave no target records and therefore attempt runtime
+  // teardown, preflight the recorded releases and `current` first regardless
+  // of selector syntax; runtime ambiguity preserves everything.
+  const willTearDown = preserved.length === 0
+    && Object.keys(state.targets).length > 0
+    && Object.keys(state.targets).every(root => targets.some(target => target.root === root));
+  if (willTearDown) {
     const preflight = preflightRuntimePurge({ state, env: process.env });
     for (const message of preflight.messages) print(message);
     if (!preflight.ok) {
@@ -208,6 +223,8 @@ function purge(catalog, options) {
     if (tornDown) {
       removeInstallStateFile({ print });
       print("Purge complete.");
+    } else {
+      process.exitCode = 1;
     }
   }
 }

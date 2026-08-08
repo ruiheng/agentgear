@@ -1019,6 +1019,30 @@ function requireDocumentedSkillRuntimeRequirements(requirements, commands, snaps
   }
 }
 
+// Returns "file" when every component of relativePath below root is a real
+// directory and the leaf is a real regular file; "missing" when any component
+// is absent; "invalid" when any component is a symlink/junction, the leaf is
+// not a regular file, or the path escapes root. lstat is applied per
+// component so an intermediate symlink can never redirect the walk outside
+// the trusted snapshot root.
+function regularFileStatusUnderRoot(root, relativePath) {
+  const resolvedRoot = path.resolve(root);
+  const parts = relativePath.split(path.sep).filter(Boolean);
+  if (parts.length === 0) return "file";
+  let current = resolvedRoot;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = path.join(current, parts[index]);
+    if (!pathIsInsideOrEqual(resolvedRoot, current)) return "invalid";
+    const info = fs.lstatSync(current, { throwIfNoEntry: false });
+    if (!info) return "missing";
+    if (info.isSymbolicLink()) return "invalid";
+    const isLeaf = index === parts.length - 1;
+    if (isLeaf) return info.isFile() ? "file" : "invalid";
+    if (!info.isDirectory()) return "invalid";
+  }
+  return "file";
+}
+
 function relativeModuleSpecifiers(source) {
   const specifiers = new Set();
   for (const match of source.matchAll(STATIC_MODULE_SPECIFIER)) {
@@ -1043,8 +1067,7 @@ function moduleDependencyErrors(snapshotRoot, entryRelativePath) {
     if (visited.has(normalizedRelativePath)) return;
     visited.add(normalizedRelativePath);
 
-    const info = fs.lstatSync(modulePath, { throwIfNoEntry: false });
-    if (!info?.isFile() || info.isSymbolicLink()) {
+    if (regularFileStatusUnderRoot(root, normalizedRelativePath) !== "file") {
       errors.add(`${normalizedRelativePath} is missing or is not a file`);
       return;
     }
@@ -1143,8 +1166,7 @@ export function validateSharedRuntimeConsumers({
 
   const errors = [];
   for (const [relativePath, consumers] of requirements) {
-    const info = fs.lstatSync(path.join(snapshotRoot, relativePath), { throwIfNoEntry: false });
-    if (info?.isFile() && !info.isSymbolicLink()) continue;
+    if (regularFileStatusUnderRoot(snapshotRoot, relativePath) === "file") continue;
     errors.push(
       `Cannot publish shared runtime: ${[...consumers].join(", ")} requires ${relativePath}, which is missing from the staged snapshot or is not a regular file.`
     );

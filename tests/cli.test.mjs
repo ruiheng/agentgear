@@ -89,7 +89,14 @@ function spawnAgentgear(argumentsList, fixture, environment) {
   );
 }
 
-test("canonical fingerprints match fixed golden vectors", () => {
+test("canonical fingerprints match fixed golden vectors on POSIX filesystems", t => {
+  if (process.platform === "win32") {
+    // Windows reports different mode bits and wrapper fingerprints require the
+    // .cmd companion; the Windows contract is covered by the
+    // platform-specific serialization test below.
+    t.skip("POSIX mode semantics do not apply on Windows");
+    return;
+  }
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-fingerprint-test-"));
   try {
     const fixtureDir = path.join(temporary, "fixture");
@@ -108,6 +115,28 @@ test("canonical fingerprints match fixed golden vectors", () => {
       wrapperFingerprint(wrapper),
       "sha256-v1:34056a26a9a9cd99e821df0292c0efe7a45772d23684e872d2003f34eb346aa3"
     );
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("Windows wrapper fingerprints cover the primary file and .cmd companion", t => {
+  if (process.platform !== "win32") {
+    t.skip("Windows-only wrapper group contract");
+    return;
+  }
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-fingerprint-test-"));
+  try {
+    const wrapper = path.join(temporary, "agentgear");
+    fs.writeFileSync(wrapper, "#!/usr/bin/env node\nconsole.log(\"primary\");\n");
+    fs.writeFileSync(`${wrapper}.cmd`, "@echo off\r\nnode \"%~dp0agentgear\" %*\r\n");
+    const first = wrapperFingerprint(wrapper);
+    const second = wrapperFingerprint(wrapper);
+    assert.equal(first, second);
+    assert.match(first, /^sha256-v1:[0-9a-f]{64}$/);
+
+    fs.appendFileSync(`${wrapper}.cmd`, "\r\n");
+    assert.notEqual(wrapperFingerprint(wrapper), first);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -172,6 +201,44 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
         assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
         assert.equal(pathExists(fixture.stateFile), false);
         assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "handoff")), false);
+      } finally {
+        fs.rmSync(fixture.temporary, { recursive: true, force: true });
+      }
+    }
+
+    // Symlinked ancestor directories are rejected too: a staged bin/ or
+    // skills/ that is a link to an outside directory must not serve mutable
+    // external content, even when the leaf is a regular file there.
+    for (const [ancestor, leaf, errorPattern] of [
+      ["bin", "bin/agentgear.mjs", /bin[\\/]agentgear\.mjs is missing or is not a file/],
+      ["skills", "skills/handoff/SKILL.md", /requires skills[\\/]handoff[\\/]SKILL\.md, which is missing from the staged snapshot or is not a regular file/]
+    ]) {
+      const fixture = environmentFixture();
+      const checkout = path.join(fixture.temporary, "checkout");
+      const outsideDirectory = path.join(fixture.temporary, "outside-dir");
+      try {
+        fs.cpSync(rootDir, checkout, {
+          recursive: true,
+          filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+        });
+        if (ancestor === "skills") {
+          // The checkout guard validates every selected skill, so the outside
+          // directory must carry the full skills tree for the selection.
+          fs.cpSync(path.join(checkout, "skills"), outsideDirectory, { recursive: true });
+        } else {
+          fs.mkdirSync(path.join(outsideDirectory, path.dirname(leaf)), { recursive: true });
+          fs.writeFileSync(path.join(outsideDirectory, leaf), "external content\n");
+        }
+        fs.rmSync(path.join(checkout, ancestor), { recursive: true, force: true });
+        fs.symlinkSync(outsideDirectory, path.join(checkout, ancestor), "dir");
+        const runCheckout = await checkoutRunner(checkout, fixture.environment);
+
+        assert.throws(
+          () => runCheckout(["link", "--skill", "handoff", "--target", "codex"]),
+          errorPattern
+        );
+        assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
+        assert.equal(pathExists(fixture.stateFile), false);
       } finally {
         fs.rmSync(fixture.temporary, { recursive: true, force: true });
       }
@@ -561,6 +628,60 @@ test("full purge derives candidates only from the inventory and ignores marker-s
     assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
     assert.equal(fs.existsSync(fixture.stateFile), false);
     assert.equal(fs.existsSync(fixture.releasesRoot), true);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("an explicit-last-target purge preflights the runtime before deleting anything", () => {
+  const fixture = environmentFixture();
+  const skillFile = path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md");
+  try {
+    run(["install", "--skill", "handoff", "--target", "codex"], fixture.environment);
+    const state = readState(fixture);
+    const releaseRoot = path.join(fixture.releasesRoot, state.releases[0]);
+    fs.writeFileSync(
+      path.join(releaseRoot, ".agentgear-runtime.json"),
+      JSON.stringify({ schemaVersion: 1, releaseId: "tampered" })
+    );
+    const stateBefore = fs.readFileSync(fixture.stateFile, "utf8");
+
+    const purge = spawnAgentgear(
+      ["uninstall", "--purge", "--target", "codex"],
+      fixture,
+      fixture.environment
+    );
+    assert.equal(purge.status, 1);
+    assert.match(purge.stdout, /Purge incomplete/);
+    assert.equal(fs.existsSync(skillFile), true);
+    assert.equal(pathExists(path.join(fixture.localBin, "agentgear")), true);
+    assert.equal(fs.readFileSync(fixture.stateFile, "utf8"), stateBefore);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("ordinary uninstall validates the whole scope before deleting anything", () => {
+  const fixture = environmentFixture();
+  try {
+    run(["install", "--pack", "core", "--target", "codex"], fixture.environment);
+    const handoffFile = path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md");
+    const earlierFiles = [
+      "commit-staged", "explain-for-me", "explore-defects"
+    ].map(skill => path.join(fixture.home, ".agents", "skills", skill, "SKILL.md"));
+    fs.appendFileSync(handoffFile, "\nLocal change\n");
+    const stateBefore = fs.readFileSync(fixture.stateFile, "utf8");
+
+    assert.throws(
+      () => run(["uninstall", "--skill", "handoff", "--target", "codex"], fixture.environment),
+      /Refusing to remove locally changed skill/
+    );
+
+    for (const earlierFile of earlierFiles) {
+      assert.equal(fs.existsSync(earlierFile), true);
+    }
+    assert.equal(fs.existsSync(handoffFile), true);
+    assert.equal(fs.readFileSync(fixture.stateFile, "utf8"), stateBefore);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
