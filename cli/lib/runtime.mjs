@@ -100,28 +100,6 @@ function pathIsInsideOrEqual(parent, candidate) {
   return path.resolve(parent) === path.resolve(candidate) || pathIsInside(parent, candidate);
 }
 
-function hasLastSegments(candidate, segments) {
-  const parts = candidate.split(path.sep);
-  if (parts.length < segments.length) return false;
-  for (let index = 0; index < segments.length; index += 1) {
-    if (parts[parts.length - segments.length + index] !== segments[index]) return false;
-  }
-  return true;
-}
-
-// Returns the lexical agentgear/current root of a path that contains the
-// consecutive "agentgear" "current" segments followed by at least one more
-// segment, or null when the path is not below such a root.
-function stableRuntimeRoot(candidate) {
-  const parts = candidate.split(path.sep);
-  for (let index = 0; index + 2 < parts.length; index += 1) {
-    if (parts[index] === "agentgear" && parts[index + 1] === "current") {
-      return parts.slice(0, index + 2).join(path.sep) || path.sep;
-    }
-  }
-  return null;
-}
-
 function releaseIdForTarget(target, releasesRoot) {
   let directory = path.dirname(target);
   let releaseId = null;
@@ -168,7 +146,7 @@ export function directoryFingerprint(rootDir) {
     hash.update(entry.relative.replaceAll(path.sep, "/"));
     hash.update("\0");
     if (entry.type === "file") {
-      hash.update(String(fs.statSync(entry.path).mode & 0o777).toString(8));
+      hash.update((fs.statSync(entry.path).mode & 0o777).toString(8));
       hash.update("\0");
       hash.update(fs.readFileSync(entry.path));
       hash.update("\0");
@@ -193,7 +171,7 @@ export function wrapperFingerprint(destination) {
   for (const entry of entries) {
     const info = fs.statSync(entry.filePath);
     hash.update(`file\0${entry.name}\0`);
-    hash.update(String(info.mode & 0o777).toString(8));
+    hash.update((info.mode & 0o777).toString(8));
     hash.update("\0");
     hash.update(fs.readFileSync(entry.filePath));
     hash.update("\0");
@@ -625,18 +603,17 @@ export function validateStateGrammar(state, env = process.env) {
       || !isPlainObject(targetRecord.skills)) {
       return invalid(`invalid target record for ${targetPath}`);
     }
+    const currentRoot = paths.currentPath;
     for (const [skill, record] of Object.entries(targetRecord.skills)) {
       if (!SKILL_KEY_PATTERN.test(skill)) return invalid(`invalid skill key: ${skill}`);
       if (!isPlainObject(record)) return invalid(`invalid skill record for ${skill}`);
       if (record.mode === "link") {
-        if (Object.keys(record).length !== 2 || typeof record.source !== "string") {
-          return invalid(`invalid linked-skill record for ${skill}`);
-        }
-        if (normalizeLinkPath(record.source) !== record.source) {
-          return invalid(`linked skill source is not normalized: ${record.source}`);
-        }
-        if (!hasLastSegments(record.source, ["agentgear", "current", "skills", skill])) {
-          return invalid(`linked skill source must end in agentgear/current/skills/${skill}`);
+        const expectedSource = path.join(currentRoot, "skills", skill);
+        if (Object.keys(record).length !== 2
+          || typeof record.source !== "string"
+          || normalizeLinkPath(record.source) !== record.source
+          || record.source !== expectedSource) {
+          return invalid(`linked skill source must be exactly ${expectedSource}`);
         }
       } else if (record.mode === "copy") {
         if (Object.keys(record).length !== 2
@@ -655,21 +632,21 @@ export function validateStateGrammar(state, env = process.env) {
   for (const [name, destination] of Object.entries(paths.workflowHelpers)) {
     expectedKinds.set(destination, "workflow-helper");
   }
+  const commandModules = new Map();
+  for (const entry of commandEntries(env)) commandModules.set(entry.destination, entry.relativeModule);
   for (const [destination, record] of Object.entries(state.commands)) {
     const expectedKind = expectedKinds.get(destination);
     if (!expectedKind) return invalid(`unknown command destination: ${destination}`);
     if (!isPlainObject(record)) return invalid(`invalid command record for ${destination}`);
     if (record.kind !== expectedKind) return invalid(`command kind mismatch for ${destination}`);
+    const currentTarget = path.join(paths.currentPath, commandModules.get(destination));
     if (record.mode === "link") {
       if (process.platform === "win32") return invalid("linked commands are invalid on Windows");
       if (Object.keys(record).length !== 3 || typeof record.target !== "string") {
         return invalid(`invalid linked-command record for ${destination}`);
       }
-      if (normalizeLinkPath(record.target) !== record.target) {
-        return invalid(`linked command target is not normalized: ${record.target}`);
-      }
-      if (stableRuntimeRoot(record.target) === null) {
-        return invalid(`linked command target must be below agentgear/current: ${record.target}`);
+      if (normalizeLinkPath(record.target) !== record.target || record.target !== currentTarget) {
+        return invalid(`linked command target must be exactly ${currentTarget}`);
       }
     } else if (record.mode === "wrapper") {
       if (Object.keys(record).length !== 4
@@ -682,8 +659,14 @@ export function validateStateGrammar(state, env = process.env) {
         return invalid(`wrapper command target is not normalized: ${record.target}`);
       }
       const releaseId = releaseIdForTarget(record.target, paths.releasesRoot);
-      if (stableRuntimeRoot(record.target) === null && !(releaseId && state.releases.includes(releaseId))) {
-        return invalid(`wrapper command target must be below agentgear/current or an inventoried release: ${record.target}`);
+      if (record.target !== currentTarget
+        && !(releaseId
+          && state.releases.includes(releaseId)
+          && record.target === path.join(paths.releasesRoot, releaseId, commandModules.get(destination)))) {
+        return invalid(
+          `wrapper command target must be exactly ${currentTarget} `
+          + `or releases/<inventoried-id>/${commandModules.get(destination).split(path.sep).join("/")}`
+        );
       }
     } else {
       return invalid(`unknown command mode ${JSON.stringify(record.mode)} for ${destination}`);
@@ -729,32 +712,6 @@ export function checkStateCoherence(state, env = process.env) {
       throw new Error(
         `Installation state references the managed runtime but its data root is missing: ${paths.dataRoot}`
       );
-    }
-    for (const [targetPath, targetRecord] of Object.entries(state.targets)) {
-      for (const record of Object.values(targetRecord.skills ?? {})) {
-        if (record?.mode === "link") {
-          const root = stableRuntimeRoot(record.source);
-          if (root !== normalizeLinkPath(paths.currentPath)) {
-            throw new Error(
-              `Linked skill source is rooted at a different agentgear/current: ${record.source}; `
-              + "restore the original XDG spelling or cleanly reinstall"
-            );
-          }
-        }
-      }
-    }
-    for (const record of Object.values(state.commands)) {
-      const root = stableRuntimeRoot(record.target);
-      if (root !== null && root !== normalizeLinkPath(paths.currentPath)) {
-        throw new Error(
-          `Command target is rooted at a different agentgear/current: ${record.target}; `
-          + "restore the original XDG spelling or cleanly reinstall"
-        );
-      }
-      const releaseId = releaseIdForTarget(record.target, paths.releasesRoot);
-      if (releaseId !== null && !inventory.includes(releaseId)) {
-        throw new Error(`Command target release is not inventoried: ${record.target}`);
-      }
     }
   }
 
@@ -829,6 +786,11 @@ export function stageRuntime({ sourceRoot, env = process.env }) {
   const paths = computePaths(env);
   const packageJson = readJsonIfExists(path.join(sourceRoot, "package.json"), { version: "dev" });
   const releaseId = `${packageJson.version}-${Date.now()}-${crypto.randomUUID()}`;
+  if (!isValidReleaseId(releaseId)) {
+    throw new Error(
+      `Unsafe package version ${JSON.stringify(packageJson.version)} cannot form a release ID`
+    );
+  }
   const releasePath = path.join(paths.releasesRoot, releaseId);
 
   fs.mkdirSync(paths.releasesRoot, { recursive: true });
@@ -934,12 +896,15 @@ function replaceCurrentLink(currentPath, target) {
   }
 }
 
-export function probeDirectoryLinks(runtime, targets, env = process.env) {
+export function probeDirectoryLinks(runtime, targets, development, env = process.env) {
   const paths = computePaths(env);
-  const parents = [...new Set([
-    paths.dataRoot,
-    ...targets.map(target => path.dirname(target.root))
-  ])];
+  // Development shared links need directory links at every selected
+  // destination parent (the target root that will hold each skill link);
+  // public release skills are copies, so only the data root's
+  // current-publication capability decides the release mode.
+  const parents = development
+    ? [...new Set([paths.dataRoot, ...targets.map(target => target.root)])]
+    : [paths.dataRoot];
   for (const parent of parents) fs.mkdirSync(parent, { recursive: true });
   const created = [];
   try {
@@ -964,14 +929,15 @@ function stateHasSharedRecords(state, env) {
       if (record?.mode === "link") return true;
     }
   }
+  const currentPrefix = `${normalizeLinkPath(computePaths(env).currentPath)}${path.sep}`;
   for (const record of Object.values(state.commands)) {
-    if (stableRuntimeRoot(record.target) !== null) return true;
+    if (normalizeLinkPath(record.target).startsWith(currentPrefix)) return true;
   }
   return false;
 }
 
 export function chooseDeploymentMode({ runtime, targets, development, state, env = process.env, print }) {
-  const shared = probeDirectoryLinks(runtime, targets, env);
+  const shared = probeDirectoryLinks(runtime, targets, development, env);
   if (shared) return "shared";
   if (stateHasSharedRecords(state, env)) {
     throw new Error(
@@ -1077,8 +1043,8 @@ function moduleDependencyErrors(snapshotRoot, entryRelativePath) {
     if (visited.has(normalizedRelativePath)) return;
     visited.add(normalizedRelativePath);
 
-    const info = fs.statSync(modulePath, { throwIfNoEntry: false });
-    if (!info?.isFile()) {
+    const info = fs.lstatSync(modulePath, { throwIfNoEntry: false });
+    if (!info?.isFile() || info.isSymbolicLink()) {
       errors.add(`${normalizedRelativePath} is missing or is not a file`);
       return;
     }
@@ -1177,10 +1143,10 @@ export function validateSharedRuntimeConsumers({
 
   const errors = [];
   for (const [relativePath, consumers] of requirements) {
-    const info = fs.statSync(path.join(snapshotRoot, relativePath), { throwIfNoEntry: false });
-    if (info?.isFile()) continue;
+    const info = fs.lstatSync(path.join(snapshotRoot, relativePath), { throwIfNoEntry: false });
+    if (info?.isFile() && !info.isSymbolicLink()) continue;
     errors.push(
-      `Cannot publish shared runtime: ${[...consumers].join(", ")} requires ${relativePath}, which is missing from the staged snapshot.`
+      `Cannot publish shared runtime: ${[...consumers].join(", ")} requires ${relativePath}, which is missing from the staged snapshot or is not a regular file.`
     );
   }
   for (const [entryRelativePath, consumers] of commands) {
@@ -1264,12 +1230,42 @@ function currentPurgeOwned(currentPath, inventory, env) {
   return Boolean(releaseId && inventory.includes(releaseId));
 }
 
+// Non-destructive full-purge preflight. Returns the messages to report and
+// whether every recorded release and `current` are purge-owned. Run before
+// removing any external artifact so a runtime ambiguity preserves everything.
+export function preflightRuntimePurge({ state, env = process.env }) {
+  const paths = computePaths(env);
+  const inventory = state?.releases ?? [];
+  const messages = [];
+  let ok = true;
+  for (const releaseId of inventory) {
+    const releasePath = path.join(paths.releasesRoot, releaseId);
+    if (!exists(releasePath)) continue;
+    if (!verifyRelease(releasePath, releaseId)) {
+      messages.push(`preserved mismatched release: ${releasePath}`);
+      ok = false;
+    }
+  }
+  if (exists(paths.currentPath) && !currentPurgeOwned(paths.currentPath, inventory, env)) {
+    messages.push(`preserved ambiguous runtime path: ${paths.currentPath}`);
+    ok = false;
+  }
+  return { ok, messages };
+}
+
 // Full purge teardown. Returns true only when `current` is gone and every
 // recorded release is absent or was removed, so the caller may then remove
-// state. Any ambiguity preserves the runtime and keeps state.
+// state. Any ambiguity preserves everything and keeps state.
 export function purgeManagedRuntime({ state, env = process.env, print }) {
   const paths = computePaths(env);
   const inventory = state?.releases ?? [];
+
+  const preflight = preflightRuntimePurge({ state, env });
+  for (const message of preflight.messages) print(message);
+  if (!preflight.ok) {
+    print("Purge incomplete: runtime ambiguity; manual cleanup required.");
+    return false;
+  }
 
   for (const [destination, record] of Object.entries(state?.commands ?? {})) {
     if (commandArtifactOwned(destination, record)) {
@@ -1282,26 +1278,12 @@ export function purgeManagedRuntime({ state, env = process.env, print }) {
     }
   }
 
-  const present = [];
+  if (exists(paths.currentPath)) {
+    removeManagedPath("runtime link", paths.currentPath, print);
+  }
   for (const releaseId of inventory) {
     const releasePath = path.join(paths.releasesRoot, releaseId);
     if (!exists(releasePath)) continue;
-    if (!verifyRelease(releasePath, releaseId)) {
-      print(`preserved mismatched release: ${releasePath}; state retained`);
-      return false;
-    }
-    present.push(releasePath);
-  }
-
-  if (exists(paths.currentPath)) {
-    if (!currentPurgeOwned(paths.currentPath, inventory, env)) {
-      print(`preserved ambiguous runtime path: ${paths.currentPath}; state retained`);
-      return false;
-    }
-    removeManagedPath("runtime link", paths.currentPath, print);
-  }
-
-  for (const releasePath of present) {
     removeManagedPath("runtime release", releasePath, print);
   }
   removeEmptyDirectory(paths.releasesRoot);

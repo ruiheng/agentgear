@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { main } from "../cli/agentgear.mjs";
 import { main as linkMain } from "../cli/link.mjs";
-import { stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
+import { directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -88,6 +88,118 @@ function spawnAgentgear(argumentsList, fixture, environment) {
     { cwd: rootDir, encoding: "utf8", env: { ...process.env, ...environment } }
   );
 }
+
+test("canonical fingerprints match fixed golden vectors", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-fingerprint-test-"));
+  try {
+    const fixtureDir = path.join(temporary, "fixture");
+    fs.mkdirSync(path.join(fixtureDir, "empty"), { recursive: true });
+    fs.writeFileSync(path.join(fixtureDir, "a.txt"), "hello\n");
+    fs.chmodSync(path.join(fixtureDir, "a.txt"), 0o644);
+    assert.equal(
+      directoryFingerprint(fixtureDir),
+      "sha256-v1:dd29a693f6e148f9d117314be34acbaee711c066a81856ff1ea512fbfe8f1605"
+    );
+
+    const wrapper = path.join(temporary, "wrapper");
+    fs.writeFileSync(wrapper, "#!/usr/bin/env node\nconsole.log(\"wrapper\");\n");
+    fs.chmodSync(wrapper, 0o755);
+    assert.equal(
+      wrapperFingerprint(wrapper),
+      "sha256-v1:34056a26a9a9cd99e821df0292c0efe7a45772d23684e872d2003f34eb346aa3"
+    );
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("an unsafe package version cannot escape the releases directory", async () => {
+  const fixture = environmentFixture();
+  const checkout = path.join(fixture.temporary, "checkout");
+  try {
+    fs.cpSync(rootDir, checkout, {
+      recursive: true,
+      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+    });
+    const packageJsonPath = path.join(checkout, "package.json");
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    packageJson.version = "../escaped";
+    fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+    const runCheckout = await checkoutRunner(checkout, fixture.environment);
+
+    for (const argumentsList of [
+      ["link", "--skill", "handoff", "--target", "codex"],
+      ["install", "--skill", "handoff", "--target", "codex"]
+    ]) {
+      assert.throws(
+        () => runCheckout(argumentsList),
+        /Unsafe package version/
+      );
+    }
+    assert.equal(pathExists(fixture.dataRoot), false);
+    assert.equal(pathExists(fixture.stateFile), false);
+    assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "handoff")), false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("completeness rejects symlinked entrypoints and documents escaping the snapshot", async () => {
+  const outside = path.join(os.tmpdir(), `agentgear-outside-${Date.now()}.mjs`);
+  fs.writeFileSync(outside, "export const value = 1;\n");
+  try {
+    for (const [missing, replacement, errorPattern] of [
+      ["bin/agentgear.mjs", outside, /bin[\\/]agentgear\.mjs is missing or is not a file/],
+      ["skills/handoff/SKILL.md", outside, /requires skills[\\/]handoff[\\/]SKILL\.md, which is missing from the staged snapshot or is not a regular file/],
+      ["cli/agentgear.mjs", outside, /cli[\\/]agentgear\.mjs is missing or is not a file/]
+    ]) {
+      const fixture = environmentFixture();
+      const checkout = path.join(fixture.temporary, "checkout");
+      try {
+        fs.cpSync(rootDir, checkout, {
+          recursive: true,
+          filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+        });
+        const targetPath = path.join(checkout, ...missing.split("/"));
+        fs.rmSync(targetPath);
+        fs.symlinkSync(replacement, targetPath, "file");
+        const runCheckout = await checkoutRunner(checkout, fixture.environment);
+
+        assert.throws(
+          () => runCheckout(["link", "--skill", "handoff", "--target", "codex"]),
+          errorPattern
+        );
+        assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
+        assert.equal(pathExists(fixture.stateFile), false);
+        assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "handoff")), false);
+      } finally {
+        fs.rmSync(fixture.temporary, { recursive: true, force: true });
+      }
+    }
+
+    // A dangling symlink is rejected the same way.
+    const fixture = environmentFixture();
+    const checkout = path.join(fixture.temporary, "checkout");
+    try {
+      fs.cpSync(rootDir, checkout, {
+        recursive: true,
+        filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+      });
+      const targetPath = path.join(checkout, "bin", "agentgear.mjs");
+      fs.rmSync(targetPath);
+      fs.symlinkSync(path.join(fixture.temporary, "missing-module.mjs"), targetPath, "file");
+      const runCheckout = await checkoutRunner(checkout, fixture.environment);
+      assert.throws(
+        () => runCheckout(["link", "--skill", "handoff", "--target", "codex"]),
+        /bin[\\/]agentgear\.mjs is missing or is not a file/
+      );
+    } finally {
+      fs.rmSync(fixture.temporary, { recursive: true, force: true });
+    }
+  } finally {
+    fs.rmSync(outside, { force: true });
+  }
+});
 
 test("lists the catalog and builds every target layout", () => {
   run(["build"]);
@@ -376,7 +488,7 @@ test("full purge removes managed skills and runtime artifacts but preserves unow
   }
 });
 
-test("purge refuses locally changed copied skills until forced", () => {
+test("purge preserves locally changed copied skills; --force never broadens purge ownership", () => {
   const fixture = environmentFixture();
   const skillFile = path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md");
   const launcher = path.join(fixture.localBin, "agentgear");
@@ -384,16 +496,28 @@ test("purge refuses locally changed copied skills until forced", () => {
     run(["install", "--skill", "handoff", "--target", "codex"], fixture.environment);
     fs.appendFileSync(skillFile, "\nLocal change\n");
 
+    const purge = spawnAgentgear(["uninstall", "--purge"], fixture, fixture.environment);
+    assert.equal(purge.status, 0, purge.stderr);
+    assert.match(purge.stdout, /preserved locally changed skill/);
+    assert.equal(fs.existsSync(skillFile), true);
+    assert.equal(pathExists(launcher), true);
+    assert.equal(pathExists(path.join(fixture.dataRoot, "current")), true);
+    assert.equal(fs.existsSync(fixture.stateFile), true);
+
+    const forced = spawnAgentgear(["uninstall", "--purge", "--force"], fixture, fixture.environment);
+    assert.equal(forced.status, 0, forced.stderr);
+    assert.match(forced.stdout, /preserved locally changed skill/);
+    assert.equal(fs.existsSync(skillFile), true);
+
     assert.throws(
-      () => run(["uninstall", "--purge"], fixture.environment),
+      () => run(["uninstall", "--skill", "handoff", "--target", "codex"], fixture.environment),
+      /Refusing to remove locally changed skill/
+    );
+    assert.throws(
+      () => run(["uninstall", "--force", "--skill", "handoff", "--target", "codex"], fixture.environment),
       /Refusing to remove locally changed skill/
     );
     assert.equal(fs.existsSync(skillFile), true);
-    assert.equal(fs.existsSync(launcher), true);
-
-    run(["uninstall", "--purge", "--force"], fixture.environment);
-    assert.equal(fs.existsSync(skillFile), false);
-    assert.equal(fs.existsSync(launcher), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -442,7 +566,7 @@ test("full purge derives candidates only from the inventory and ignores marker-s
   }
 });
 
-test("full purge retains state on a recorded release mismatch", () => {
+test("full purge preflights the runtime first and aborts incomplete on a recorded release mismatch", () => {
   const fixture = environmentFixture();
   try {
     run(["install", "--skill", "handoff", "--target", "codex"], fixture.environment);
@@ -454,11 +578,15 @@ test("full purge retains state on a recorded release mismatch", () => {
     );
 
     const purge = spawnAgentgear(["uninstall", "--purge"], fixture, fixture.environment);
-    assert.equal(purge.status, 0, purge.stderr);
+    assert.equal(purge.status, 1);
     assert.match(purge.stdout, /preserved mismatched release/);
+    assert.match(purge.stdout, /Purge incomplete/);
     assert.equal(fs.existsSync(releaseRoot), true);
     assert.equal(pathExists(path.join(fixture.dataRoot, "current")), true);
     assert.equal(fs.existsSync(fixture.stateFile), true);
+    // The preflight preserves every external artifact too: no partial teardown.
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md")), true);
+    assert.equal(pathExists(path.join(fixture.localBin, "agentgear")), true);
     assert.deepEqual(readState(fixture).releases, state.releases);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
@@ -517,7 +645,7 @@ test("XDG alias changes fail without adoption; restoring the original environmen
     environment.XDG_DATA_HOME = secondAlias;
     assert.throws(
       () => run(["update", "--skill", "handoff", "--target", "codex"], environment),
-      /Command target is rooted at a different agentgear\/current/
+      /Invalid installation state .*linked command target must be exactly/
     );
     assert.equal(fs.readFileSync(skillFile, "utf8"), originalContent);
     assert.equal(pathExists(firstCurrent), true);
@@ -595,7 +723,52 @@ test("mutating commands reject malformed, legacy, and escaping state before any 
     },
     { ...valid(), targets: { [targetRoot]: { skills: { handoff: { mode: "link", source: "/tmp/not-current" } } } } },
     { ...valid(), targets: { [targetRoot]: { skills: { handoff: { mode: "link", source: "relative" } } } } },
-    { ...valid(), targets: { [`${fixture.home}/.//agents/skills`]: valid().targets[targetRoot] } }
+    { ...valid(), targets: { [`${fixture.home}/.//agents/skills`]: valid().targets[targetRoot] } },
+    { ...valid(), targets: { [targetRoot]: { skills: { handoff: { mode: "link", source: path.join(currentSource, "extra") } } } } },
+    {
+      ...valid(),
+      commands: {
+        [launcher]: { kind: "launcher", mode: "link", target: path.join(fixture.dataRoot, "current", "skills", "handoff", "SKILL.md") }
+      }
+    },
+    {
+      ...valid(),
+      commands: {
+        [launcher]: { kind: "launcher", mode: "link", target: path.join(currentTarget, "extra") }
+      }
+    },
+    {
+      ...valid(),
+      commands: {
+        ...valid().commands,
+        [path.join(fixture.localBin, "adwf-send-and-wake")]: {
+          kind: "workflow-helper",
+          mode: "link",
+          target: currentTarget
+        }
+      }
+    },
+    {
+      ...valid(),
+      commands: {
+        [launcher]: {
+          kind: "launcher",
+          mode: "wrapper",
+          target: path.join(fixture.releasesRoot, "0.1.0-1786000000000-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "skills", "handoff", "SKILL.md"),
+          fingerprint: `sha256-v1:${"0".repeat(64)}`
+        }
+      }
+    },
+    {
+      ...valid(),
+      commands: {
+        [launcher]: {
+          kind: "launcher",
+          mode: "link",
+          target: path.join(fixture.dataRoot, "x", "agentgear", "current", "bin", "agentgear.mjs")
+        }
+      }
+    }
   ];
 
   const mutatingCommands = [
@@ -764,6 +937,86 @@ test("shared records block shared-to-fallback even with --no-launcher; purge the
     fs.symlinkSync = originalSymlink;
     assert.equal(fs.lstatSync(path.join(fixture.home, ".agents", "skills", "handoff")).isSymbolicLink(), false);
     assert.equal(pathExists(current), false);
+  } finally {
+    fs.symlinkSync = originalSymlink;
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("release updates do not fall back when a copied-skill target rejects links", async () => {
+  const fixture = environmentFixture();
+  const checkout = path.join(fixture.temporary, "checkout");
+  const originalSymlink = fs.symlinkSync;
+  try {
+    fs.cpSync(rootDir, checkout, {
+      recursive: true,
+      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+    });
+    const runCheckout = await checkoutRunner(checkout, fixture.environment);
+    runCheckout(["install", "--skill", "handoff", "--target", "codex"]);
+
+    const current = path.join(fixture.dataRoot, "current");
+    const previousRuntime = fs.realpathSync(current);
+    const targetParent = path.join(fixture.home, ".agents", "skills");
+    fs.appendFileSync(path.join(checkout, "skills", "handoff", "SKILL.md"), "\n<!-- release-no-fallback -->\n");
+
+    fs.symlinkSync = (target, destination, type) => {
+      if (
+        path.dirname(path.resolve(destination)) === targetParent
+        && path.basename(destination).startsWith(".runtime-link-probe.")
+      ) {
+        const error = new Error("simulated target-parent link denial");
+        error.code = "EPERM";
+        throw error;
+      }
+      return originalSymlink(target, destination, type);
+    };
+    runCheckout(["install", "--skill", "handoff", "--target", "codex"]);
+    fs.symlinkSync = originalSymlink;
+
+    assert.notEqual(fs.realpathSync(current), previousRuntime);
+    assert.match(
+      fs.readFileSync(path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md"), "utf8"),
+      /release-no-fallback/
+    );
+  } finally {
+    fs.symlinkSync = originalSymlink;
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("development link falls back when only a target parent rejects links", async () => {
+  const fixture = environmentFixture();
+  const checkout = path.join(fixture.temporary, "checkout");
+  const originalSymlink = fs.symlinkSync;
+  try {
+    fs.cpSync(rootDir, checkout, {
+      recursive: true,
+      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+    });
+    const runCheckout = await checkoutRunner(checkout, fixture.environment);
+    const targetParent = path.join(fixture.home, ".agents", "skills");
+
+    fs.symlinkSync = (target, destination, type) => {
+      if (
+        path.dirname(path.resolve(destination)) === targetParent
+        && path.basename(destination).startsWith(".runtime-link-probe.")
+      ) {
+        const error = new Error("simulated target-parent link denial");
+        error.code = "EPERM";
+        throw error;
+      }
+      return originalSymlink(target, destination, type);
+    };
+    runCheckout(["link", "--skill", "handoff", "--target", "codex"]);
+    fs.symlinkSync = originalSymlink;
+
+    const skill = path.join(fixture.home, ".agents", "skills", "handoff");
+    assert.equal(fs.lstatSync(skill).isSymbolicLink(), false);
+    assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
+    const state = readState(fixture);
+    assert.equal(state.targets[targetParent].skills.handoff.mode, "copy");
+    assert.equal(state.commands[path.join(fixture.localBin, "agentgear")].mode, "wrapper");
   } finally {
     fs.symlinkSync = originalSymlink;
     fs.rmSync(fixture.temporary, { recursive: true, force: true });

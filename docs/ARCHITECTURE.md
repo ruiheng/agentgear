@@ -75,9 +75,13 @@ must be produced by `agentgear-link`, not hand-edited in `dist/`.
 Release-deletion candidates come only from the state inventory: each recorded
 release must be an exact direct child of `releases/` with a matching marker
 before it is removed, and unrecorded look-alike directories are never purge
-targets. Ordinary uninstall removes only the selected exact external artifacts
-and their records; it never collects releases, removes `current`, resets the
-channel, or discards the inventory. Purge preserves unmanaged target content,
-unrelated files in the XDG data directory, unverifiable commands, and
-separately opted-in host permission rules; locally modified copied skills
-require `--force` before they can be purged.
+targets. A full purge preflights every recorded release and `current` before
+removing any external artifact; a mismatch or ambiguity aborts with an
+incomplete result and preserves everything, so a partial teardown can never
+delete external artifacts while keeping a broken runtime. Ordinary uninstall
+removes only the selected exact external artifacts and their records; it never
+collects releases, removes `current`, resets the channel, or discards the
+inventory. Purge preserves unmanaged target content, unrelated files in the
+XDG data directory, unverifiable commands, locally changed recorded skills,
+and separately opted-in host permission rules; `--force` never broadens purge
+ownership.

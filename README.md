@@ -99,8 +99,9 @@ agentgear uninstall --pack core --target codex
 agentgear uninstall --skill handoff --target codex
 ~~~
 
-The installer refuses to remove locally modified copied skills unless `--force`
-is given. Removing a development target removes only the Agentgear-managed link
+The installer refuses to remove locally modified copied skills; `--force`
+never authorizes deleting an artifact that does not agree with its state
+record. Removing a development target removes only the Agentgear-managed link
 or copy, never the checkout it came from.
 
 To remove every installer-managed skill, launcher, workflow helper, recorded
@@ -116,10 +117,14 @@ location. In that case shared runtime files are retained while other managed
 skills remain. Release-deletion candidates come only from the state inventory:
 every recorded release must be an exact `releases/` child with a matching
 marker before it is removed, and unrecorded look-alike directories are never
-purge targets. A purge never deletes unmanaged skills, unrecognized files in
-the XDG data directory, or unverifiable commands; it also leaves host
+purge targets. A full purge preflights every recorded release and `current`
+before removing anything: a mismatched release or ambiguous runtime path
+aborts with an incomplete result and preserves every external artifact.
+Locally changed recorded skills and unverifiable commands are preserved and
+reported; `--force` never broadens purge ownership. A purge also never deletes
+unmanaged skills, unrecognized files in the XDG data directory, or host
 permission rules created by the separate, opt-in workflow permission
-initializer untouched.
+initializer.
 
 ## Commands
 

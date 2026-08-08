@@ -14,6 +14,7 @@ import {
   computePaths,
   destinationMatchesRecord,
   exists,
+  preflightRuntimePurge,
   purgeManagedRuntime,
   readInstallState,
   removeInstallStateFile,
@@ -114,8 +115,8 @@ function uninstall(catalog, options) {
         continue;
       }
       const destination = path.join(target.root, skill);
-      if (exists(destination) && !destinationMatchesRecord(destination, item) && !options.force) {
-        fail("Refusing to remove locally changed skill: " + destination + " (use --force to remove it)");
+      if (exists(destination) && !destinationMatchesRecord(destination, item)) {
+        fail("Refusing to remove locally changed skill: " + destination);
       }
       fs.rmSync(destination, { recursive: true, force: true });
       delete record.skills[skill];
@@ -134,9 +135,9 @@ function purgeTargetRoots(catalog, options, state) {
     .map(root => ({ name: root, root }));
 }
 
-function purgePlan(state, targets, options) {
+function purgePlan(state, targets) {
   const plan = [];
-  const errors = [];
+  const preserved = [];
   const visitedRoots = new Set();
   for (const target of targets) {
     if (visitedRoots.has(target.root)) continue;
@@ -144,14 +145,14 @@ function purgePlan(state, targets, options) {
     const record = targetState(state, target.root);
     for (const [skill, item] of Object.entries(record.skills)) {
       const destination = path.join(target.root, skill);
-      if (exists(destination) && !destinationMatchesRecord(destination, item) && !options.force) {
-        errors.push("Refusing to remove locally changed skill: " + destination + " (use --force to remove it)");
+      if (exists(destination) && !destinationMatchesRecord(destination, item)) {
+        preserved.push(destination);
+        continue;
       }
       plan.push({ target, skill, destination });
     }
   }
-  if (errors.length > 0) fail(errors.join("\n"));
-  return plan;
+  return { plan, preserved };
 }
 
 function purge(catalog, options) {
@@ -168,8 +169,24 @@ function purge(catalog, options) {
     print("No agentgear installation state recorded; nothing to purge.");
     return;
   }
+  const hasExplicitTarget = options.targets.length > 0 || options.destination || options.scope === "project";
   const targets = purgeTargetRoots(catalog, options, state);
-  const plan = purgePlan(state, targets, options);
+  const { plan, preserved } = purgePlan(state, targets);
+  for (const destination of preserved) {
+    print("preserved locally changed skill: " + destination);
+  }
+
+  // Full purge preflights the recorded releases and `current` before any
+  // destructive external removal; runtime ambiguity preserves everything.
+  if (!hasExplicitTarget) {
+    const preflight = preflightRuntimePurge({ state, env: process.env });
+    for (const message of preflight.messages) print(message);
+    if (!preflight.ok) {
+      print("Purge incomplete: runtime ambiguity; manual cleanup required.");
+      process.exitCode = 1;
+      return;
+    }
+  }
 
   for (const item of plan) {
     fs.rmSync(item.destination, { recursive: true, force: true });
@@ -185,11 +202,14 @@ function purge(catalog, options) {
   if (Object.keys(state.targets).length > 0) {
     saveInstallState(state);
     print("Shared runtime retained because other managed skills remain.");
+    print("Purge complete.");
   } else {
     const tornDown = purgeManagedRuntime({ state, env: process.env, print });
-    if (tornDown) removeInstallStateFile({ print });
+    if (tornDown) {
+      removeInstallStateFile({ print });
+      print("Purge complete.");
+    }
   }
-  print("Purge complete.");
 }
 
 function commandOnPath(command) {
