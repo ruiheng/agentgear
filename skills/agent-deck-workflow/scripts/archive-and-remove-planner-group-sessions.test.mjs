@@ -13,7 +13,10 @@ const integrationTest = childProcessesAvailable ? test : test.skip;
 
 const fakeAgentDeck = `#!/usr/bin/env node
 const fs = require("node:fs");
-const [stateFile, groupsFile, ...argv] = process.argv.slice(2);
+const stateFile = process.env.ADWG_TEST_STATE_FILE;
+const groupsFile = process.env.ADWG_TEST_GROUPS_FILE;
+const argv = process.argv.slice(2);
+if (!stateFile || !groupsFile) process.exit(2);
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
 const write = (file, value) => fs.writeFileSync(file, JSON.stringify(value));
 const findGroup = (groups, target) => {
@@ -76,7 +79,12 @@ function setup({ sessions, groups }) {
   fs.chmodSync(command, 0o755);
   const run = argumentsList => childProcess.spawnSync(process.execPath, [target, ...argumentsList], {
     cwd: work,
-    env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH || ""}` },
+    env: {
+      ...process.env,
+      ADWG_TEST_STATE_FILE: stateFile,
+      ADWG_TEST_GROUPS_FILE: groupsFile,
+      PATH: bin + path.delimiter + (process.env.PATH || "")
+    },
     encoding: "utf8"
   });
   return { temporary, stateFile, groupsFile, run };
