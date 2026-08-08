@@ -24,10 +24,8 @@
   },
   "files": [
     "bin/agentgear.mjs",
-    "bin/agentgear-link.mjs",
     "catalog",
     "cli/agentgear.mjs",
-    "cli/link.mjs",
     "cli/lib",
     "config",
     "providers",
@@ -41,7 +39,6 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "link": "node ./bin/agentgear-link.mjs",
     "validate": "node scripts/validate.mjs",
     "test": "node --test --test-concurrency=1 tests/cli.test.mjs tests/workflow-permissions.test.mjs skills/agent-deck-workflow/scripts/archive-and-remove-planner-group-sessions.test.mjs skills/agent-deck-workflow/scripts/resolve-tool-command.test.js",
     "check": "npm run validate && npm run build && npm test",

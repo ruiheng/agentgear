@@ -2,27 +2,31 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveSelection } from "./catalog.mjs";
 import {
+  addReleaseToInventory,
+  checkChannelGate,
+  checkCommandCollisions,
+  checkStateCoherence,
+  chooseDeploymentMode,
+  commandEntries,
+  computePaths,
   copyOrLinkSkill,
   createInstallTransaction,
   destinationMatchesRecord,
   directoryFingerprint,
-  ensureLauncher,
-  ensureWorkflowHelpers,
+  discardRuntime,
   exists,
   expandHome,
-  getDataRoot,
-  discardRuntime,
-  linkTargetsPath,
+  installRuntimeCommand,
   publishRuntime,
   readInstallState,
-  recordRuntimeCommand,
+  resolvedLinkTarget,
   rollbackRuntimePublication,
   saveInstallState,
   stageRuntime,
   targetState,
   updateTargetState,
   validateSharedRuntimeConsumers,
-  verifiedLegacyDevelopmentSourceRoots
+  validateStateGrammar
 } from "./runtime.mjs";
 
 function fail(message) {
@@ -59,13 +63,12 @@ function ensureSourceSkills(sourceRoot, selection) {
   }
 }
 
-function targetInstallPlan(state, targets, selection, sourceRoot, options) {
+function targetInstallPlan(state, targets, selection, options) {
   const errors = [];
   const plan = [];
   for (const target of targets) {
-    const recorded = targetState(state, target.root);
+    const recorded = state === null ? { skills: {} } : targetState(state, target.root);
     for (const skill of selection.skills) {
-      const source = path.join(sourceRoot, "skills", skill);
       const destination = path.join(target.root, skill);
       const record = recorded.skills[skill];
       const destinationExists = exists(destination);
@@ -74,7 +77,7 @@ function targetInstallPlan(state, targets, selection, sourceRoot, options) {
       } else if (destinationExists && record && !destinationMatchesRecord(destination, record) && !options.force) {
         errors.push("Installer-managed skill changed locally: " + destination + " (use --force to replace it)");
       }
-      plan.push({ target, skill, source, destination, record, destinationExists });
+      plan.push({ target, skill, destination, record, destinationExists });
     }
   }
   if (errors.length > 0) fail(errors.join("\n"));
@@ -93,9 +96,19 @@ export function installSelection({
   const targets = resolveTargetRoots(catalog, options, env);
   ensureSourceSkills(sourceRoot, selection);
   const state = readInstallState(env);
-  const legacySourceRoots = verifiedLegacyDevelopmentSourceRoots(state, env);
-  const plannedSourceRoot = development ? path.join(getDataRoot(env), "current") : sourceRoot;
-  const plan = targetInstallPlan(state, targets, selection, plannedSourceRoot, options);
+  const grammar = validateStateGrammar(state, env);
+  if (!grammar.valid) {
+    fail(`Invalid installation state ${computePaths(env).stateFile}: ${grammar.reason}`);
+  }
+  const requestedChannel = development ? "development" : "release";
+  checkChannelGate(state, requestedChannel);
+  checkStateCoherence(state, env);
+  const installLauncher = !options.noLauncher;
+  const installWorkflowHelpers = installLauncher && selection.skills.includes("agent-deck-workflow");
+  const plan = targetInstallPlan(state, targets, selection, options);
+  checkCommandCollisions(state, env, installLauncher, installWorkflowHelpers, options.force);
+
+  let currentState = state;
   let runtime;
   let publication;
   let transaction;
@@ -103,99 +116,94 @@ export function installSelection({
 
   try {
     runtime = stageRuntime({ sourceRoot, env });
+    const mode = chooseDeploymentMode({ runtime, targets, development, state, env, print });
     const consumerErrors = validateSharedRuntimeConsumers({
       runtime,
       state,
-      snapshotRoot: runtime.root,
       env,
-      installLauncher: !options.noLauncher,
-      installWorkflowHelpers: !options.noLauncher && selection.skills.includes("agent-deck-workflow"),
+      mode,
+      development,
+      installLauncher,
+      installWorkflowHelpers,
       plannedSkills: selection.skills
     });
     if (consumerErrors.length > 0) fail(consumerErrors.join("\n"));
-    transaction = createInstallTransaction();
-    const linksRequested = development && Boolean(runtime.sharedRoot);
-    const source = linksRequested ? runtime.sharedRoot : runtime.root;
-    for (const item of plan) {
-      item.source = path.join(source, "skills", item.skill);
-      item.copySource = path.join(runtime.root, "skills", item.skill);
-      item.link = linksRequested;
-    }
 
-    let copiedLinkTargets = 0;
+    if (currentState === null) {
+      currentState = {
+        schemaVersion: 2,
+        channel: requestedChannel,
+        releases: [],
+        targets: {},
+        commands: {}
+      };
+    }
+    transaction = createInstallTransaction();
+    const shared = development && mode === "shared";
+    const skillSourceRoot = shared ? computePaths(env).currentPath : runtime.root;
+    let copiedSkillTargets = 0;
+
     for (const target of targets) {
-      const record = targetState(state, target.root);
+      const record = targetState(currentState, target.root);
       for (const item of plan.filter(candidate => candidate.target.name === target.name)) {
-        const keepsSharedLink = !options.force
-          && item.link
-          && item.destinationExists
+        const source = path.join(skillSourceRoot, "skills", item.skill);
+        const keepsLink = shared
           && item.record?.mode === "link"
-          && linkTargetsPath(item.destination, item.source)
-          && destinationMatchesRecord(item.destination, {
-            ...item.record,
-            source: path.resolve(item.source)
-          });
-        let deployment = { mode: "link" };
-        if (!keepsSharedLink) {
-          deployment = transaction.replace([item.destination], () => copyOrLinkSkill({
-            source: item.source,
-            copySource: item.copySource,
+          && item.destinationExists
+          && resolvedLinkTarget(item.destination) === source;
+        if (!keepsLink) {
+          const deployment = transaction.replace([item.destination], () => copyOrLinkSkill({
+            source,
+            copySource: path.join(runtime.root, "skills", item.skill),
             destination: item.destination,
-            link: item.link,
+            link: shared ? "strict" : false,
             print
           }));
-          if (item.link && deployment.mode === "copy") copiedLinkTargets += 1;
+          if (deployment.mode === "link") {
+            record.skills[item.skill] = { mode: "link", source };
+          } else {
+            record.skills[item.skill] = { mode: "copy", fingerprint: directoryFingerprint(item.destination) };
+            if (shared) copiedSkillTargets += 1;
+          }
+        } else {
+          record.skills[item.skill] = { mode: "link", source };
         }
-        const copied = deployment.mode === "copy";
-        record.skills[item.skill] = {
-          source: copied ? fs.realpathSync(item.copySource) : path.resolve(item.source),
-          mode: deployment.mode,
-          fingerprint: copied ? directoryFingerprint(item.copySource) : null,
-          runtimeId: runtime.id,
-          installedAt: new Date().toISOString()
-        };
       }
-      updateTargetState(state, target.root, record);
+      updateTargetState(currentState, target.root, record);
     }
 
-    if (!options.noLauncher) {
-      const launcher = ensureLauncher({
-        sourceRoot,
-        runtime,
-        state,
-        legacySourceRoots,
-        force: options.force,
-        env,
-        print,
-        transaction
-      });
-      recordRuntimeCommand(state, launcher);
-      if (selection.skills.includes("agent-deck-workflow")) {
-        const helpers = ensureWorkflowHelpers({
-          sourceRoot,
+    if (installLauncher) {
+      for (const entry of commandEntries(env)) {
+        if (entry.kind === "workflow-helper" && !installWorkflowHelpers) continue;
+        currentState.commands[entry.destination] = installRuntimeCommand({
+          command: entry.command,
+          kind: entry.kind,
+          destination: entry.destination,
           runtime,
-          state,
-          legacySourceRoots,
-          force: options.force,
-          env,
+          mode,
+          relativeModule: entry.relativeModule,
           print,
-          transaction
+          transaction,
+          env
         });
-        for (const helper of helpers) recordRuntimeCommand(state, helper);
       }
     }
 
-    publication = publishRuntime(runtime);
-    saveInstallState(state, env);
+    addReleaseToInventory(currentState, runtime.id);
+    if (currentState.channel === null) currentState.channel = requestedChannel;
+    if (mode === "shared") {
+      publication = publishRuntime(runtime, currentState, env);
+    }
+    saveInstallState(currentState, env);
     transaction.commit();
     committed = true;
 
     const channel = development
-      ? (runtime.sharedRoot ? "shared development link" : "shared development copy fallback")
+      ? (shared ? "shared development link" : "development copy fallback")
       : "release snapshot";
     print("Installed " + selection.skills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
-    if (copiedLinkTargets > 0) {
-      print("Copied " + copiedLinkTargets + " skill(s) because links are unavailable at their destination.");
+    if (copiedSkillTargets > 0) {
+      print("Copied " + copiedSkillTargets + " skill(s) because links are unavailable at their destination.");
     }
     if (selection.requirements.commands.length > 0) {
       print("Run: agentgear doctor --pack " + selection.packs.at(-1));
@@ -207,7 +215,7 @@ export function installSelection({
         rollbackRuntimePublication(publication);
       } catch (rollbackError) {
         rollbackSucceeded = false;
-        error.message += "; additionally failed to restore the previous shared runtime: " + rollbackError.message;
+        error.message += `; additionally failed to restore the previous shared runtime: ${rollbackError.message}`;
       }
     }
     if (!committed && transaction) {
@@ -215,10 +223,16 @@ export function installSelection({
         transaction.rollback();
       } catch (rollbackError) {
         rollbackSucceeded = false;
-        error.message += "; additionally failed to restore installation paths: " + rollbackError.message;
+        error.message += `; additionally failed to restore installation paths: ${rollbackError.message}`;
       }
     }
-    if (!committed && runtime && rollbackSucceeded) discardRuntime(runtime);
+    if (!committed && runtime) {
+      if (rollbackSucceeded) {
+        discardRuntime(runtime);
+      } else {
+        error.message += `; partial rollback: retained staged release ${runtime.root} without recording it (manual recovery required)`;
+      }
+    }
     throw error;
   }
 }

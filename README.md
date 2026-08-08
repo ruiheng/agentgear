@@ -23,7 +23,6 @@ active. Later edits in any local checkout do not affect that release.
 git clone git@github.com:ruiheng/agentgear.git
 cd agentgear
 node ./bin/agentgear-link.mjs --pack all --target codex,claude
-# equivalent: npm run link -- --pack all --target codex,claude
 ~~~
 
 `agentgear-link` is a developer-only command: run it from a source checkout,
@@ -37,20 +36,31 @@ checkout, rerun the same command to refresh that runtime:
 node ./bin/agentgear-link.mjs --pack all --target codex,claude
 ~~~
 
-When directory links or Windows junctions are unavailable, Agentgear falls back
-to copied skills and small Node command wrappers; rerunning `agentgear-link`
-refreshes those copies explicitly. It refuses that fallback while an existing
-shared-runtime skill, launcher, or helper is still active, so one installation
-cannot be split across old and new runtimes. When links are available, every
-installed skill link sees the new snapshot without being repointed individually.
-The published `agentgear` CLI deliberately has no `link` subcommand. Switch
-back to independent release copies with
-`npx --yes @ruiheng/agentgear@latest update ...`.
+When directory links or Windows junctions are unavailable, a fresh
+installation falls back to copied skills and small Node command wrappers
+targeting the physical staged release; rerunning `agentgear-link` refreshes
+those copies explicitly. It refuses that fallback while any shared record
+remains in valid state, so one installation cannot be split across old and new
+runtimes. When links are available, every installed skill link sees the new
+snapshot without being repointed individually. The published `agentgear` CLI
+deliberately has no `link` subcommand.
+
+Release and development are separate channels that never silently switch:
+`agentgear install`/`update` and `agentgear-link` each reject a runtime
+recorded by the other channel, even with `--force`. To move from developer
+links to independent release copies, purge first and then install:
+
+~~~bash
+agentgear uninstall --purge
+npx --yes @ruiheng/agentgear@latest install --pack all --target codex,claude
+~~~
 
 Agentgear records ownership of its launcher and workflow helpers. If the stable
 `current` link is removed accidentally, rerun `agentgear-link` from the
 checkout to restore it and the recorded command links. It still refuses an
-unrecorded command link, even when that link happens to target the same path.
+unrecorded command link, even when that link happens to target the same path,
+and it cannot recover a `current` link dangling because its inventoried release
+was deleted (full purge can remove that link).
 
 ## External dependency: Waypost
 
@@ -71,7 +81,8 @@ Use `agentgear-link` from a development checkout, and rerun it after local
 edits. The target normally links to Agentgear's shared runtime, with automatic
 copy fallback on filesystems that reject links; the normal `agentgear install`
 and `update` commands always copy skills to the target directory and record
-only installer-managed destinations.
+only installer-managed destinations. The two channels are exclusive: switching
+from one to the other requires `agentgear uninstall --purge` first.
 
 The workflow pack deliberately does not copy the upstream `agent-deck` skill.
 Install it from [Agent Deck](https://github.com/asheshgoplani/agent-deck) in
@@ -92,7 +103,7 @@ The installer refuses to remove locally modified copied skills unless `--force`
 is given. Removing a development target removes only the Agentgear-managed link
 or copy, never the checkout it came from.
 
-To remove every installer-managed skill, launcher, workflow helper, recognized
+To remove every installer-managed skill, launcher, workflow helper, recorded
 release snapshot, and install-state file, run a full purge:
 
 ~~~bash
@@ -102,9 +113,13 @@ agentgear uninstall --purge
 Without a target selector, `--purge` covers every target in its installation
 state. Add `--target`, `--scope`, `--project`, or `--dest` to limit it to one
 location. In that case shared runtime files are retained while other managed
-skills remain. A purge never deletes unmanaged skills or unrecognized files in
-the XDG data directory. It also leaves host permission rules created by the
-separate, opt-in workflow permission initializer untouched.
+skills remain. Release-deletion candidates come only from the state inventory:
+every recorded release must be an exact `releases/` child with a matching
+marker before it is removed, and unrecorded look-alike directories are never
+purge targets. A purge never deletes unmanaged skills, unrecognized files in
+the XDG data directory, or unverifiable commands; it also leaves host
+permission rules created by the separate, opt-in workflow permission
+initializer untouched.
 
 ## Commands
 
@@ -118,10 +133,11 @@ separate, opt-in workflow permission initializer untouched.
 | `doctor` | Check declared external commands and upstream requirements. |
 | `run` | Run a script bundled with an installed skill. |
 
-The development-only command is `node ./bin/agentgear-link.mjs` (or
-`npm run link -- ...`) from a source checkout. It accepts the same pack, skill,
-target, scope, destination, `--force`, and `--no-launcher` selection options as
-`agentgear install`; it is intentionally not an `agentgear` subcommand.
+The development-only command is `node ./bin/agentgear-link.mjs` from a source
+checkout. It accepts the same pack, skill, target, scope, destination,
+`--force`, and `--no-launcher` selection options as `agentgear install`; it is
+intentionally not an `agentgear` subcommand and is not published in the npm
+package.
 
 ## Development
 

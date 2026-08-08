@@ -4,9 +4,12 @@ import os from "node:os";
 import path from "node:path";
 
 const RUNTIME_MARKER = ".agentgear-runtime.json";
-const STATE_VERSION = 1;
-const MANAGED_SHIM_MARKER = "// agentgear-managed-runtime-shim";
-const MANAGED_CMD_SHIM_MARKER = ":: agentgear-managed-runtime-shim";
+const MARKER_VERSION = 1;
+const STATE_VERSION = 2;
+const FINGERPRINT_PREFIX = "sha256-v1:";
+const FINGERPRINT_HEADER = "agentgear-fingerprint-v1\0";
+const FINGERPRINT_PATTERN = /^sha256-v1:[0-9a-f]{64}$/;
+const SKILL_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const LINK_UNAVAILABLE_CODES = new Set(["EACCES", "EINVAL", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM"]);
 let temporarySequence = 0;
 const WORKFLOW_HELPERS = {
@@ -22,13 +25,28 @@ export function getHome(env = process.env) {
   return env.HOME || os.homedir();
 }
 
-export function getDataRoot(env = process.env) {
-  return path.join(env.XDG_DATA_HOME || path.join(getHome(env), ".local", "share"), "agentgear");
-}
-
-export function getStateFile(env = process.env) {
+function getStateFile(env = process.env) {
   const stateHome = env.XDG_STATE_HOME || path.join(getHome(env), ".local", "state");
   return path.join(stateHome, "agentgear", "installs.json");
+}
+
+export function computePaths(env = process.env) {
+  const home = getHome(env);
+  const dataRoot = path.join(env.XDG_DATA_HOME || path.join(home, ".local", "share"), "agentgear");
+  const stateHome = env.XDG_STATE_HOME || path.join(home, ".local", "state");
+  const localBin = path.join(home, ".local", "bin");
+  const workflowHelpers = {};
+  for (const name of Object.keys(WORKFLOW_HELPERS)) workflowHelpers[name] = path.join(localBin, name);
+  return {
+    home,
+    dataRoot,
+    releasesRoot: path.join(dataRoot, "releases"),
+    currentPath: path.join(dataRoot, "current"),
+    stateFile: path.join(stateHome, "agentgear", "installs.json"),
+    localBin,
+    launcher: path.join(localBin, "agentgear"),
+    workflowHelpers
+  };
 }
 
 export function expandHome(value, env = process.env) {
@@ -52,10 +70,78 @@ export function writeJsonAtomic(filePath, value) {
   fs.renameSync(temporary, filePath);
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function compareUtf8(left, right) {
+  return Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
+
+function isValidReleaseId(releaseId) {
+  return typeof releaseId === "string"
+    && releaseId.length > 0
+    && !releaseId.includes("/")
+    && !releaseId.includes("\\")
+    && !releaseId.includes("\0")
+    && releaseId !== "."
+    && releaseId !== "..";
+}
+
+function pathIsInside(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative !== ""
+    && relative !== ".."
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+function pathIsInsideOrEqual(parent, candidate) {
+  return path.resolve(parent) === path.resolve(candidate) || pathIsInside(parent, candidate);
+}
+
+function hasLastSegments(candidate, segments) {
+  const parts = candidate.split(path.sep);
+  if (parts.length < segments.length) return false;
+  for (let index = 0; index < segments.length; index += 1) {
+    if (parts[parts.length - segments.length + index] !== segments[index]) return false;
+  }
+  return true;
+}
+
+// Returns the lexical agentgear/current root of a path that contains the
+// consecutive "agentgear" "current" segments followed by at least one more
+// segment, or null when the path is not below such a root.
+function stableRuntimeRoot(candidate) {
+  const parts = candidate.split(path.sep);
+  for (let index = 0; index + 2 < parts.length; index += 1) {
+    if (parts[index] === "agentgear" && parts[index + 1] === "current") {
+      return parts.slice(0, index + 2).join(path.sep) || path.sep;
+    }
+  }
+  return null;
+}
+
+function releaseIdForTarget(target, releasesRoot) {
+  let directory = path.dirname(target);
+  let releaseId = null;
+  while (path.resolve(directory) !== path.resolve(releasesRoot)) {
+    if (!pathIsInside(releasesRoot, directory)) return null;
+    releaseId = path.basename(directory);
+    directory = path.dirname(directory);
+  }
+  return releaseId;
+}
+
+function directChildReleaseId(candidate, releasesRoot) {
+  if (path.resolve(path.dirname(candidate)) !== path.resolve(releasesRoot)) return null;
+  const releaseId = path.basename(candidate);
+  return isValidReleaseId(releaseId) ? releaseId : null;
+}
+
 function walkEntries(rootDir, relative = "") {
   const current = path.join(rootDir, relative);
-  const entries = fs.readdirSync(current, { withFileTypes: true })
-    .sort((left, right) => left.name.localeCompare(right.name));
+  const entries = fs.readdirSync(current, { withFileTypes: true });
   const result = [];
   for (const entry of entries) {
     const entryRelative = path.join(relative, entry.name);
@@ -74,18 +160,45 @@ function walkEntries(rootDir, relative = "") {
 
 export function directoryFingerprint(rootDir) {
   const hash = crypto.createHash("sha256");
-  for (const entry of walkEntries(rootDir)) {
-    hash.update(`${entry.type}\0${entry.relative}\0`);
+  hash.update(FINGERPRINT_HEADER);
+  const entries = walkEntries(rootDir).sort((left, right) =>
+    compareUtf8(left.relative.replaceAll(path.sep, "/"), right.relative.replaceAll(path.sep, "/")));
+  for (const entry of entries) {
+    hash.update(`${entry.type}\0`);
+    hash.update(entry.relative.replaceAll(path.sep, "/"));
+    hash.update("\0");
     if (entry.type === "file") {
-      hash.update(String(fs.statSync(entry.path).mode & 0o777));
+      hash.update(String(fs.statSync(entry.path).mode & 0o777).toString(8));
       hash.update("\0");
       hash.update(fs.readFileSync(entry.path));
+      hash.update("\0");
     } else if (entry.type === "link") {
-      hash.update(fs.readlinkSync(entry.path));
+      hash.update(resolvedLinkTarget(entry.path) ?? "");
+      hash.update("\0");
     }
+  }
+  return `${FINGERPRINT_PREFIX}${hash.digest("hex")}`;
+}
+
+// Fingerprint of a generated command wrapper. The primary file and, on
+// Windows, its `.cmd` companion form one indivisible virtual tree.
+export function wrapperFingerprint(destination) {
+  const hash = crypto.createHash("sha256");
+  hash.update(FINGERPRINT_HEADER);
+  const entries = [{ name: path.basename(destination), filePath: destination }];
+  if (process.platform === "win32") {
+    entries.push({ name: `${path.basename(destination)}.cmd`, filePath: commandShimPath(destination) });
+  }
+  entries.sort((left, right) => compareUtf8(left.name, right.name));
+  for (const entry of entries) {
+    const info = fs.statSync(entry.filePath);
+    hash.update(`file\0${entry.name}\0`);
+    hash.update(String(info.mode & 0o777).toString(8));
+    hash.update("\0");
+    hash.update(fs.readFileSync(entry.filePath));
     hash.update("\0");
   }
-  return hash.digest("hex");
+  return `${FINGERPRINT_PREFIX}${hash.digest("hex")}`;
 }
 
 function ignoredRuntimePath(sourcePath, sourceRoot) {
@@ -217,113 +330,14 @@ export function createInstallTransaction() {
     commit() {
       if (settled) return;
       settled = true;
-      for (const entries of groups) {
-        for (const entry of entries) {
+      for (const groupsEntry of groups) {
+        for (const entry of groupsEntry) {
           if (entry.moved && entry.backup) removePathQuietly(entry.backup);
         }
       }
       groups.length = 0;
     }
   };
-}
-
-function runtimeLinksSupported(dataRoot, target) {
-  const probe = temporaryPath(dataRoot, "runtime-link-probe");
-  try {
-    createDirectoryLink(target, probe);
-    return true;
-  } catch (error) {
-    if (isLinkUnavailable(error)) return false;
-    throw error;
-  } finally {
-    removePathIfPresent(probe);
-  }
-}
-
-function isManagedRuntimeShim(destination) {
-  const info = fs.lstatSync(destination, { throwIfNoEntry: false });
-  if (!info?.isFile() || info.isSymbolicLink()) return false;
-  try {
-    return fs.readFileSync(destination, "utf8").startsWith(`#!/usr/bin/env node\n${MANAGED_SHIM_MARKER}\n`);
-  } catch {
-    return false;
-  }
-}
-
-function commandShimPath(destination) {
-  return `${destination}.cmd`;
-}
-
-function isManagedCommandShim(destination) {
-  const commandShim = commandShimPath(destination);
-  const info = fs.lstatSync(commandShim, { throwIfNoEntry: false });
-  if (!info?.isFile() || info.isSymbolicLink()) return false;
-  try {
-    return fs.readFileSync(commandShim, "utf8").startsWith(`${MANAGED_CMD_SHIM_MARKER}\r\n`);
-  } catch {
-    return false;
-  }
-}
-
-function runtimeShimSource(command, modulePath) {
-  return [
-    "#!/usr/bin/env node",
-    MANAGED_SHIM_MARKER,
-    "",
-    "(async () => {",
-    '  const { spawnSync } = await import("node:child_process");',
-    `  const result = spawnSync(process.execPath, [${JSON.stringify(modulePath)}, ...process.argv.slice(2)], { stdio: "inherit" });`,
-    "  if (result.error) {",
-    `    process.stderr.write(${JSON.stringify(`${command}: `)} + result.error.message + "\\n");`,
-    "    process.exitCode = 1;",
-    "  } else {",
-    "    process.exitCode = result.status ?? 1;",
-    "  }",
-    "})().catch(error => {",
-    `  process.stderr.write(${JSON.stringify(`${command}: `)} + (error?.message ?? String(error)) + "\\n");`,
-    "  process.exitCode = 1;",
-    "});"
-  ].join("\n") + "\n";
-}
-
-function writeRuntimeShim(destination, command, modulePath) {
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  const temporary = temporaryPath(path.dirname(destination), path.basename(destination));
-  try {
-    fs.writeFileSync(temporary, runtimeShimSource(command, modulePath), { mode: 0o755 });
-    fs.renameSync(temporary, destination);
-  } catch (error) {
-    removePathIfPresent(temporary);
-    throw error;
-  }
-  fs.chmodSync(destination, 0o755);
-}
-
-function assertWindowsCommandShimCanBeManaged(destination, force) {
-  if (process.platform !== "win32") return;
-  const commandShim = commandShimPath(destination);
-  if (exists(commandShim) && !force && !isManagedCommandShim(destination)) {
-    throw new Error(`Refusing to replace unmanaged command shim: ${commandShim}`);
-  }
-}
-
-function writeWindowsCommandShim(destination) {
-  if (process.platform !== "win32") return;
-  const commandShim = commandShimPath(destination);
-  removePathIfPresent(commandShim);
-  const temporary = temporaryPath(path.dirname(commandShim), path.basename(commandShim));
-  const source = [
-    MANAGED_CMD_SHIM_MARKER,
-    "@echo off",
-    `node "%~dp0${path.basename(destination)}" %*`
-  ].join("\r\n") + "\r\n";
-  try {
-    fs.writeFileSync(temporary, source);
-    fs.renameSync(temporary, commandShim);
-  } catch (error) {
-    removePathIfPresent(temporary);
-    throw error;
-  }
 }
 
 function stripWindowsLinkNamespace(candidate) {
@@ -347,152 +361,7 @@ function normalizeLinkPath(candidate) {
   return path.resolve(stripWindowsLinkNamespace(candidate));
 }
 
-function realpathIfExists(candidate) {
-  try {
-    return normalizeLinkPath(fs.realpathSync(candidate));
-  } catch {
-    return null;
-  }
-}
-
-function pathsReferToSameLocation(left, right) {
-  const normalizedLeft = normalizeLinkPath(left);
-  const normalizedRight = normalizeLinkPath(right);
-  if (normalizedLeft === normalizedRight) return true;
-  const realLeft = realpathIfExists(normalizedLeft);
-  const realRight = realpathIfExists(normalizedRight);
-  return Boolean(realLeft && realRight && realLeft === realRight);
-}
-
-function pathIsInside(parent, candidate) {
-  const relative = path.relative(parent, candidate);
-  return relative !== ""
-    && relative !== ".."
-    && !relative.startsWith(`..${path.sep}`)
-    && !path.isAbsolute(relative);
-}
-
-function pathIsInsideOrEqual(parent, candidate) {
-  return path.resolve(parent) === path.resolve(candidate) || pathIsInside(parent, candidate);
-}
-
-function pathWithoutRelativeSuffix(candidate, relativePath) {
-  if (relativePath === "") return candidate;
-  let result = candidate;
-  for (const component of relativePath.split(path.sep).reverse()) {
-    if (path.basename(result) !== component) return null;
-    result = path.dirname(result);
-  }
-  return result;
-}
-
-function sharedRuntimeTargetMatches(candidate, target, sharedRoot) {
-  const normalizedCandidate = normalizeLinkPath(candidate);
-  const normalizedTarget = normalizeLinkPath(target);
-  if (normalizedCandidate === normalizedTarget) return true;
-
-  const normalizedSharedRoot = normalizeLinkPath(sharedRoot);
-  const relativePath = path.relative(normalizedSharedRoot, normalizedTarget);
-  if (
-    relativePath === ".."
-    || relativePath.startsWith(`..${path.sep}`)
-    || path.isAbsolute(relativePath)
-  ) return false;
-
-  // Do not realpath the candidate itself: doing so crosses `current` and
-  // makes a physical release look like a stable current reference. Instead,
-  // strip the expected suffix and compare only the data-root side of current.
-  const candidateCurrent = pathWithoutRelativeSuffix(normalizedCandidate, relativePath);
-  if (!candidateCurrent || path.basename(candidateCurrent) !== path.basename(normalizedSharedRoot)) {
-    return false;
-  }
-  return pathsReferToSameLocation(path.dirname(candidateCurrent), path.dirname(normalizedSharedRoot));
-}
-
-function isStableSharedRuntimeRoot(candidate, dataRoot) {
-  const currentPath = path.join(dataRoot, "current");
-  if (sharedRuntimeTargetMatches(candidate, currentPath, currentPath)) return true;
-
-  // A user can remove `agentgear/current` and its parent directory before a
-  // later run reaches the same XDG location through a different symlink alias.
-  // In that case the normal alias comparison cannot realpath the missing
-  // `agentgear` component. Its existing XDG-data parent still establishes the
-  // namespace, so recognize this one missing stable-path component as well.
-  const normalizedCandidate = normalizeLinkPath(candidate);
-  const normalizedCurrent = normalizeLinkPath(currentPath);
-  if (path.basename(normalizedCandidate) !== path.basename(normalizedCurrent)) return false;
-  const candidateParent = path.dirname(normalizedCandidate);
-  const currentParent = path.dirname(normalizedCurrent);
-  return path.basename(candidateParent) === path.basename(currentParent)
-    && pathsReferToSameLocation(path.dirname(candidateParent), path.dirname(currentParent));
-}
-
-export function verifiedLegacyDevelopmentSourceRoots(state, env = process.env) {
-  const dataRoot = getDataRoot(env);
-  const roots = new Set();
-  const targets = state?.targets;
-  if (!targets || typeof targets !== "object" || Array.isArray(targets)) return [];
-
-  for (const [targetRoot, targetRecord] of Object.entries(targets)) {
-    const skills = targetRecord?.skills;
-    if (!skills || typeof skills !== "object" || Array.isArray(skills)) continue;
-    for (const [skill, record] of Object.entries(skills)) {
-      if (
-        typeof skill !== "string"
-        || skill.length === 0
-        || path.basename(skill) !== skill
-        || record?.mode !== "link"
-        || typeof record.source !== "string"
-      ) continue;
-
-      const source = path.resolve(record.source);
-      const skillsDirectory = path.dirname(source);
-      if (path.basename(skillsDirectory) !== "skills" || path.basename(source) !== skill) continue;
-
-      // Before state.commands existed, development installs linked both the
-      // skill and commands directly to the checkout. A live, state-matching
-      // skill link is the only evidence we retain for those command links.
-      const destination = path.join(targetRoot, skill);
-      if (!destinationMatchesRecord(destination, record)) continue;
-
-      const checkoutRoot = path.dirname(skillsDirectory);
-      // New development links record the stable shared runtime here. It is
-      // not a legacy checkout and must never make an arbitrary current path
-      // look installer-owned during migration or purge.
-      if (isStableSharedRuntimeRoot(checkoutRoot, dataRoot)) continue;
-      roots.add(checkoutRoot);
-    }
-  }
-  return [...roots];
-}
-
-function isManagedCurrentLink(currentPath, dataRoot) {
-  const info = fs.lstatSync(currentPath, { throwIfNoEntry: false });
-  if (!info?.isSymbolicLink()) return false;
-
-  const releasesRoot = path.join(dataRoot, "releases");
-  try {
-    // `current` and `releases` must be compared in the same namespace.  An
-    // XDG data directory may itself be reached through a symlink.
-    const target = normalizeLinkPath(fs.realpathSync(currentPath));
-    const managedRoot = normalizeLinkPath(fs.realpathSync(releasesRoot));
-    return pathIsInside(managedRoot, target);
-  } catch {
-    // Preserve recovery of a dangling, but lexically managed, `current` link.
-    // Its target cannot be canonicalized because the old release is absent.
-    const target = resolvedLinkTarget(currentPath);
-    if (!target) return false;
-    const normalizedReleasesRoot = normalizeLinkPath(releasesRoot);
-    if (pathIsInside(normalizedReleasesRoot, target)) return true;
-
-    // A prior invocation may have reached the same XDG data directory through
-    // another symlink alias. The missing release itself cannot be realpathed,
-    // but its `releases` parent still can.
-    return pathsReferToSameLocation(path.dirname(target), normalizedReleasesRoot);
-  }
-}
-
-function resolvedLinkTarget(linkPath) {
+export function resolvedLinkTarget(linkPath) {
   try {
     const target = stripWindowsLinkNamespace(fs.readlinkSync(linkPath));
     return normalizeLinkPath(path.resolve(path.dirname(linkPath), target));
@@ -507,102 +376,611 @@ export function linkTargetsPath(linkPath, target) {
   return resolvedLinkTarget(linkPath) === normalizeLinkPath(target);
 }
 
-function linkTargetsSharedRuntimePath(linkPath, target, sharedRoot) {
-  const info = fs.lstatSync(linkPath, { throwIfNoEntry: false });
-  if (!info?.isSymbolicLink()) return false;
-  const linkedTarget = resolvedLinkTarget(linkPath);
-  return Boolean(linkedTarget && sharedRuntimeTargetMatches(linkedTarget, target, sharedRoot));
+function commandShimPath(destination) {
+  return `${destination}.cmd`;
 }
 
-function linkMatchesAnyTarget(linkPath, targets) {
-  const info = fs.lstatSync(linkPath, { throwIfNoEntry: false });
-  if (!info?.isSymbolicLink()) return false;
+function writeWindowsCommandShim(destination) {
+  if (process.platform !== "win32") return;
+  const commandShim = commandShimPath(destination);
+  removePathIfPresent(commandShim);
+  const temporary = temporaryPath(path.dirname(commandShim), path.basename(commandShim));
+  const source = [
+    "@echo off",
+    `node "%~dp0${path.basename(destination)}" %*`
+  ].join("\r\n") + "\r\n";
+  try {
+    fs.writeFileSync(temporary, source);
+    fs.renameSync(temporary, commandShim);
+  } catch (error) {
+    removePathIfPresent(temporary);
+    throw error;
+  }
+}
 
-  const expectedPaths = new Set(targets.map(normalizeLinkPath));
-  const expectedRealPaths = new Set();
-  for (const target of targets) {
-    try {
-      expectedRealPaths.add(normalizeLinkPath(fs.realpathSync(target)));
-    } catch {
-      // A dangling target can still be matched by its stored link path below.
+function commandWrapperSource(command, modulePath) {
+  return [
+    "#!/usr/bin/env node",
+    "",
+    "(async () => {",
+    '  const { spawnSync } = await import("node:child_process");',
+    `  const result = spawnSync(process.execPath, [${JSON.stringify(modulePath)}, ...process.argv.slice(2)], { stdio: "inherit" });`,
+    "  if (result.error) {",
+    `    process.stderr.write(${JSON.stringify(`${command}: `)} + result.error.message + "\\n");`,
+    "    process.exitCode = 1;",
+    "  } else {",
+    "    process.exitCode = result.status ?? 1;",
+    "  }",
+    "})().catch(error => {",
+    `  process.stderr.write(${JSON.stringify(`${command}: `)} + (error?.message ?? String(error)) + "\\n");`,
+    "  process.exitCode = 1;",
+    "});"
+  ].join("\n") + "\n";
+}
+
+function writeCommandWrapper(destination, command, modulePath) {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  const temporary = temporaryPath(path.dirname(destination), path.basename(destination));
+  try {
+    fs.writeFileSync(temporary, commandWrapperSource(command, modulePath), { mode: 0o755 });
+    fs.renameSync(temporary, destination);
+  } catch (error) {
+    removePathIfPresent(temporary);
+    throw error;
+  }
+  fs.chmodSync(destination, 0o755);
+}
+
+export function commandEntries(env = process.env) {
+  const paths = computePaths(env);
+  const entries = [{
+    command: "agentgear",
+    kind: "launcher",
+    destination: paths.launcher,
+    relativeModule: path.join("bin", "agentgear.mjs")
+  }];
+  for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
+    entries.push({
+      command: name,
+      kind: "workflow-helper",
+      destination: paths.workflowHelpers[name],
+      relativeModule: path.join("skills", "agent-deck-workflow", "scripts", script)
+    });
+  }
+  return entries;
+}
+
+// Exact artifact ownership for a command destination and its stored record.
+export function commandArtifactOwned(destination, record) {
+  if (!record || !isPlainObject(record)) return false;
+  if (process.platform === "win32") {
+    if (record.mode !== "wrapper") return false;
+    const primary = fs.lstatSync(destination, { throwIfNoEntry: false });
+    const companion = fs.lstatSync(commandShimPath(destination), { throwIfNoEntry: false });
+    if (!primary?.isFile() || primary.isSymbolicLink()) return false;
+    if (!companion?.isFile() || companion.isSymbolicLink()) return false;
+    return wrapperFingerprint(destination) === record.fingerprint;
+  }
+  const info = fs.lstatSync(destination, { throwIfNoEntry: false });
+  if (!info) return false;
+  if (record.mode === "link") {
+    return info.isSymbolicLink() && resolvedLinkTarget(destination) === normalizeLinkPath(record.target);
+  }
+  if (record.mode === "wrapper") {
+    return info.isFile() && !info.isSymbolicLink() && wrapperFingerprint(destination) === record.fingerprint;
+  }
+  return false;
+}
+
+function commandArtifactState(destination, record) {
+  if (process.platform === "win32") {
+    const primary = fs.lstatSync(destination, { throwIfNoEntry: false });
+    const companion = fs.lstatSync(commandShimPath(destination), { throwIfNoEntry: false });
+    if (!primary && !companion) return "absent";
+    return commandArtifactOwned(destination, record) ? "owned" : "unowned";
+  }
+  const info = fs.lstatSync(destination, { throwIfNoEntry: false });
+  if (!info) return "absent";
+  return commandArtifactOwned(destination, record) ? "owned" : "unowned";
+}
+
+export function checkCommandCollisions(state, env, installLauncher, installWorkflowHelpers, force) {
+  const entries = commandEntries(env).filter(entry =>
+    entry.kind === "launcher" ? installLauncher : installWorkflowHelpers);
+  for (const entry of entries) {
+    const record = state?.commands?.[entry.destination];
+    if (commandArtifactState(entry.destination, record) === "unowned" && !force) {
+      throw new Error(`Refusing to replace unmanaged ${entry.kind}: ${entry.destination}`);
     }
   }
+}
 
-  const linkedTarget = resolvedLinkTarget(linkPath);
-  if (linkedTarget && expectedPaths.has(linkedTarget)) return true;
+export function installRuntimeCommand({
+  command,
+  kind,
+  destination,
+  runtime,
+  mode,
+  relativeModule,
+  print,
+  transaction,
+  env
+}) {
+  const paths = computePaths(env);
+  const modulePath = mode === "shared"
+    ? path.join(paths.currentPath, relativeModule)
+    : path.join(runtime.root, relativeModule);
+  const linkTarget = mode === "shared" && process.platform !== "win32" ? modulePath : null;
+
+  const install = () => {
+    if (linkTarget) {
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      let linked = false;
+      try {
+        fs.symlinkSync(linkTarget, destination, "file");
+        linked = true;
+      } catch (error) {
+        if (!isLinkUnavailable(error)) throw error;
+        print(`links unavailable; installing ${kind} wrapper: ${destination}`);
+      }
+      if (linked) {
+        return { mode: "link", target: linkTarget };
+      }
+    }
+    writeCommandWrapper(destination, command, modulePath);
+    writeWindowsCommandShim(destination);
+    return { mode: "wrapper", target: modulePath, fingerprint: wrapperFingerprint(destination) };
+  };
+
+  const managedPaths = process.platform === "win32"
+    ? [destination, commandShimPath(destination)]
+    : [destination];
+  const result = transaction.replace(managedPaths, install);
+  return { kind, ...result };
+}
+
+function verifyReleaseMarker(markerPath, releaseId) {
+  const info = fs.lstatSync(markerPath, { throwIfNoEntry: false });
+  if (!info?.isFile() || info.isSymbolicLink()) return false;
+  let marker;
   try {
-    const actualRealPath = normalizeLinkPath(fs.realpathSync(linkPath));
-    return expectedPaths.has(actualRealPath) || expectedRealPaths.has(actualRealPath);
+    marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
   } catch {
     return false;
   }
+  if (!isPlainObject(marker)) return false;
+  const keys = Object.keys(marker);
+  return keys.length === 2
+    && marker.schemaVersion === MARKER_VERSION
+    && marker.releaseId === releaseId;
 }
 
-function managedShimModulePath(destination) {
-  if (!isManagedRuntimeShim(destination)) return null;
-  try {
-    const source = fs.readFileSync(destination, "utf8");
-    const match = source.match(
-      /spawnSync\(process\.execPath, \[("(?:\\.|[^"\\])*"), \.\.\.process\.argv\.slice\(2\)\]/
+export function isReleaseSnapshot(contentRoot) {
+  return verifyReleaseMarker(path.join(contentRoot, RUNTIME_MARKER), path.basename(contentRoot));
+}
+
+export function verifyRelease(releasePath, releaseId) {
+  const info = fs.lstatSync(releasePath, { throwIfNoEntry: false });
+  if (!info) return false;
+  if (!info.isDirectory() || info.isSymbolicLink()) return false;
+  return verifyReleaseMarker(path.join(releasePath, RUNTIME_MARKER), releaseId);
+}
+
+function markerShapedReleaseChildren(paths) {
+  const info = fs.lstatSync(paths.releasesRoot, { throwIfNoEntry: false });
+  if (!info?.isDirectory() || info.isSymbolicLink()) return [];
+  return fs.readdirSync(paths.releasesRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && !entry.isSymbolicLink())
+    .filter(entry => verifyReleaseMarker(path.join(paths.releasesRoot, entry.name, RUNTIME_MARKER), entry.name))
+    .map(entry => entry.name);
+}
+
+// Strict schema-v2 state grammar. Every mutating command validates before any
+// filesystem mutation; `--force` is powerless at this gate.
+export function validateStateGrammar(state, env = process.env) {
+  const invalid = reason => ({ valid: false, reason });
+  if (state === null || state === undefined) return { valid: true };
+  const paths = computePaths(env);
+
+  if (!isPlainObject(state)) return invalid("top-level value is not a plain object");
+  const keys = Object.keys(state);
+  if (keys.length !== 5
+    || !["schemaVersion", "channel", "releases", "targets", "commands"].every(key => keys.includes(key))) {
+    return invalid(`unexpected top-level fields: ${keys.join(", ")}`);
+  }
+  if (state.schemaVersion !== STATE_VERSION) {
+    return invalid(`unsupported schemaVersion ${JSON.stringify(state.schemaVersion)}; only ${STATE_VERSION} is valid`);
+  }
+  if (!(state.channel === null || state.channel === "release" || state.channel === "development")) {
+    return invalid(`invalid channel ${JSON.stringify(state.channel)}`);
+  }
+  if (!Array.isArray(state.releases)) return invalid("releases must be an array");
+  if (state.releases.some(id => !isValidReleaseId(id))) {
+    return invalid("release inventory contains an unsafe release ID");
+  }
+  const sortedReleases = [...state.releases].sort(compareUtf8);
+  if (new Set(state.releases).size !== state.releases.length
+    || sortedReleases.join("\0") !== state.releases.join("\0")) {
+    return invalid("release IDs must be unique and sorted bytewise");
+  }
+  if (!isPlainObject(state.targets)) return invalid("targets must be a plain object");
+  if (!isPlainObject(state.commands)) return invalid("commands must be a plain object");
+
+  if (state.channel === null) {
+    if (state.releases.length > 0
+      || Object.keys(state.targets).length > 0
+      || Object.keys(state.commands).length > 0) {
+      return invalid("channel null requires an empty release inventory and empty records");
+    }
+  } else if (state.releases.length === 0) {
+    return invalid("a non-null channel requires at least one release ID");
+  }
+
+  for (const [targetPath, targetRecord] of Object.entries(state.targets)) {
+    if (!path.isAbsolute(targetPath) || path.resolve(targetPath) !== targetPath) {
+      return invalid(`target path is not normalized absolute: ${targetPath}`);
+    }
+    if (!isPlainObject(targetRecord)
+      || Object.keys(targetRecord).length !== 1
+      || !isPlainObject(targetRecord.skills)) {
+      return invalid(`invalid target record for ${targetPath}`);
+    }
+    for (const [skill, record] of Object.entries(targetRecord.skills)) {
+      if (!SKILL_KEY_PATTERN.test(skill)) return invalid(`invalid skill key: ${skill}`);
+      if (!isPlainObject(record)) return invalid(`invalid skill record for ${skill}`);
+      if (record.mode === "link") {
+        if (Object.keys(record).length !== 2 || typeof record.source !== "string") {
+          return invalid(`invalid linked-skill record for ${skill}`);
+        }
+        if (normalizeLinkPath(record.source) !== record.source) {
+          return invalid(`linked skill source is not normalized: ${record.source}`);
+        }
+        if (!hasLastSegments(record.source, ["agentgear", "current", "skills", skill])) {
+          return invalid(`linked skill source must end in agentgear/current/skills/${skill}`);
+        }
+      } else if (record.mode === "copy") {
+        if (Object.keys(record).length !== 2
+          || typeof record.fingerprint !== "string"
+          || !FINGERPRINT_PATTERN.test(record.fingerprint)) {
+          return invalid(`invalid copied-skill record for ${skill}`);
+        }
+      } else {
+        return invalid(`unknown skill mode ${JSON.stringify(record.mode)} for ${skill}`);
+      }
+    }
+  }
+
+  const expectedKinds = new Map();
+  expectedKinds.set(paths.launcher, "launcher");
+  for (const [name, destination] of Object.entries(paths.workflowHelpers)) {
+    expectedKinds.set(destination, "workflow-helper");
+  }
+  for (const [destination, record] of Object.entries(state.commands)) {
+    const expectedKind = expectedKinds.get(destination);
+    if (!expectedKind) return invalid(`unknown command destination: ${destination}`);
+    if (!isPlainObject(record)) return invalid(`invalid command record for ${destination}`);
+    if (record.kind !== expectedKind) return invalid(`command kind mismatch for ${destination}`);
+    if (record.mode === "link") {
+      if (process.platform === "win32") return invalid("linked commands are invalid on Windows");
+      if (Object.keys(record).length !== 3 || typeof record.target !== "string") {
+        return invalid(`invalid linked-command record for ${destination}`);
+      }
+      if (normalizeLinkPath(record.target) !== record.target) {
+        return invalid(`linked command target is not normalized: ${record.target}`);
+      }
+      if (stableRuntimeRoot(record.target) === null) {
+        return invalid(`linked command target must be below agentgear/current: ${record.target}`);
+      }
+    } else if (record.mode === "wrapper") {
+      if (Object.keys(record).length !== 4
+        || typeof record.target !== "string"
+        || typeof record.fingerprint !== "string"
+        || !FINGERPRINT_PATTERN.test(record.fingerprint)) {
+        return invalid(`invalid wrapper-command record for ${destination}`);
+      }
+      if (normalizeLinkPath(record.target) !== record.target) {
+        return invalid(`wrapper command target is not normalized: ${record.target}`);
+      }
+      const releaseId = releaseIdForTarget(record.target, paths.releasesRoot);
+      if (stableRuntimeRoot(record.target) === null && !(releaseId && state.releases.includes(releaseId))) {
+        return invalid(`wrapper command target must be below agentgear/current or an inventoried release: ${record.target}`);
+      }
+    } else {
+      return invalid(`unknown command mode ${JSON.stringify(record.mode)} for ${destination}`);
+    }
+  }
+  return { valid: true };
+}
+
+function hasLinkedSkillRecords(state) {
+  if (!state) return false;
+  for (const targetRecord of Object.values(state.targets)) {
+    for (const record of Object.values(targetRecord.skills ?? {})) {
+      if (record?.mode === "link") return true;
+    }
+  }
+  return false;
+}
+
+// Coherence gate for install, update, and agentgear-link. Runs after grammar
+// validation and before the channel gate, staging, or any mutation.
+export function checkStateCoherence(state, env = process.env) {
+  const paths = computePaths(env);
+  const currentExists = exists(paths.currentPath);
+  const markerChildren = markerShapedReleaseChildren(paths);
+  const inventory = state === null ? [] : state.releases;
+
+  if (state === null) {
+    if (currentExists || markerChildren.length > 0) {
+      throw new Error(
+        `Installation state is missing beside managed runtime data at ${paths.dataRoot}; `
+        + "restore the state file or remove the managed runtime manually"
+      );
+    }
+  } else {
+    if (state.channel === null && (currentExists || markerChildren.length > 0)) {
+      throw new Error(
+        `Channel-null state beside managed runtime data at ${paths.dataRoot}; `
+        + "restore the original environment or perform a clean reinstall"
+      );
+    }
+    if (!exists(paths.dataRoot)
+      && (hasLinkedSkillRecords(state) || Object.keys(state.commands).length > 0)) {
+      throw new Error(
+        `Installation state references the managed runtime but its data root is missing: ${paths.dataRoot}`
+      );
+    }
+    for (const [targetPath, targetRecord] of Object.entries(state.targets)) {
+      for (const record of Object.values(targetRecord.skills ?? {})) {
+        if (record?.mode === "link") {
+          const root = stableRuntimeRoot(record.source);
+          if (root !== normalizeLinkPath(paths.currentPath)) {
+            throw new Error(
+              `Linked skill source is rooted at a different agentgear/current: ${record.source}; `
+              + "restore the original XDG spelling or cleanly reinstall"
+            );
+          }
+        }
+      }
+    }
+    for (const record of Object.values(state.commands)) {
+      const root = stableRuntimeRoot(record.target);
+      if (root !== null && root !== normalizeLinkPath(paths.currentPath)) {
+        throw new Error(
+          `Command target is rooted at a different agentgear/current: ${record.target}; `
+          + "restore the original XDG spelling or cleanly reinstall"
+        );
+      }
+      const releaseId = releaseIdForTarget(record.target, paths.releasesRoot);
+      if (releaseId !== null && !inventory.includes(releaseId)) {
+        throw new Error(`Command target release is not inventoried: ${record.target}`);
+      }
+    }
+  }
+
+  for (const releaseId of inventory) {
+    const releasePath = path.join(paths.releasesRoot, releaseId);
+    if (!verifyRelease(releasePath, releaseId)) {
+      throw new Error(
+        `Inventoried release is missing or mismatched: ${releasePath}; `
+        + "restore it or run a full purge"
+      );
+    }
+  }
+  for (const releaseId of markerChildren) {
+    if (!inventory.includes(releaseId)) {
+      throw new Error(
+        `Unrecorded marked release present (possible interrupted transaction): ${releaseId}; `
+        + "manual cleanup required"
+      );
+    }
+  }
+
+  const check = checkCurrentForPublication(state, env);
+  if (!check.ok) throw new Error(check.reason);
+}
+
+export function checkChannelGate(state, requestedChannel) {
+  if (state === null || state.channel === null) return;
+  if (state.channel !== requestedChannel) {
+    throw new Error(
+      `Refusing to switch channel from ${JSON.stringify(state.channel)} to `
+      + `${JSON.stringify(requestedChannel)}; run agentgear uninstall --purge before changing channels`
     );
-    if (!match) return null;
-    const modulePath = JSON.parse(match[1]);
-    return typeof modulePath === "string" ? normalizeLinkPath(modulePath) : null;
-  } catch {
-    return null;
   }
 }
 
-function managedShimTargetsSharedRuntimePath(destination, target, sharedRoot) {
-  const modulePath = managedShimModulePath(destination);
-  return Boolean(modulePath && sharedRuntimeTargetMatches(modulePath, target, sharedRoot));
-}
-
-function recordedRuntimeCommand(state, destination, kind) {
-  const record = state?.commands?.[destination];
-  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
-  if (record.kind !== kind || record.mode !== "link" || typeof record.target !== "string") return null;
-  return record;
-}
-
-function isRecordedStableRuntimeCommand({ state, destination, kind, target, sharedRoot }) {
-  // A removed `current` makes a stable command link dangling. Its lexical
-  // target alone is not ownership evidence: an unrelated user link can use the
-  // same path. Require the committed command record as well.
-  const record = recordedRuntimeCommand(state, destination, kind);
-  return Boolean(
-    record
-    && sharedRuntimeTargetMatches(record.target, target, sharedRoot)
-    && linkTargetsSharedRuntimePath(destination, target, sharedRoot)
-  );
-}
-
-export function recordRuntimeCommand(state, { destination, kind, mode, target }) {
-  if (!state || typeof state !== "object" || Array.isArray(state)) {
-    throw new Error("Cannot record runtime command without installation state");
+// The stable current link is replaceable only when its lexical target is a
+// direct child of the exact releases root and names an inventoried release or
+// the pending staged release of the current transaction.
+export function checkCurrentForPublication(state, env = process.env, pendingReleaseId = null) {
+  const paths = computePaths(env);
+  const info = fs.lstatSync(paths.currentPath, { throwIfNoEntry: false });
+  if (!info) return { ok: true };
+  if (!info.isSymbolicLink()) {
+    return { ok: false, reason: `Refusing to replace unmanaged runtime path: ${paths.currentPath}` };
   }
-  if (!state.commands || typeof state.commands !== "object" || Array.isArray(state.commands)) {
-    state.commands = {};
+  const target = resolvedLinkTarget(paths.currentPath);
+  if (!target) {
+    return { ok: false, reason: `Refusing to replace unmanaged runtime path: ${paths.currentPath}` };
   }
-  state.commands[destination] = {
-    kind,
-    mode,
-    target: path.resolve(target),
-    installedAt: new Date().toISOString()
+  const releaseId = directChildReleaseId(target, paths.releasesRoot);
+  const inventory = state === null ? [] : state.releases;
+  if (!releaseId || (!inventory.includes(releaseId) && releaseId !== pendingReleaseId)) {
+    return { ok: false, reason: `Refusing to replace unmanaged runtime path: ${paths.currentPath}` };
+  }
+  if (exists(target)) {
+    if (!verifyRelease(target, releaseId)) {
+      return { ok: false, reason: `Managed runtime target is missing its marker: ${target}` };
+    }
+    return { ok: true };
+  }
+  if (inventory.includes(releaseId)) {
+    return {
+      ok: false,
+      reason: `Managed runtime link is dangling because its inventoried release is absent: ${target}; `
+        + "install, update, and agentgear-link cannot recover it (only full purge can)"
+    };
+  }
+  return { ok: false, reason: `Refusing to replace unmanaged runtime path: ${paths.currentPath}` };
+}
+
+export function stageRuntime({ sourceRoot, env = process.env }) {
+  const paths = computePaths(env);
+  const packageJson = readJsonIfExists(path.join(sourceRoot, "package.json"), { version: "dev" });
+  const releaseId = `${packageJson.version}-${Date.now()}-${crypto.randomUUID()}`;
+  const releasePath = path.join(paths.releasesRoot, releaseId);
+
+  fs.mkdirSync(paths.releasesRoot, { recursive: true });
+  const stagingPath = path.join(paths.releasesRoot, `.${releaseId}.staging`);
+  try {
+    copyRuntime(sourceRoot, stagingPath);
+    writeJsonAtomic(path.join(stagingPath, RUNTIME_MARKER), {
+      schemaVersion: MARKER_VERSION,
+      releaseId
+    });
+    fs.renameSync(stagingPath, releasePath);
+  } catch (error) {
+    removePathIfPresent(stagingPath);
+    throw error;
+  }
+  return {
+    dataRoot: paths.dataRoot,
+    root: releasePath,
+    id: releaseId
   };
 }
 
-function isActiveSharedSkillConsumer(destination, record, target, sharedRoot) {
-  // State establishes ownership, but only the link's lexical target tells us
-  // whether publishing `current` can affect this destination. A stale state
-  // entry (or a link pinned to an old physical release) must not block an
-  // otherwise safe publication.
-  return record?.mode === "link" && linkTargetsSharedRuntimePath(destination, target, sharedRoot);
+export function publishRuntime(runtime, state, env = process.env) {
+  const paths = computePaths(env);
+  const currentPath = paths.currentPath;
+  const hadPrevious = exists(currentPath);
+  const check = checkCurrentForPublication(state, env, runtime.id);
+  if (!check.ok) throw new Error(check.reason);
+  const previousTarget = hadPrevious ? resolvedLinkTarget(currentPath) : null;
+  if (hadPrevious && !previousTarget) {
+    throw new Error(`Could not determine the current shared runtime target: ${currentPath}`);
+  }
+  replaceCurrentLink(currentPath, runtime.root);
+  return { published: true, currentPath, previousTarget, hadPrevious, runtimeRoot: runtime.root };
 }
 
-function isActiveSharedRuntimeCommand(destination, target, sharedRoot) {
-  return linkTargetsSharedRuntimePath(destination, target, sharedRoot)
-    || managedShimTargetsSharedRuntimePath(destination, target, sharedRoot);
+export function rollbackRuntimePublication(publication) {
+  if (!publication?.published) return;
+  if (resolvedLinkTarget(publication.currentPath) !== normalizeLinkPath(publication.runtimeRoot)) return;
+  if (publication.hadPrevious) {
+    if (!publication.previousTarget) {
+      throw new Error(`Cannot restore the previous shared runtime: ${publication.currentPath}`);
+    }
+    replaceCurrentLink(publication.currentPath, publication.previousTarget);
+  } else {
+    removePathIfPresent(publication.currentPath);
+  }
+}
+
+export function discardRuntime(runtime) {
+  if (!runtime?.root || !runtime?.id) return;
+  if (!verifyReleaseMarker(path.join(runtime.root, RUNTIME_MARKER), runtime.id)) return;
+  removePathIfPresent(runtime.root);
+}
+
+function replaceCurrentLink(currentPath, target) {
+  const parent = path.dirname(currentPath);
+  const incoming = temporaryPath(parent, "current-next");
+  let incomingExists = false;
+  try {
+    createDirectoryLink(target, incoming);
+    incomingExists = true;
+    if (!exists(currentPath)) {
+      fs.renameSync(incoming, currentPath);
+      incomingExists = false;
+      return;
+    }
+
+    try {
+      fs.renameSync(incoming, currentPath);
+      incomingExists = false;
+      return;
+    } catch (error) {
+      if (process.platform !== "win32") throw error;
+    }
+
+    // Windows cannot always replace an existing junction in one rename. Keep
+    // the old junction as a recoverable backup until the new one is in place.
+    const backup = temporaryPath(parent, "current-previous");
+    let backupExists = false;
+    try {
+      fs.renameSync(currentPath, backup);
+      backupExists = true;
+      fs.renameSync(incoming, currentPath);
+      incomingExists = false;
+    } catch (error) {
+      if (backupExists && exists(backup) && !exists(currentPath)) {
+        try {
+          fs.renameSync(backup, currentPath);
+          backupExists = false;
+        } catch (restoreError) {
+          error.message += `; additionally failed to restore the previous shared runtime: ${restoreError.message}`;
+        }
+      }
+      throw error;
+    }
+
+    // This is post-commit housekeeping. Reporting it as a publish failure
+    // would be misleading because `current` already points at the new runtime.
+    if (backupExists) removePathQuietly(backup);
+  } finally {
+    if (incomingExists) removePathQuietly(incoming);
+  }
+}
+
+export function probeDirectoryLinks(runtime, targets, env = process.env) {
+  const paths = computePaths(env);
+  const parents = [...new Set([
+    paths.dataRoot,
+    ...targets.map(target => path.dirname(target.root))
+  ])];
+  for (const parent of parents) fs.mkdirSync(parent, { recursive: true });
+  const created = [];
+  try {
+    for (const parent of parents) {
+      const probe = temporaryPath(parent, "runtime-link-probe");
+      createDirectoryLink(runtime.root, probe);
+      created.push(probe);
+    }
+    return true;
+  } catch (error) {
+    if (!isLinkUnavailable(error)) throw error;
+    return false;
+  } finally {
+    for (const probe of created) removePathQuietly(probe);
+  }
+}
+
+function stateHasSharedRecords(state, env) {
+  if (state === null) return false;
+  for (const targetRecord of Object.values(state.targets)) {
+    for (const record of Object.values(targetRecord.skills ?? {})) {
+      if (record?.mode === "link") return true;
+    }
+  }
+  for (const record of Object.values(state.commands)) {
+    if (stableRuntimeRoot(record.target) !== null) return true;
+  }
+  return false;
+}
+
+export function chooseDeploymentMode({ runtime, targets, development, state, env = process.env, print }) {
+  const shared = probeDirectoryLinks(runtime, targets, env);
+  if (shared) return "shared";
+  if (stateHasSharedRecords(state, env)) {
+    throw new Error(
+      "Cannot use copy fallback while shared runtime records remain; "
+      + "run agentgear uninstall --purge before switching modes"
+    );
+  }
+  print("directory links unavailable; using copy fallback for this invocation.");
+  return "fallback";
 }
 
 function requiredRuntimeFile(requirements, relativePath, consumer) {
@@ -726,88 +1104,78 @@ function moduleDependencyErrors(snapshotRoot, entryRelativePath) {
   return [...errors];
 }
 
+function entrypointRelativeToSnapshot(target, paths) {
+  const normalized = normalizeLinkPath(target);
+  const current = normalizeLinkPath(paths.currentPath);
+  if (pathIsInsideOrEqual(current, normalized)) return path.relative(current, normalized);
+  const releaseId = releaseIdForTarget(normalized, paths.releasesRoot);
+  if (releaseId) return path.relative(path.join(paths.releasesRoot, releaseId), normalized);
+  return null;
+}
+
 export function validateSharedRuntimeConsumers({
   runtime,
   state,
-  snapshotRoot = runtime?.root,
   env = process.env,
+  mode = "fallback",
+  development = false,
   installLauncher = false,
   installWorkflowHelpers = false,
-  plannedSkills = []
+  plannedSkills = [],
+  snapshotRoot = runtime?.root
 }) {
   if (!snapshotRoot) return [];
+  const paths = computePaths(env);
 
   const requirements = new Map();
   const commands = new Map();
-  const localBin = path.join(getHome(env), ".local", "bin");
-  const launcher = path.join(localBin, "agentgear");
-  const runtimeDataRoot = runtime?.dataRoot ?? getDataRoot(env);
-  const stableSharedRoot = runtime?.sharedRoot ?? path.join(runtimeDataRoot, "current");
-  const inspectSharedConsumers = Boolean(runtime?.sharedRoot)
-    || isManagedCurrentLink(stableSharedRoot, runtimeDataRoot);
-  const activeSharedConsumers = new Set();
-  if (inspectSharedConsumers) {
-    for (const [targetRoot, targetRecord] of Object.entries(state?.targets ?? {})) {
-      for (const [skill, record] of Object.entries(targetRecord?.skills ?? {})) {
-        const destination = path.join(targetRoot, skill);
-        const sharedTarget = path.join(stableSharedRoot, "skills", skill);
-        // Do not limit this check to the selected skills: a live, unselected
-        // link to `current` would become dangling after publication. State alone
-        // is not enough, though; a deleted project target no longer consumes the
-        // shared runtime.
-        if (!isActiveSharedSkillConsumer(destination, record, sharedTarget, stableSharedRoot)) continue;
-        activeSharedConsumers.add(destination);
-        requiredRuntimeFile(requirements, path.join("skills", skill, "SKILL.md"), destination);
-        requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, destination);
-      }
-    }
 
-    const launcherTarget = path.join(stableSharedRoot, "bin", "agentgear.mjs");
-    if (isActiveSharedRuntimeCommand(launcher, launcherTarget, stableSharedRoot)) {
-      activeSharedConsumers.add(launcher);
-      requiredRuntimeCommand(commands, path.join("bin", "agentgear.mjs"), launcher);
-    }
-
-    for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
-      const helper = path.join(localBin, name);
-      const helperTarget = path.join(stableSharedRoot, "skills", "agent-deck-workflow", "scripts", script);
-      if (isActiveSharedRuntimeCommand(helper, helperTarget, stableSharedRoot)) {
-        activeSharedConsumers.add(helper);
-        requiredRuntimeCommand(commands, path.join("skills", "agent-deck-workflow", "scripts", script), helper);
-      }
+  // Exact active linked-skill records: the state record and the live link
+  // artifact must agree before the staged snapshot is required to serve them.
+  for (const [targetRoot, targetRecord] of Object.entries(state?.targets ?? {})) {
+    for (const [skill, record] of Object.entries(targetRecord?.skills ?? {})) {
+      if (record?.mode !== "link") continue;
+      const destination = path.join(targetRoot, skill);
+      if (!linkTargetsPath(destination, record.source)) continue;
+      requiredRuntimeFile(requirements, path.join("skills", skill, "SKILL.md"), destination);
+      requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, destination);
     }
   }
 
-  for (const skill of plannedSkills) {
-    if (typeof skill !== "string" || skill.length === 0) continue;
-    const consumer = `planned skill: ${skill}`;
-    requiredRuntimeFile(requirements, path.join("skills", skill, "SKILL.md"), consumer);
-    requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, consumer);
+  // Planned shared skills apply only to development shared-mode installs.
+  // Release-copy selections and developer copy fallback are not shared skills.
+  if (development && mode === "shared") {
+    for (const skill of plannedSkills) {
+      if (typeof skill !== "string" || skill.length === 0) continue;
+      const consumer = `planned skill: ${skill}`;
+      requiredRuntimeFile(requirements, path.join("skills", skill, "SKILL.md"), consumer);
+      requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, consumer);
+    }
+  }
+
+  // Active commands whose exact record and artifact agree keep their entrypoint
+  // requirements, whether they target `current` or a physical release.
+  for (const [destination, record] of Object.entries(state?.commands ?? {})) {
+    if (!commandArtifactOwned(destination, record)) continue;
+    const relative = entrypointRelativeToSnapshot(record.target, paths);
+    if (!relative) continue;
+    requiredRuntimeCommand(commands, relative, destination);
   }
 
   if (installLauncher) {
-    const entry = runtime?.sharedRoot
-      ? path.join("bin", "agentgear.mjs")
-      : path.join("cli", "agentgear.mjs");
-    requiredRuntimeCommand(commands, entry, `planned launcher: ${launcher}`);
+    requiredRuntimeCommand(commands, path.join("bin", "agentgear.mjs"), `planned launcher: ${paths.launcher}`);
   }
   if (installWorkflowHelpers) {
     for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
       requiredRuntimeCommand(
         commands,
         path.join("skills", "agent-deck-workflow", "scripts", script),
-        `planned workflow helper: ${path.join(localBin, name)}`
+        `planned workflow helper: ${paths.workflowHelpers[name]}`
       );
     }
   }
 
   const errors = [];
-  if (!runtime?.sharedRoot && activeSharedConsumers.size > 0) {
-    errors.push(
-      `Cannot use copy fallback while shared runtime consumers remain: ${[...activeSharedConsumers].join(", ")}. `
-      + "Restore directory-link support before retrying."
-    );
-  }
   for (const [relativePath, consumers] of requirements) {
     const info = fs.statSync(path.join(snapshotRoot, relativePath), { throwIfNoEntry: false });
     if (info?.isFile()) continue;
@@ -825,480 +1193,35 @@ export function validateSharedRuntimeConsumers({
   return errors;
 }
 
-function isManagedRuntimeRelease(releasePath, releaseId) {
-  const markerPath = path.join(releasePath, RUNTIME_MARKER);
-  const markerInfo = fs.lstatSync(markerPath, { throwIfNoEntry: false });
-  if (!markerInfo?.isFile() || markerInfo.isSymbolicLink()) return false;
-  try {
-    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
-    return marker.schemaVersion === STATE_VERSION && marker.releaseId === releaseId;
-  } catch {
-    return false;
-  }
-}
-
-function managedRuntimeReleases(dataRoot) {
-  const releasesRoot = path.join(dataRoot, "releases");
-  const rootInfo = fs.lstatSync(releasesRoot, { throwIfNoEntry: false });
-  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) return [];
-  return fs.readdirSync(releasesRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && !entry.isSymbolicLink())
-    .filter(entry => isManagedRuntimeRelease(path.join(releasesRoot, entry.name), entry.name))
-    .map(entry => path.join(releasesRoot, entry.name));
-}
-
-function removeEmptyDirectory(directory) {
-  const info = fs.lstatSync(directory, { throwIfNoEntry: false });
-  if (!info?.isDirectory() || info.isSymbolicLink()) return;
-  if (fs.readdirSync(directory).length === 0) fs.rmdirSync(directory);
-}
-
-function removeManagedPath(kind, destination, print) {
-  removePathIfPresent(destination);
-  print(`removed ${kind}: ${destination}`);
-}
-
-function replaceCurrentLink(currentPath, target) {
-  const parent = path.dirname(currentPath);
-  const incoming = temporaryPath(parent, "current-next");
-  let incomingExists = false;
-  try {
-    createDirectoryLink(target, incoming);
-    incomingExists = true;
-    if (!exists(currentPath)) {
-      fs.renameSync(incoming, currentPath);
-      incomingExists = false;
-      return;
-    }
-
+export function copyOrLinkSkill({ source, copySource = source, destination, link, print }) {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  if (link) {
     try {
-      fs.renameSync(incoming, currentPath);
-      incomingExists = false;
-      return;
+      fs.symlinkSync(source, destination, directoryLinkType());
+      return { mode: "link" };
     } catch (error) {
-      if (process.platform !== "win32") throw error;
+      if (link === "strict" || !isLinkUnavailable(error)) throw error;
+      print(`links unavailable; copying skill instead: ${destination}`);
     }
-
-    // Windows cannot always replace an existing junction in one rename. Keep
-    // the old junction as a recoverable backup until the new one is in place.
-    const backup = temporaryPath(parent, "current-previous");
-    let backupExists = false;
-    try {
-      fs.renameSync(currentPath, backup);
-      backupExists = true;
-      fs.renameSync(incoming, currentPath);
-      incomingExists = false;
-    } catch (error) {
-      if (backupExists && exists(backup) && !exists(currentPath)) {
-        try {
-          fs.renameSync(backup, currentPath);
-          backupExists = false;
-        } catch (restoreError) {
-          error.message += `; additionally failed to restore the previous shared runtime: ${restoreError.message}`;
-        }
-      }
-      throw error;
-    }
-
-    // This is post-commit housekeeping. Reporting it as a publish failure
-    // would be misleading because `current` already points at the new runtime.
-    if (backupExists) removePathQuietly(backup);
-  } finally {
-    if (incomingExists) removePathQuietly(incoming);
   }
+  fs.cpSync(copySource, destination, { recursive: true, preserveTimestamps: true });
+  return { mode: "copy" };
 }
 
-export function stageRuntime({ sourceRoot, env = process.env }) {
-  const dataRoot = getDataRoot(env);
-  const releasesRoot = path.join(dataRoot, "releases");
-  const packageJson = readJsonIfExists(path.join(sourceRoot, "package.json"), { version: "dev" });
-  const releaseId = `${packageJson.version}-${Date.now()}-${crypto.randomUUID()}`;
-  const releasePath = path.join(releasesRoot, releaseId);
-  const currentPath = path.join(dataRoot, "current");
-
-  fs.mkdirSync(releasesRoot, { recursive: true });
-  const stagingPath = path.join(releasesRoot, `.${releaseId}.staging`);
-  try {
-    copyRuntime(sourceRoot, stagingPath);
-    writeJsonAtomic(path.join(stagingPath, RUNTIME_MARKER), {
-      schemaVersion: STATE_VERSION,
-      releaseId,
-      sourceRoot,
-      installedAt: new Date().toISOString()
-    });
-    fs.renameSync(stagingPath, releasePath);
-  } catch (error) {
-    removePathIfPresent(stagingPath);
-    throw error;
-  }
-
-  let linkSupported;
-  try {
-    linkSupported = runtimeLinksSupported(dataRoot, releasePath);
-    if (linkSupported && exists(currentPath) && !isManagedCurrentLink(currentPath, dataRoot)) {
-      throw new Error(`Refusing to replace unmanaged runtime path: ${currentPath}`);
-    }
-  } catch (error) {
-    removePathIfPresent(releasePath);
-    throw error;
-  }
-  return {
-    dataRoot,
-    root: releasePath,
-    sharedRoot: linkSupported ? currentPath : null,
-    id: releaseId,
-    linkSupported
-  };
-}
-
-export function publishRuntime(runtime) {
-  if (!runtime.linkSupported || !runtime.sharedRoot) return { published: false };
-
-  const currentPath = runtime.sharedRoot;
-  const hadPrevious = exists(currentPath);
-  if (hadPrevious && !isManagedCurrentLink(currentPath, runtime.dataRoot)) {
-    throw new Error(`Refusing to replace unmanaged runtime path: ${currentPath}`);
-  }
-  const previousTarget = hadPrevious ? resolvedLinkTarget(currentPath) : null;
-  if (hadPrevious && !previousTarget) {
-    throw new Error(`Could not determine the current shared runtime target: ${currentPath}`);
-  }
-  replaceCurrentLink(currentPath, runtime.root);
-  return { published: true, currentPath, previousTarget, hadPrevious, runtimeRoot: runtime.root };
-}
-
-export function rollbackRuntimePublication(publication) {
-  if (!publication?.published) return;
-  if (!linkMatchesAnyTarget(publication.currentPath, [publication.runtimeRoot])) return;
-  if (publication.hadPrevious) {
-    if (!publication.previousTarget) {
-      throw new Error(`Cannot restore the previous shared runtime: ${publication.currentPath}`);
-    }
-    replaceCurrentLink(publication.currentPath, publication.previousTarget);
-  } else {
-    removePathIfPresent(publication.currentPath);
-  }
-}
-
-export function discardRuntime(runtime) {
-  if (!runtime?.root || !runtime?.id) return;
-  if (!isManagedRuntimeRelease(runtime.root, runtime.id)) return;
-  removePathIfPresent(runtime.root);
-}
-
-function launcherIsManaged(launcherPath, sourceRoot, dataRoot, state, legacySourceRoots = []) {
-  if (isManagedRuntimeShim(launcherPath)) return true;
-  const info = fs.lstatSync(launcherPath, { throwIfNoEntry: false });
-  if (!info?.isSymbolicLink()) return false;
-
-  const currentPath = path.join(dataRoot, "current");
-  const managedLauncher = path.join(currentPath, "bin", "agentgear.mjs");
-  const currentIsManaged = isManagedCurrentLink(currentPath, dataRoot);
-  if (
-    (currentIsManaged && linkTargetsSharedRuntimePath(launcherPath, managedLauncher, currentPath))
-    || (
-      !exists(currentPath)
-      && isRecordedStableRuntimeCommand({
-        state,
-        destination: launcherPath,
-        kind: "launcher",
-        target: managedLauncher,
-        sharedRoot: currentPath
-      })
-    )
-  ) return true;
-
-  const legacyLaunchers = legacySourceRoots
-    .filter(root => typeof root === "string" && !isStableSharedRuntimeRoot(root, dataRoot))
-    .map(root => path.join(root, "bin", "agentgear.mjs"));
-  if (legacyLaunchers.length > 0 && linkMatchesAnyTarget(launcherPath, legacyLaunchers)) return true;
-
-  let target;
-  try {
-    target = fs.realpathSync(launcherPath);
-  } catch {
-    return false;
-  }
-
-  if (currentIsManaged) {
-    const managedTarget = realpathIfExists(managedLauncher);
-    if (managedTarget && target === managedTarget) return true;
-  }
-  const sourceLauncher = realpathIfExists(path.join(sourceRoot, "bin", "agentgear.mjs"));
-  return Boolean(sourceLauncher && target === sourceLauncher);
-}
-
-function installRuntimeCommand({
-  command,
-  kind,
-  destination,
-  linkTarget,
-  modulePath,
-  isManaged,
-  force,
-  print,
-  transaction
-}) {
-  if (exists(destination) && !force && !isManaged(destination)) {
-    throw new Error(`Refusing to replace unmanaged ${kind}: ${destination}`);
-  }
-  assertWindowsCommandShimCanBeManaged(destination, force);
-  const install = () => {
-    if (linkTarget) {
-      fs.mkdirSync(path.dirname(destination), { recursive: true });
-      let linked = false;
-      try {
-        fs.symlinkSync(linkTarget, destination);
-        linked = true;
-      } catch (error) {
-        if (!isLinkUnavailable(error)) throw error;
-        print(`links unavailable; installing ${kind} wrapper: ${destination}`);
-      }
-      if (linked) {
-        writeWindowsCommandShim(destination);
-        return "link";
-      }
-    }
-    writeRuntimeShim(destination, command, linkTarget || modulePath);
-    writeWindowsCommandShim(destination);
-    return "shim";
-  };
-
-  const managedPaths = process.platform === "win32"
-    ? [destination, commandShimPath(destination)]
-    : [destination];
-  if (transaction) return transaction.replace(managedPaths, install);
-
-  for (const managedPath of managedPaths) removePathIfPresent(managedPath);
-  try {
-    return install();
-  } catch (error) {
-    for (const managedPath of managedPaths) removePathQuietly(managedPath);
-    throw error;
-  }
-}
-
-export function ensureLauncher({
-  sourceRoot,
-  runtime,
-  state,
-  legacySourceRoots = [],
-  force,
-  env = process.env,
-  print,
-  transaction
-}) {
-  const dataRoot = getDataRoot(env);
-  const destination = path.join(getHome(env), ".local", "bin", "agentgear");
-  const linkTarget = runtime.sharedRoot
-    ? path.join(runtime.sharedRoot, "bin", "agentgear.mjs")
-    : null;
-  const mode = installRuntimeCommand({
-    command: "agentgear",
-    kind: "launcher",
-    destination,
-    linkTarget,
-    modulePath: path.join(runtime.root, "cli", "agentgear.mjs"),
-    isManaged: candidate => launcherIsManaged(
-      candidate,
-      sourceRoot,
-      dataRoot,
-      state,
-      legacySourceRoots
-    ),
-    force,
-    print,
-    transaction
-  });
-  return {
-    destination,
-    kind: "launcher",
-    mode,
-    target: linkTarget || path.join(runtime.root, "cli", "agentgear.mjs")
-  };
-}
-
-function helperIsManaged(
-  destination,
-  target,
-  dataRoot,
-  sourceRoot,
-  state,
-  legacySourceRoots,
-  script
-) {
-  if (isManagedRuntimeShim(destination)) return true;
+export function destinationMatchesRecord(destination, record) {
   const info = fs.lstatSync(destination, { throwIfNoEntry: false });
-  if (!info?.isSymbolicLink()) return false;
-
-  const currentPath = path.join(dataRoot, "current");
-  if (
-    target
-    && (
-      (isManagedCurrentLink(currentPath, dataRoot)
-        && linkTargetsSharedRuntimePath(destination, target, currentPath))
-      || (
-        !exists(currentPath)
-        && isRecordedStableRuntimeCommand({
-          state,
-          destination,
-          kind: "workflow helper",
-          target,
-          sharedRoot: currentPath
-        })
-      )
-    )
-  ) return true;
-
-  const legacyHelpers = legacySourceRoots
-    .filter(root => typeof root === "string" && !isStableSharedRuntimeRoot(root, dataRoot))
-    .map(root => path.join(root, "skills", "agent-deck-workflow", "scripts", script));
-  if (legacyHelpers.length > 0 && linkMatchesAnyTarget(destination, legacyHelpers)) return true;
-
-  const managedReleaseHelpers = managedRuntimeReleases(dataRoot)
-    .map(root => path.join(root, "skills", "agent-deck-workflow", "scripts", script));
-  if (managedReleaseHelpers.length > 0 && linkMatchesAnyTarget(destination, managedReleaseHelpers)) return true;
-
-  const sourceHelper = realpathIfExists(
-    path.join(sourceRoot, "skills", "agent-deck-workflow", "scripts", script)
-  );
-  return Boolean(sourceHelper && linkMatchesAnyTarget(destination, [sourceHelper]));
-}
-
-export function ensureWorkflowHelpers({
-  sourceRoot,
-  runtime,
-  state,
-  legacySourceRoots = [],
-  force,
-  env = process.env,
-  print,
-  transaction
-}) {
-  const dataRoot = getDataRoot(env);
-  const localBin = path.join(getHome(env), ".local", "bin");
-
-  const helpers = [];
-  for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
-    const destination = path.join(localBin, name);
-    const linkTarget = runtime.sharedRoot
-      ? path.join(runtime.sharedRoot, "skills", "agent-deck-workflow", "scripts", script)
-      : null;
-    const modulePath = path.join(runtime.root, "skills", "agent-deck-workflow", "scripts", script);
-    const mode = installRuntimeCommand({
-      command: name,
-      kind: "workflow helper",
-      destination,
-      linkTarget,
-      modulePath,
-      isManaged: candidate => helperIsManaged(
-        candidate,
-        linkTarget,
-        dataRoot,
-        sourceRoot,
-        state,
-        legacySourceRoots,
-        script
-      ),
-      force,
-      print,
-      transaction
-    });
-    helpers.push({
-      destination,
-      kind: "workflow helper",
-      mode,
-      target: linkTarget || modulePath
-    });
+  if (!info) return false;
+  if (record.mode === "link") {
+    return typeof record.source === "string"
+      && info.isSymbolicLink()
+      && resolvedLinkTarget(destination) === normalizeLinkPath(record.source);
   }
-  return helpers;
-}
-
-export function purgeManagedRuntime({
-  legacySourceRoots = [],
-  state,
-  env = process.env,
-  print
-}) {
-  const dataRoot = getDataRoot(env);
-  const currentPath = path.join(dataRoot, "current");
-  const releasesRoot = path.join(dataRoot, "releases");
-  const releaseRoots = managedRuntimeReleases(dataRoot);
-  const sourceRoots = [...new Set(legacySourceRoots
-    .filter(candidate => typeof candidate === "string" && candidate.length > 0)
-    .map(candidate => path.resolve(candidate))
-    .filter(candidate => !isStableSharedRuntimeRoot(candidate, dataRoot)))];
-  const currentIsManaged = isManagedCurrentLink(currentPath, dataRoot);
-  const localBin = path.join(getHome(env), ".local", "bin");
-
-  const launcherTargets = [
-    ...sourceRoots.map(root => path.join(root, "bin", "agentgear.mjs")),
-    ...releaseRoots.map(root => path.join(root, "bin", "agentgear.mjs"))
-  ];
-  if (currentIsManaged) launcherTargets.push(path.join(currentPath, "bin", "agentgear.mjs"));
-  const launcher = path.join(localBin, "agentgear");
-  const launcherTarget = path.join(currentPath, "bin", "agentgear.mjs");
-  const launcherIsRecorded = !exists(currentPath) && isRecordedStableRuntimeCommand({
-    state,
-    destination: launcher,
-    kind: "launcher",
-    target: launcherTarget,
-    sharedRoot: currentPath
-  });
-  if (linkMatchesAnyTarget(launcher, launcherTargets) || isManagedRuntimeShim(launcher) || launcherIsRecorded) {
-    removeManagedPath("launcher", launcher, print);
+  if (record.mode === "copy") {
+    return info.isDirectory()
+      && !info.isSymbolicLink()
+      && directoryFingerprint(destination) === record.fingerprint;
   }
-  if (isManagedCommandShim(launcher)) removeManagedPath("launcher command shim", commandShimPath(launcher), print);
-
-  for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
-    const helper = path.join(localBin, name);
-    const targets = [
-      ...sourceRoots.map(root => path.join(root, "skills", "agent-deck-workflow", "scripts", script)),
-      ...releaseRoots.map(root => path.join(root, "skills", "agent-deck-workflow", "scripts", script))
-    ];
-    if (currentIsManaged) {
-      targets.push(path.join(currentPath, "skills", "agent-deck-workflow", "scripts", script));
-    }
-    const helperTarget = path.join(currentPath, "skills", "agent-deck-workflow", "scripts", script);
-    const helperIsRecorded = !exists(currentPath) && isRecordedStableRuntimeCommand({
-      state,
-      destination: helper,
-      kind: "workflow helper",
-      target: helperTarget,
-      sharedRoot: currentPath
-    });
-    if (linkMatchesAnyTarget(helper, targets) || isManagedRuntimeShim(helper) || helperIsRecorded) {
-      removeManagedPath("workflow helper", helper, print);
-    }
-    if (isManagedCommandShim(helper)) removeManagedPath("workflow helper command shim", commandShimPath(helper), print);
-  }
-
-  if (currentIsManaged) removeManagedPath("runtime link", currentPath, print);
-  for (const releaseRoot of releaseRoots) {
-    removeManagedPath("runtime release", releaseRoot, print);
-  }
-
-  removeEmptyDirectory(releasesRoot);
-  removeEmptyDirectory(dataRoot);
-}
-
-export function removeInstallStateFile({ env = process.env, print }) {
-  const stateFile = getStateFile(env);
-  const info = fs.lstatSync(stateFile, { throwIfNoEntry: false });
-  if (!info?.isFile() || info.isSymbolicLink()) return;
-  removeManagedPath("installation state", stateFile, print);
-  removeEmptyDirectory(path.dirname(stateFile));
-}
-
-export function readInstallState(env = process.env) {
-  return readJsonIfExists(getStateFile(env), {
-    schemaVersion: STATE_VERSION,
-    targets: {}
-  });
-}
-
-export function saveInstallState(state, env = process.env) {
-  writeJsonAtomic(getStateFile(env), state);
+  return false;
 }
 
 export function targetState(state, targetPath) {
@@ -1313,26 +1236,93 @@ export function updateTargetState(state, targetPath, value) {
   }
 }
 
-export function copyOrLinkSkill({ source, copySource = source, destination, link, print }) {
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  if (link) {
-    try {
-      fs.symlinkSync(source, destination, directoryLinkType());
-      return { mode: "link" };
-    } catch (error) {
-      if (!isLinkUnavailable(error)) throw error;
-      print(`links unavailable; copying skill instead: ${destination}`);
-    }
-  }
-  fs.cpSync(copySource, destination, { recursive: true, preserveTimestamps: true });
-  return { mode: "copy" };
+export function addReleaseToInventory(state, releaseId) {
+  if (state.releases.includes(releaseId)) return;
+  state.releases.push(releaseId);
+  state.releases.sort(compareUtf8);
 }
 
-export function destinationMatchesRecord(destination, record) {
-  const info = fs.lstatSync(destination, { throwIfNoEntry: false });
-  if (!info) return false;
-  if (record.mode === "link") {
-    return typeof record.source === "string" && linkMatchesAnyTarget(destination, [record.source]);
+export function removeEmptyDirectory(directory) {
+  const info = fs.lstatSync(directory, { throwIfNoEntry: false });
+  if (!info?.isDirectory() || info.isSymbolicLink()) return;
+  if (fs.readdirSync(directory).length === 0) fs.rmdirSync(directory);
+}
+
+function removeManagedPath(kind, destination, print) {
+  removePathIfPresent(destination);
+  print(`removed ${kind}: ${destination}`);
+}
+
+function currentPurgeOwned(currentPath, inventory, env) {
+  const paths = computePaths(env);
+  const info = fs.lstatSync(currentPath, { throwIfNoEntry: false });
+  if (!info) return true;
+  if (!info.isSymbolicLink()) return false;
+  const target = resolvedLinkTarget(currentPath);
+  if (!target) return false;
+  const releaseId = directChildReleaseId(target, paths.releasesRoot);
+  return Boolean(releaseId && inventory.includes(releaseId));
+}
+
+// Full purge teardown. Returns true only when `current` is gone and every
+// recorded release is absent or was removed, so the caller may then remove
+// state. Any ambiguity preserves the runtime and keeps state.
+export function purgeManagedRuntime({ state, env = process.env, print }) {
+  const paths = computePaths(env);
+  const inventory = state?.releases ?? [];
+
+  for (const [destination, record] of Object.entries(state?.commands ?? {})) {
+    if (commandArtifactOwned(destination, record)) {
+      removeManagedPath(record.kind, destination, print);
+      if (process.platform === "win32") {
+        removeManagedPath(`${record.kind} companion`, commandShimPath(destination), print);
+      }
+    } else {
+      print(`preserved unverifiable ${record.kind}: ${destination}`);
+    }
   }
-  return info.isDirectory() && directoryFingerprint(destination) === record.fingerprint;
+
+  const present = [];
+  for (const releaseId of inventory) {
+    const releasePath = path.join(paths.releasesRoot, releaseId);
+    if (!exists(releasePath)) continue;
+    if (!verifyRelease(releasePath, releaseId)) {
+      print(`preserved mismatched release: ${releasePath}; state retained`);
+      return false;
+    }
+    present.push(releasePath);
+  }
+
+  if (exists(paths.currentPath)) {
+    if (!currentPurgeOwned(paths.currentPath, inventory, env)) {
+      print(`preserved ambiguous runtime path: ${paths.currentPath}; state retained`);
+      return false;
+    }
+    removeManagedPath("runtime link", paths.currentPath, print);
+  }
+
+  for (const releasePath of present) {
+    removeManagedPath("runtime release", releasePath, print);
+  }
+  removeEmptyDirectory(paths.releasesRoot);
+  removeEmptyDirectory(paths.dataRoot);
+  return true;
+}
+
+export function removeInstallStateFile({ env = process.env, print }) {
+  const stateFile = getStateFile(env);
+  const info = fs.lstatSync(stateFile, { throwIfNoEntry: false });
+  if (!info?.isFile() || info.isSymbolicLink()) return;
+  removeManagedPath("installation state", stateFile, print);
+  removeEmptyDirectory(path.dirname(stateFile));
+}
+
+export function readInstallState(env = process.env) {
+  const stateFile = getStateFile(env);
+  if (!exists(stateFile)) return null;
+  return JSON.parse(fs.readFileSync(stateFile, "utf8"));
+}
+
+export function saveInstallState(state, env = process.env) {
+  writeJsonAtomic(getStateFile(env), state);
 }

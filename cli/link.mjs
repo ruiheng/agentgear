@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadCatalog } from "./lib/catalog.mjs";
 import { installSelection } from "./lib/installer.mjs";
+import { isReleaseSnapshot } from "./lib/runtime.mjs";
 import { parseOptions } from "./lib/options.mjs";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
@@ -34,20 +35,8 @@ function usage() {
   ].join("\n");
 }
 
-function isRuntimeSnapshot(contentRoot) {
-  const markerPath = path.join(contentRoot, ".agentgear-runtime.json");
-  const markerInfo = fs.lstatSync(markerPath, { throwIfNoEntry: false });
-  if (!markerInfo?.isFile() || markerInfo.isSymbolicLink()) return false;
-  try {
-    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
-    return marker.schemaVersion === 1 && typeof marker.releaseId === "string";
-  } catch {
-    return false;
-  }
-}
-
 function requireDevelopmentCheckout() {
-  if (isRuntimeSnapshot(rootDir)) {
+  if (isReleaseSnapshot(rootDir)) {
     throw new Error(
       "agentgear-link must be run from a development checkout, not a staged runtime. "
       + "Run: node /path/to/agentgear/bin/agentgear-link.mjs ..."

@@ -11,6 +11,7 @@ import {
   validateCatalog
 } from "./lib/catalog.mjs";
 import {
+  computePaths,
   destinationMatchesRecord,
   exists,
   purgeManagedRuntime,
@@ -19,7 +20,7 @@ import {
   saveInstallState,
   targetState,
   updateTargetState,
-  verifiedLegacyDevelopmentSourceRoots
+  validateStateGrammar
 } from "./lib/runtime.mjs";
 import { installSelection, resolveTargetRoots, selected } from "./lib/installer.mjs";
 import { parseOptions } from "./lib/options.mjs";
@@ -57,6 +58,16 @@ function usage() {
 
 function status(catalog, options) {
   const state = readInstallState();
+  const grammar = validateStateGrammar(state);
+  if (!grammar.valid) {
+    print("Invalid installation state: " + computePaths().stateFile);
+    print("  " + grammar.reason);
+    return;
+  }
+  if (state === null) {
+    print("No agentgear installation state recorded.");
+    return;
+  }
   const roots = options.destination || options.targets.length > 0
     ? resolveTargetRoots(catalog, options).map(target => target.root)
     : Object.keys(state.targets).sort();
@@ -73,7 +84,7 @@ function status(catalog, options) {
       continue;
     }
     for (const [name, skill] of skills.sort(([left], [right]) => left.localeCompare(right))) {
-      const source = skill.mode === "link" ? skill.source : skill.runtimeId;
+      const source = skill.mode === "link" ? skill.source : skill.fingerprint;
       print("  " + name + "  " + skill.mode + "  " + source);
     }
   }
@@ -86,6 +97,13 @@ function uninstall(catalog, options) {
   const selection = selected(catalog, options);
   const targets = resolveTargetRoots(catalog, options);
   const state = readInstallState();
+  const grammar = validateStateGrammar(state);
+  if (!grammar.valid) {
+    fail(`Invalid installation state ${computePaths().stateFile}: ${grammar.reason}`);
+  }
+  if (state === null) {
+    fail("No agentgear installation state recorded.");
+  }
 
   for (const target of targets) {
     const record = targetState(state, target.root);
@@ -142,7 +160,14 @@ function purge(catalog, options) {
   }
 
   const state = readInstallState();
-  const legacySourceRoots = verifiedLegacyDevelopmentSourceRoots(state);
+  const grammar = validateStateGrammar(state);
+  if (!grammar.valid) {
+    fail(`Invalid installation state ${computePaths().stateFile}: ${grammar.reason}`);
+  }
+  if (state === null) {
+    print("No agentgear installation state recorded; nothing to purge.");
+    return;
+  }
   const targets = purgeTargetRoots(catalog, options, state);
   const plan = purgePlan(state, targets, options);
 
@@ -161,8 +186,8 @@ function purge(catalog, options) {
     saveInstallState(state);
     print("Shared runtime retained because other managed skills remain.");
   } else {
-    purgeManagedRuntime({ legacySourceRoots, state, print });
-    removeInstallStateFile({ print });
+    const tornDown = purgeManagedRuntime({ state, env: process.env, print });
+    if (tornDown) removeInstallStateFile({ print });
   }
   print("Purge complete.");
 }
