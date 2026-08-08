@@ -111,11 +111,8 @@ Initialize the user-local override from the bundled example, without replacing
 an existing file:
 
 ~~~bash
-agentgear run multi-agent-protocol resolve-tool-command.js --init-local-config
+agentgear resolve-tool-command --init-local-config
 ~~~
-
-From a source checkout, invoke the same script with
-`node skills/multi-agent-protocol/scripts/resolve-tool-command.js`.
 
 Check the merged resolver configuration explicitly. The command validates the
 resolver structure and, when `thurbox-cli` is available, checks configured
@@ -125,7 +122,7 @@ unknown keys are warnings; they do not make the check fail. Use `--format text`
 for a human-readable summary.
 
 ~~~bash
-agentgear run multi-agent-protocol resolve-tool-command.js --check-config --format text
+agentgear resolve-tool-command --check-config --format text
 ~~~
 
 ## Uninstall

@@ -10,7 +10,7 @@ Waypost does not map roles or read this configuration.
 - Resolve a new role with:
 
   ```bash
-  agentgear run multi-agent-protocol resolve-tool-command.js --role <role> --profile <profile> --workdir <target_workdir> --show-list --format json
+  agentgear resolve-tool-command --role <role> --profile <profile> --workdir <target_workdir> --show-list --format json
   ```
 
   Omit `--profile` when none is set. Keep an explicit full command unchanged
@@ -18,14 +18,14 @@ Waypost does not map roles or read this configuration.
 - List configured roles with:
 
   ```bash
-  agentgear run multi-agent-protocol resolve-tool-command.js --list-roles --format text
+  agentgear resolve-tool-command --list-roles --format text
   ```
 
   JSON output is an object with a `roles` array.
 - Set up the user-local override once with:
 
   ```bash
-  agentgear run multi-agent-protocol resolve-tool-command.js --init-local-config
+  agentgear resolve-tool-command --init-local-config
   ```
 
   This copies the bundled example to the XDG Agentgear config directory and
@@ -33,7 +33,7 @@ Waypost does not map roles or read this configuration.
 - Check the merged resolver configuration with:
 
   ```bash
-  agentgear run multi-agent-protocol resolve-tool-command.js --check-config --format text
+  agentgear resolve-tool-command --check-config --format text
   ```
 
   The check validates resolver structure. If `thurbox-cli` is available, it

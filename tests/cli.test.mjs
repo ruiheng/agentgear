@@ -280,6 +280,21 @@ test("lists the catalog and builds every target layout", () => {
   assert.equal(fs.existsSync(path.join(rootDir, "dist", "codex", ".agents", "skills", "handoff", "SKILL.md")), true);
 });
 
+test("resolve-tool-command is available as a top-level Agentgear command", () => {
+  const fixture = environmentFixture();
+  try {
+    const resolved = spawnAgentgear(
+      ["resolve-tool-command", "--help"],
+      fixture,
+      fixture.environment
+    );
+    assert.equal(resolved.status, 0, resolved.stderr);
+    assert.match(resolved.stdout, /Usage: resolve-tool-command\.js \[options\]/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow doctor accepts either declared session host", () => {
   const fixture = environmentFixture();
   try {

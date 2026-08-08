@@ -11,7 +11,7 @@ stable `agentgear run …` launcher rather than a checkout path. Thurbox users d
 not need that Agent Deck-specific helper. The installer intentionally never
 edits a harness MCP declaration. Thurbox users maintain their own resolver
 candidate keys in Agentgear's local tool-profile configuration and can verify
-them with `agentgear run multi-agent-protocol resolve-tool-command.js --check-config`.
+them with `agentgear resolve-tool-command --check-config`.
 
 The `workflow` and `browser` packs have runtime prerequisites. Run
 `agentgear doctor --pack workflow` or `agentgear doctor --pack browser`

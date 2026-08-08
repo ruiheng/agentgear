@@ -25,6 +25,7 @@ import {
 } from "./lib/runtime.mjs";
 import { installSelection, resolveTargetRoots, selected } from "./lib/installer.mjs";
 import { parseOptions } from "./lib/options.mjs";
+import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
@@ -51,6 +52,7 @@ function usage() {
     "  uninstall (--pack NAME | --skill NAME | --purge) [--target NAME[,NAME]] [--scope global|project]",
     "            [--project DIR] [--dest DIR] [--force]",
     "  doctor [--pack NAME] [--skill NAME]",
+    "  resolve-tool-command [resolver options]",
     "  run <skill> <script> [args...]",
     "",
     "install/update copy a release snapshot into targets. The default pack is core."
@@ -384,6 +386,10 @@ export function main(commandArguments = process.argv.slice(2)) {
   }
   if (command === "run") {
     run(argumentsList);
+    return;
+  }
+  if (command === "resolve-tool-command") {
+    runResolveToolCommand(argumentsList);
     return;
   }
   const options = parseOptions(argumentsList);
