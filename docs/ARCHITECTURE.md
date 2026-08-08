@@ -14,6 +14,8 @@ installs and operates a collection.
 `config/tool-profiles.toml` is packaged runtime configuration. User overrides
 are layered from the XDG `agentgear` config directory and the project-local
 `tool-profiles.local.toml`; neither depends on the maintainer's old dotfiles.
+Its `[templates]` section supplies reusable command fragments, expanded only
+for `${templates.name}` references in candidate commands.
 
 The workflow pack depends on the upstream Agent Deck skill and executable. The
 upstream source remains external instead of being silently forked here.

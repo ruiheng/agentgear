@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  expandCommandTemplate,
   inspectToolCommand,
   listConfiguredRoles,
   loadToolConfig,
@@ -198,6 +199,39 @@ command = "claude --model sonnet"
     },
     { command: "claude --model sonnet" },
   ]);
+});
+
+test("parseToolProfilesToml reads and expands command templates", () => {
+  const config = parseToolProfilesToml(`
+[templates]
+codex_approval = "--ask-for-approval on-request"
+`);
+
+  assert.deepEqual(config.templates, {
+    codex_approval: "--ask-for-approval on-request",
+  });
+  assert.equal(
+    expandCommandTemplate(
+      "codex --model gpt-5.6 ${templates.codex_approval}",
+      config.templates
+    ),
+    "codex --model gpt-5.6 --ask-for-approval on-request"
+  );
+  assert.throws(
+    () => expandCommandTemplate("codex ${templates.missing}", config.templates),
+    /unknown command template: missing/
+  );
+  assert.throws(
+    () => expandCommandTemplate("codex ${templates.not-valid}", config.templates),
+    /invalid command template: \$\{templates\.not-valid\}/
+  );
+  assert.equal(
+    expandCommandTemplate(
+      'PATH="${HOME}/.local/bin:$PATH" codex --token "${TOKEN:-default}"',
+      config.templates
+    ),
+    'PATH="${HOME}/.local/bin:$PATH" codex --token "${TOKEN:-default}"'
+  );
 });
 
 test("parseTomlValue accepts TOML literal strings and arrays", () => {
@@ -499,6 +533,72 @@ candidates = ['claude --model sonnet --permission-mode acceptEdits']
   assert.deepEqual(config.profiles.reviewer_cwd.candidates, [
     "claude --model sonnet --permission-mode acceptEdits",
   ]);
+});
+
+test("loadToolConfig merges template overrides and applies architect compatibility per layer", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-command-templates-"));
+  const configPath = path.join(tmpDir, "tool-profiles.toml");
+  const localConfigPath = path.join(tmpDir, "tool-profiles.local.toml");
+  fs.writeFileSync(
+    configPath,
+    `version = 2
+
+[templates]
+codex_approval = "--ask-for-approval on-request"
+claude_edits = "--permission-mode acceptEdits"
+
+[roles]
+architect = "architect_default"
+architect_author = "architect_default"
+architect_reviewer = "architect_default"
+
+[profiles.architect_default]
+candidates = ["codex \${templates.codex_approval}"]
+
+[profiles.architect_local]
+candidates = ["claude \${templates.claude_edits}"]
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    localConfigPath,
+    `[templates]
+codex_approval = "--ask-for-approval never"
+
+[roles]
+architect = "architect_local"
+architect_author = "architect_author_explicit"
+
+[profiles.architect_author_explicit]
+candidates = ["codex \${templates.codex_approval}"]
+`,
+    "utf8"
+  );
+
+  const config = loadToolConfig(configPath, localConfigPath);
+  assert.deepEqual(config.templates, {
+    codex_approval: "--ask-for-approval never",
+    claude_edits: "--permission-mode acceptEdits",
+  });
+  assert.equal(config.roles.architect, "architect_local");
+  assert.equal(config.roles.architect_author, "architect_author_explicit");
+  assert.equal(config.roles.architect_reviewer, "architect_local");
+  assert.equal(
+    resolveToolCommand({
+      role: "architect_reviewer",
+      inspectCommand: availableInspection,
+      config,
+    }).resolved_tool_cmd,
+    "claude --permission-mode acceptEdits"
+  );
+  assert.equal(
+    resolveToolCommand({
+      role: "architect_author",
+      inspectCommand: availableInspection,
+      config,
+    }).resolved_tool_cmd,
+    "codex --ask-for-approval never"
+  );
 });
 
 test("resolveToolCommand preserves explicit commands unchanged", () => {
@@ -866,6 +966,40 @@ test("resolveToolCommand defaults an omitted profile strategy to ordered", () =>
     resolved.resolved_tool_cmd,
     "claude --model sonnet --permission-mode acceptEdits"
   );
+});
+
+test("resolveToolCommand expands template candidates before inspection", () => {
+  const resolved = resolveToolCommand({
+    profile: "coder_default",
+    showList: true,
+    inspectCommand: availableInspection,
+    config: {
+      version: 2,
+      roles: {},
+      templates: { claude_edits: "--permission-mode acceptEdits" },
+      profiles: {
+        coder_default: {
+          candidates: [
+            {
+              command: "claude --model sonnet ${templates.claude_edits}",
+              startup_message: "Start the coding workflow.",
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  assert.equal(
+    resolved.resolved_tool_cmd,
+    "claude --model sonnet --permission-mode acceptEdits"
+  );
+  assert.deepEqual(resolved.tool_candidates, [
+    {
+      command: "claude --model sonnet --permission-mode acceptEdits",
+      startup_message: "Start the coding workflow.",
+    },
+  ]);
 });
 
 test("resolveToolCommand still rejects an unsupported explicit strategy", () => {

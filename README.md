@@ -158,7 +158,14 @@ All repository-owned executable scripts use Node.js. External tools such as
 `git`, `agent-deck`, and `waypost` remain explicit workflow dependencies and
 are checked by `doctor`.
 
-The bundled tool profiles live in `config/tool-profiles.toml`. A user can
-override them with `$XDG_CONFIG_HOME/agentgear/tool-profiles.local.toml` (or
+The bundled tool profiles live in `config/tool-profiles.toml`. Start from
+`config/tool-profiles.local.example.toml`, then override templates, roles, or
+candidates with `$XDG_CONFIG_HOME/agentgear/tool-profiles.local.toml` (or
 `~/.config/agentgear/tool-profiles.local.toml`) and a project-local
-`tool-profiles.local.toml`.
+`tool-profiles.local.toml`; the project-local layer wins.
+
+`[templates]` defines reusable command fragments. `${templates.name}` in a
+candidate `command` expands the named value, while other `${...}` text is
+preserved. Within each configuration layer, an `architect` override also
+applies to `architect_author` and `architect_reviewer` unless that layer sets a
+child role explicitly.

@@ -43,7 +43,8 @@
         "roundtable-participant",
         "simplify-review",
         "tech-design-review",
-        "tech-design-review-request"
+        "tech-design-review-request",
+        "tech-design-review-workflow"
       ]
     },
     "browser": {
@@ -88,6 +89,7 @@
     "simplify-review": {"tags": ["review", "workflow"]},
     "tech-design-assessment": {"tags": ["design", "standalone"]},
     "tech-design-review": {"tags": ["design", "workflow"]},
-    "tech-design-review-request": {"tags": ["design", "workflow"]}
+    "tech-design-review-request": {"tags": ["design", "workflow"]},
+    "tech-design-review-workflow": {"tags": ["design", "workflow"]}
   }
 }
