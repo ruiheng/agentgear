@@ -433,6 +433,19 @@ test("resolve-tool-command is available as a top-level Agentgear command", () =>
   }
 });
 
+test("permissions is available through the Agentgear CLI with user scope by default", () => {
+  const fixture = environmentFixture();
+  try {
+    const result = spawnAgentgear(["permissions", "--help"], fixture, fixture.environment);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /agentgear permissions init/);
+    assert.match(result.stdout, /agentgear permissions check/);
+    assert.match(result.stdout, /--scope user/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("session delete maps Agent Deck to its remove command", () => {
   const fixture = environmentFixture();
   const bin = path.join(fixture.temporary, "bin");
@@ -627,13 +640,13 @@ test("release install copies skills, records schema-v2 state, and ordinary unins
   }
 });
 
-test("workflow installation provisions its explicit helper commands", t => {
+test("workflow installation provisions its explicit helper command", t => {
   const fixture = environmentFixture();
   try {
     run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol", "SKILL.md")), true);
     const state = readState(fixture);
-    for (const helper of ["agent-deck-workflow-init-permissions", "adwf-send-and-wake"]) {
+    for (const helper of ["adwf-send-and-wake"]) {
       const helperPath = path.join(fixture.localBin, helper);
       if (!fs.lstatSync(helperPath).isSymbolicLink()) {
         t.skip("file links are unavailable on this filesystem");
@@ -643,6 +656,46 @@ test("workflow installation provisions its explicit helper commands", t => {
       assert.equal(state.commands[helperPath].kind, "workflow-helper");
       assert.equal(state.commands[helperPath].mode, "link");
     }
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("workflow update removes the retired Agent Deck permission helper", t => {
+  if (process.platform === "win32") {
+    t.skip("legacy link migration fixture is POSIX-specific");
+    return;
+  }
+  const fixture = environmentFixture();
+  const legacyCommand = path.join(fixture.localBin, "agent-deck-workflow-init-permissions");
+  const current = path.join(fixture.dataRoot, "current");
+  const legacyTarget = path.join(current, "skills", "multi-agent-protocol", "scripts", "agent-deck-workflow-init-permissions.mjs");
+  try {
+    run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
+    const physicalTarget = path.join(fs.realpathSync(current), "skills", "multi-agent-protocol", "scripts", "agent-deck-workflow-init-permissions.mjs");
+    fs.writeFileSync(physicalTarget, "#!/usr/bin/env node\n");
+    fs.symlinkSync(legacyTarget, legacyCommand);
+    const state = readState(fixture);
+    state.commands[legacyCommand] = { kind: "workflow-helper", mode: "link", target: legacyTarget };
+    craftState(fixture, state);
+
+    const previousRuntime = fs.realpathSync(current);
+    fs.rmSync(legacyCommand);
+    fs.writeFileSync(legacyCommand, "user-owned replacement\n");
+    assert.throws(
+      () => run(["update", "--pack", "workflow", "--target", "general"], fixture.environment),
+      /Refusing to retire locally changed legacy workflow helper/
+    );
+    assert.equal(fs.realpathSync(current), previousRuntime);
+    assert.equal(readState(fixture).commands[legacyCommand].target, legacyTarget);
+
+    fs.rmSync(legacyCommand);
+    fs.symlinkSync(legacyTarget, legacyCommand);
+
+    run(["update", "--pack", "workflow", "--target", "general"], fixture.environment);
+
+    assert.equal(pathExists(legacyCommand), false);
+    assert.equal(readState(fixture).commands[legacyCommand], undefined);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -792,7 +845,6 @@ test("link restores a removed current link and its recorded command links", asyn
     const current = path.join(fixture.dataRoot, "current");
     const commands = [
       [path.join(fixture.localBin, "agentgear"), "launcher"],
-      [path.join(fixture.localBin, "agent-deck-workflow-init-permissions"), "workflow-helper"],
       [path.join(fixture.localBin, "adwf-send-and-wake"), "workflow-helper"]
     ];
     if (commands.some(([command]) => !fs.lstatSync(command).isSymbolicLink())) {

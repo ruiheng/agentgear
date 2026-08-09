@@ -1,7 +1,7 @@
+import childProcess from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveCommand, run } from "./workflow-lib.mjs";
 
 const ACTIONS = ["read", "list"];
 const MANIFEST_VERSION = 3;
@@ -17,6 +17,53 @@ function getHome(env = process.env) {
 
 function unique(values) {
   return [...new Set(values)];
+}
+
+function commandCandidates(command, env = process.env) {
+  if (path.isAbsolute(command) || command.includes(path.sep)) return [command];
+  const extensions = process.platform === "win32"
+    ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";")
+    : [""];
+  return (env.PATH || "").split(path.delimiter).flatMap(directory =>
+    extensions.map(extension => path.join(directory, command.endsWith(extension) ? command : command + extension))
+  );
+}
+
+function resolveCommand(command, env = process.env) {
+  for (const candidate of commandCandidates(command, env)) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // Continue searching PATH.
+    }
+  }
+  return null;
+}
+
+function quoteWindowsArgument(value) {
+  if (/^[^\s"&|<>^()]+$/.test(value)) return value;
+  return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`;
+}
+
+function run(command, args, { env } = {}) {
+  const useCmd = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(command);
+  if (useCmd) {
+    if ([command, ...args].some(value => String(value).includes("%"))) {
+      return {
+        error: Object.assign(
+          new Error("refusing to pass a percent-containing Waypost value through cmd.exe"),
+          { code: "EINVAL" }
+        ),
+        status: null,
+        stdout: "",
+        stderr: ""
+      };
+    }
+    const line = [command, ...args].map(quoteWindowsArgument).join(" ");
+    return childProcess.spawnSync(env?.ComSpec || process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], { env });
+  }
+  return childProcess.spawnSync(command, args, { env });
 }
 
 function hasUnsafeControlCharacters(value) {
@@ -271,12 +318,18 @@ function isLegacyV1Permission(value) {
   return Boolean(match && isManagedLegacyCommand(match[1]) && isManagedLegacyStateDir(match[2]));
 }
 
-export function ownershipManifestPath(projectDir) {
-  return path.join(projectDir, ".claude", ".agent-deck-workflow-waypost-cli.json");
+export function ownershipManifestPath(configRoot) {
+  return path.join(configRoot, ".claude", ".agentgear-workflow-permissions.json");
 }
 
-export function readWaypostOwnershipManifest(projectDir) {
-  const manifestPath = ownershipManifestPath(projectDir);
+export function legacyOwnershipManifestPath(configRoot) {
+  return path.join(configRoot, ".claude", ".agent-deck-workflow-waypost-cli.json");
+}
+
+export function readWaypostOwnershipManifest(configRoot) {
+  const currentPath = ownershipManifestPath(configRoot);
+  const legacyPath = legacyOwnershipManifestPath(configRoot);
+  const manifestPath = safeLstat(currentPath) ? currentPath : legacyPath;
   const info = safeLstat(manifestPath);
   if (!info) return { present: false, version: 0, permissions: [], mcpPermissions: [] };
   if (!isRegularFile(manifestPath)) {
@@ -299,7 +352,7 @@ export function readWaypostOwnershipManifest(projectDir) {
     if (!manifest.permissions.every(isLegacyV1Permission)) {
       throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
     }
-    return { present: true, version: 1, permissions: manifest.permissions, rules: [], mcpPermissions: [] };
+    return { present: true, version: 1, permissions: manifest.permissions, rules: [], mcpPermissions: [], manifestPath };
   }
   if (![2, MANIFEST_VERSION].includes(manifest.version) || !Array.isArray(manifest.rules)) {
     throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
@@ -316,10 +369,10 @@ export function readWaypostOwnershipManifest(projectDir) {
   const mcpPermissions = manifest.version === 2
     ? []
     : stableMcpPermissions(manifest.mcp_permissions);
-  return { present: true, version: manifest.version, permissions, rules, mcpPermissions };
+  return { present: true, version: manifest.version, permissions, rules, mcpPermissions, manifestPath };
 }
 
-export function writeWaypostOwnershipManifest(projectDir, rules, mcpPermissions = []) {
+export function writeWaypostOwnershipManifest(configRoot, rules, mcpPermissions = []) {
   const normalizedRules = stableRules(rules);
   const permissions = permissionsForRules(normalizedRules);
   const normalizedMcpPermissions = stableMcpPermissions(mcpPermissions);
@@ -334,19 +387,26 @@ export function writeWaypostOwnershipManifest(projectDir, rules, mcpPermissions 
       wildcard: rule.wildcard
     }))
   };
-  const manifestPath = ownershipManifestPath(projectDir);
+  const legacyPath = legacyOwnershipManifestPath(configRoot);
+  const legacyInfo = safeLstat(legacyPath);
+  if (legacyInfo && !isRegularFile(legacyPath)) {
+    throw new Error(`refusing invalid legacy Claude Waypost ownership manifest: ${legacyPath}`);
+  }
+  const manifestPath = ownershipManifestPath(configRoot);
   writeAtomic(manifestPath, `${JSON.stringify(manifest)}\n`);
+  if (legacyInfo) fs.rmSync(legacyPath);
   return { manifestPath, permissions };
 }
 
-export function removeWaypostOwnershipManifest(projectDir) {
-  const manifestPath = ownershipManifestPath(projectDir);
-  const info = safeLstat(manifestPath);
-  if (!info) return;
-  if (!isRegularFile(manifestPath)) {
-    throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
+export function removeWaypostOwnershipManifest(configRoot) {
+  for (const manifestPath of [ownershipManifestPath(configRoot), legacyOwnershipManifestPath(configRoot)]) {
+    const info = safeLstat(manifestPath);
+    if (!info) continue;
+    if (!isRegularFile(manifestPath)) {
+      throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
+    }
+    fs.rmSync(manifestPath);
   }
-  fs.rmSync(manifestPath);
 }
 
 export function isLegacyBroadWaypostPermission(value) {

@@ -12,6 +12,8 @@ import {
   checkCommandCollisions,
   checkStateCoherence,
   chooseDeploymentMode,
+  commandArtifactOwned,
+  commandArtifactPaths,
   commandEntries,
   computePaths,
   copyOrLinkSkill,
@@ -22,6 +24,7 @@ import {
   exists,
   expandHome,
   installRuntimeCommand,
+  legacyCommandEntries,
   publishRuntime,
   readInstallState,
   resolvedLinkTarget,
@@ -130,6 +133,16 @@ export function installSelection({
   }
   const installLauncher = !options.noLauncher;
   const installWorkflowHelpers = installLauncher && selection.skills.includes("multi-agent-protocol");
+  const retiredCommands = installLauncher
+    ? legacyCommandEntries(env).filter(entry => state?.commands?.[entry.destination])
+    : [];
+  for (const entry of retiredCommands) {
+    const record = state.commands[entry.destination];
+    const artifactExists = commandArtifactPaths(entry.destination).some(candidate => exists(candidate));
+    if (artifactExists && !commandArtifactOwned(entry.destination, record)) {
+      fail(`Refusing to retire locally changed legacy workflow helper: ${entry.destination}`);
+    }
+  }
   const plan = targetInstallPlan(state, targets, installedSkills, options);
   checkCommandCollisions(state, env, installLauncher, installWorkflowHelpers, options.force);
 
@@ -153,6 +166,7 @@ export function installSelection({
       development,
       installLauncher,
       installWorkflowHelpers,
+      retireCommandDestinations: retiredCommands.map(entry => entry.destination),
       plannedSkills: installedSkills
     });
     if (consumerErrors.length > 0) fail(consumerErrors.join("\n"));
@@ -198,6 +212,14 @@ export function installSelection({
         }
       }
       updateTargetState(currentState, target.root, record);
+    }
+
+    for (const entry of retiredCommands) {
+      const record = currentState.commands[entry.destination];
+      if (!record) continue;
+      transaction.replace(commandArtifactPaths(entry.destination), () => undefined);
+      print(`removed legacy workflow helper: ${entry.destination}`);
+      delete currentState.commands[entry.destination];
     }
 
     if (installLauncher) {

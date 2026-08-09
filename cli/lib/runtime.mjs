@@ -13,8 +13,10 @@ const SKILL_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const LINK_UNAVAILABLE_CODES = new Set(["EACCES", "EINVAL", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM"]);
 let temporarySequence = 0;
 const WORKFLOW_HELPERS = {
-  "agent-deck-workflow-init-permissions": "agent-deck-workflow-init-permissions.mjs",
   "adwf-send-and-wake": "adwf-send-and-wake.mjs"
+};
+const LEGACY_WORKFLOW_HELPERS = {
+  "agent-deck-workflow-init-permissions": "agent-deck-workflow-init-permissions.mjs"
 };
 
 export function exists(filePath) {
@@ -37,6 +39,8 @@ export function computePaths(env = process.env) {
   const localBin = path.join(home, ".local", "bin");
   const workflowHelpers = {};
   for (const name of Object.keys(WORKFLOW_HELPERS)) workflowHelpers[name] = path.join(localBin, name);
+  const legacyWorkflowHelpers = {};
+  for (const name of Object.keys(LEGACY_WORKFLOW_HELPERS)) legacyWorkflowHelpers[name] = path.join(localBin, name);
   return {
     home,
     dataRoot,
@@ -45,7 +49,8 @@ export function computePaths(env = process.env) {
     stateFile: path.join(stateHome, "agentgear", "installs.json"),
     localBin,
     launcher: path.join(localBin, "agentgear"),
-    workflowHelpers
+    workflowHelpers,
+    legacyWorkflowHelpers
   };
 }
 
@@ -358,6 +363,10 @@ function commandShimPath(destination) {
   return `${destination}.cmd`;
 }
 
+export function commandArtifactPaths(destination) {
+  return process.platform === "win32" ? [destination, commandShimPath(destination)] : [destination];
+}
+
 function writeWindowsCommandShim(destination) {
   if (process.platform !== "win32") return;
   const commandShim = commandShimPath(destination);
@@ -432,6 +441,16 @@ export function commandEntries(env = process.env) {
     });
   }
   return entries;
+}
+
+export function legacyCommandEntries(env = process.env) {
+  const paths = computePaths(env);
+  return Object.entries(LEGACY_WORKFLOW_HELPERS).map(([name, script]) => ({
+    command: name,
+    kind: "workflow-helper",
+    destination: paths.legacyWorkflowHelpers[name],
+    relativeModule: path.join("skills", "multi-agent-protocol", "scripts", script)
+  }));
 }
 
 // Exact artifact ownership for a command destination and its stored record.
@@ -516,9 +535,7 @@ export function installRuntimeCommand({
     return { mode: "wrapper", target: modulePath, fingerprint: wrapperFingerprint(destination) };
   };
 
-  const managedPaths = process.platform === "win32"
-    ? [destination, commandShimPath(destination)]
-    : [destination];
+  const managedPaths = commandArtifactPaths(destination);
   const result = transaction.replace(managedPaths, install);
   return { kind, ...result };
 }
@@ -638,8 +655,13 @@ export function validateStateGrammar(state, env = process.env) {
   for (const [name, destination] of Object.entries(paths.workflowHelpers)) {
     expectedKinds.set(destination, "workflow-helper");
   }
+  for (const destination of Object.values(paths.legacyWorkflowHelpers)) {
+    expectedKinds.set(destination, "workflow-helper");
+  }
   const commandModules = new Map();
-  for (const entry of commandEntries(env)) commandModules.set(entry.destination, entry.relativeModule);
+  for (const entry of [...commandEntries(env), ...legacyCommandEntries(env)]) {
+    commandModules.set(entry.destination, entry.relativeModule);
+  }
   for (const [destination, record] of Object.entries(state.commands)) {
     const expectedKind = expectedKinds.get(destination);
     if (!expectedKind) return invalid(`unknown command destination: ${destination}`);
@@ -1124,6 +1146,7 @@ export function validateSharedRuntimeConsumers({
   development = false,
   installLauncher = false,
   installWorkflowHelpers = false,
+  retireCommandDestinations = [],
   plannedSkills = [],
   snapshotRoot = runtime?.root
 }) {
@@ -1158,7 +1181,9 @@ export function validateSharedRuntimeConsumers({
 
   // Active commands whose exact record and artifact agree keep their entrypoint
   // requirements, whether they target `current` or a physical release.
+  const retiredCommands = new Set(retireCommandDestinations);
   for (const [destination, record] of Object.entries(state?.commands ?? {})) {
+    if (retiredCommands.has(destination)) continue;
     if (!commandArtifactOwned(destination, record)) continue;
     const relative = entrypointRelativeToSnapshot(record.target, paths);
     if (!relative) continue;

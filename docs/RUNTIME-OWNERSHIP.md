@@ -128,7 +128,7 @@ of these rules hold:
 - A copied-skill record has exactly `{mode, fingerprint}` with `mode="copy"`
   and a canonical fingerprint described below.
 - Command keys are limited to the one computed launcher destination and the
-  two computed workflow-helper destinations. Each destination's `kind` is
+  computed workflow-helper destination. Each destination's `kind` is
   fixed as `launcher` or `workflow-helper`; unknown command keys or mismatched
   kinds are invalid.
 - A linked-command record has exactly `{kind, mode, target}`, uses

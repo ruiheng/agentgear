@@ -34,6 +34,7 @@ import { parseOptions } from "./lib/options.mjs";
 import { isCommandAvailable } from "./lib/upstreams.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
+import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
@@ -61,6 +62,8 @@ function usage() {
     "  uninstall (--pack NAME | --skill NAME | --purge) [--target NAME[,NAME]] [--scope global|project]",
     "            [--project DIR] [--dest DIR] [--force]",
     "  doctor [--pack NAME] [--skill NAME]",
+    "  permissions init [--scope user|project] [--project DIR]",
+    "  permissions check [--scope user|project] [--project DIR] [--json]",
     "  resolve-tool-command [resolver options]",
     "  session delete --host NAME --session-id ID [--profile NAME] [--json]",
     "  run <skill> <script> [args...]",
@@ -417,6 +420,10 @@ export function main(commandArguments = process.argv.slice(2)) {
   }
   if (command === "resolve-tool-command") {
     runResolveToolCommand(argumentsList);
+    return;
+  }
+  if (command === "permissions") {
+    runPermissionsCommand(argumentsList);
     return;
   }
   if (command === "session") {

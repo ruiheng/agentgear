@@ -101,9 +101,7 @@ The workflow pack needs one supported persistent-session host:
 - [Agent Deck](https://github.com/asheshgoplani/agent-deck): install its
   executable. When it is on `PATH`, Agentgear fetches its official
   `agent-deck` skill from the catalog-pinned upstream revision and installs it
-  into each selected target as part of the workflow transaction. The installed
-  `agent-deck-workflow-init-permissions` helper is an optional Agent Deck
-  permission integration.
+  into each selected target as part of the workflow transaction.
 - [Thurbox](https://thurbox.thurbeen.eu/docs/features.html#headless-cli):
   install `thurbox-cli`. Thurbox currently publishes no general-purpose host
   skill, so Agentgear does not invent or install a substitute.
@@ -187,6 +185,7 @@ initializer.
 | `status` | Show whether each managed skill is linked or copied. |
 | `uninstall` | Remove selected installer-managed skills; `--purge` also removes installer-owned runtime artifacts. |
 | `doctor` | Check declared external commands, upstream requirements, and supported session hosts. |
+| `permissions init/check` | Configure or verify workflow permissions for supported agent harnesses. |
 | `session delete` | Delete a session through a stable host-neutral interface; Thurbox uses recoverable soft-delete. |
 | `run` | Run a script bundled with an installed skill. |
 
@@ -202,6 +201,21 @@ Thurbox uses its recoverable soft-delete. Agentgear intentionally does not
 expose Thurbox's destructive `--force` cleanup through this interface. Agent
 Deck removal is not recoverable, so callers must validate ownership before
 passing an exact session id; workflow closeout performs that validation.
+
+Initialize workflow permissions through the single Agentgear entry point. User
+scope is the default and applies across projects; project scope writes trusted
+project configuration instead:
+
+```bash
+agentgear permissions init
+agentgear permissions check
+agentgear permissions init --scope project --project /path/to/project
+agentgear permissions check --scope project --project /path/to/project
+```
+
+The initializer grants only the explicit Agentgear, Waypost, and session-host
+operations used by the workflow. Restart existing agent sessions after changing
+permissions so they reload their harness configuration.
 
 The development-only command is `node ./bin/agentgear-link.mjs` from a source
 checkout. It accepts the same pack, skill, target, scope, destination,

@@ -13,16 +13,17 @@ target. Use `--target general` or `--target claude` to narrow the default pair;
 use `--target general,kiro` when both generic and Kiro locations are needed.
 
 The installer places skills only. It does not silently write host hooks, MCP
-configuration, or permission rules. For an Agent Deck installation, the
-workflow pack exposes the explicit opt-in
-`agent-deck-workflow-init-permissions` helper; it writes rules through the
-stable `agentgear run …` launcher rather than a checkout path. Thurbox users do
-not need that Agent Deck-specific helper. The installer intentionally never
-edits a harness MCP declaration. Thurbox users maintain their own resolver
+configuration, or permission rules. Configure permissions explicitly through
+`agentgear permissions init`; user scope is the default, while `--scope
+project --project DIR` writes trusted-project configuration. Verify the active
+scope with `agentgear permissions check`. Generated rules use the stable
+`agentgear run …` launcher rather than a checkout path. The initializer does
+not create an MCP server declaration; it adds scoped approvals only when the
+Waypost server is already configured. Thurbox users maintain their own resolver
 candidate keys in Agentgear's local tool-profile configuration and can verify
 them with `agentgear resolve-tool-command --check-config`.
 
-The opt-in helper authorizes only the workflow's `agentgear run
+The permissions command authorizes only the workflow's `agentgear run
 multi-agent-protocol …` and `agentgear resolve-tool-command …` forms. It does
 not authorize global `install`, `update`, or `uninstall` operations.
 
