@@ -257,19 +257,9 @@ export function main(argv = process.argv.slice(2)) {
     }
     writeState();
   }
-  const workerLock = releaseLock(workerArtifactRoot, options.taskId);
-  workspaceLockStatus = workerLock.status;
-  if (workerLock.failed) { optionalFails += 1; warn(workerLock.warning); }
-  const taskArtifactRoot = path.join(taskDir, ".agent-artifacts");
-  if (sameArtifactRoot(workerArtifactRoot, taskArtifactRoot)) taskWorkspaceLockStatus = "same_as_workspace";
-  else {
-    const taskLock = releaseLock(taskArtifactRoot, options.taskId);
-    taskWorkspaceLockStatus = taskLock.status;
-    if (taskLock.failed) { optionalFails += 1; warn(taskLock.warning); }
-  }
-  workspaceReleaseBlocked = optionalFails > 0;
+  if (ackRequested && !ackCompleted) workspaceReleaseBlocked = true;
   if (taskSessionIds.length > 0) {
-    if (optionalFails > 0 || (ackRequested && !ackCompleted)) {
+    if (workspaceReleaseBlocked) {
       sessionCleanupStatus = "skipped_prior_optional_failure";
     } else {
       const cleanupArgs = ["--task-id", options.taskId, "--planner-session-id", plannerSessionRef, "--session-host", options.sessionHost, "--artifact-root", plannerArtifactRoot, "--apply"];
@@ -289,6 +279,37 @@ export function main(argv = process.argv.slice(2)) {
       }
       if (cleanup.status !== 0 || summary.failed) workspaceReleaseBlocked = true;
     }
+  }
+  const taskArtifactRoot = path.join(taskDir, ".agent-artifacts");
+  if (!workspaceReleaseBlocked) {
+    const workerLock = releaseLock(workerArtifactRoot, options.taskId);
+    workspaceLockStatus = workerLock.status;
+    if (workerLock.failed) {
+      optionalFails += 1;
+      workspaceReleaseBlocked = true;
+      warn(workerLock.warning);
+    }
+    if (sameArtifactRoot(workerArtifactRoot, taskArtifactRoot)) {
+      taskWorkspaceLockStatus = "same_as_workspace";
+    } else if (!workspaceReleaseBlocked) {
+      const taskLock = releaseLock(taskArtifactRoot, options.taskId);
+      taskWorkspaceLockStatus = taskLock.status;
+      if (taskLock.failed) {
+        optionalFails += 1;
+        workspaceReleaseBlocked = true;
+        warn(taskLock.warning);
+      }
+    } else {
+      taskWorkspaceLockStatus = "retained_workspace_lock_failure";
+    }
+  } else {
+    const retainedStatus = sessionCleanupStatus === "skipped_prior_optional_failure"
+      ? "retained_prior_optional_failure"
+      : "retained_session_cleanup_failure";
+    workspaceLockStatus = retainedStatus;
+    taskWorkspaceLockStatus = sameArtifactRoot(workerArtifactRoot, taskArtifactRoot)
+      ? "same_as_workspace"
+      : retainedStatus;
   }
   if (!workspaceReleaseBlocked) {
     const result = invokeNodeScript(path.join(scriptDir, "prepare-workspaces.mjs"), ["--worker-workspace", workerWorkspace, "--planner-workspace", plannerWorkspace, "--planner-session-id", plannerSessionRef, "--worker-artifact-root", workerArtifactRoot, "--planner-artifact-root", plannerArtifactRoot, "--release-workspaces"]);

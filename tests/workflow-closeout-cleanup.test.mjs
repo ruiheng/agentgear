@@ -59,9 +59,15 @@ const args = process.argv.slice(2);
 const read = () => JSON.parse(fs.readFileSync(stateFile, "utf8"));
 const write = value => fs.writeFileSync(stateFile, JSON.stringify(value));
 const state = read();
+if (args[0] === "session" && args[1] === "list") {
+  if (process.env.ADWF_TEST_FAIL_LIST === "1") { process.stderr.write("database is locked\\n"); process.exit(9); }
+  process.stdout.write(JSON.stringify(state.sessions.filter(session => session.active !== false)));
+  process.exit(0);
+}
 if (args[0] === "session" && args[1] === "get") {
+  if (process.env.ADWF_TEST_FAIL_GET === args[2]) { process.stderr.write("database is locked\\n"); process.exit(9); }
   const session = state.sessions.find(item => item.id === args[2] || item.uuid === args[2]);
-  if (!session) process.exit(1);
+  if (!session) { process.stderr.write("error: Session not found: " + args[2] + "\\n"); process.exit(1); }
   process.stdout.write(JSON.stringify(session));
   process.exit(0);
 }
@@ -78,6 +84,18 @@ if (args[0] === "session" && args[1] === "delete") {
 process.exit(2);
 `;
 
+function writeNodeExecutable(directory, name, source) {
+  fs.mkdirSync(directory, { recursive: true });
+  if (process.platform === "win32") {
+    fs.writeFileSync(path.join(directory, `${name}.cmd`), `@echo off\r\n"${process.execPath}" "%~dp0\\${name}.cjs" %*\r\n`);
+    fs.writeFileSync(path.join(directory, `${name}.cjs`), source);
+    return;
+  }
+  const executable = path.join(directory, name);
+  fs.writeFileSync(executable, source);
+  fs.chmodSync(executable, 0o755);
+}
+
 function run(command, args, options = {}) {
   const result = childProcess.spawnSync(command, args, { encoding: "utf8", ...options });
   if (result.error) throw result.error;
@@ -91,12 +109,8 @@ function makeFixture(sessions) {
   const xdgDataHome = path.join(temporary, "xdg-data");
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(stateFile, JSON.stringify({ sessions }));
-  const agentDeck = path.join(bin, "agent-deck");
-  fs.writeFileSync(agentDeck, fakeAgentDeck);
-  fs.chmodSync(agentDeck, 0o755);
-  const thurbox = path.join(bin, "thurbox-cli");
-  fs.writeFileSync(thurbox, fakeThurbox);
-  fs.chmodSync(thurbox, 0o755);
+  writeNodeExecutable(bin, "agent-deck", fakeAgentDeck);
+  writeNodeExecutable(bin, "thurbox-cli", fakeThurbox);
   return {
     temporary,
     stateFile,
@@ -135,6 +149,17 @@ function initCloseoutRepository(temporary, taskId) {
     planner_workspace: fs.realpathSync(repository)
   }, null, 2)}\n`);
   return { repository, artifactRoot };
+}
+
+function writeActiveTaskLock(artifactRoot, taskId) {
+  const lockDir = path.join(artifactRoot, "active-task.lock");
+  fs.mkdirSync(lockDir, { recursive: true });
+  fs.writeFileSync(path.join(lockDir, "lock.json"), `${JSON.stringify({
+    task_id: taskId,
+    integration_branch: "main",
+    state: "sent"
+  }, null, 2)}\n`);
+  return lockDir;
 }
 
 integrationTest("task-session cleanup limits deletion to explicitly supplied roles", () => {
@@ -261,7 +286,7 @@ integrationTest("planner closeout removes exact Agent Deck coder and reviewer se
 integrationTest("planner closeout soft-deletes disposable Thurbox sessions", () => {
   const taskId = "20260809-1203-thurbox";
   const fixture = makeFixture([
-    { uuid: "thurbox-coder", name: `coder-${taskId}`, repo_path: "/tmp/work", parent: "planner-1" }
+    { uuid: "thurbox-coder", name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
   ]);
   try {
     const { repository, artifactRoot } = initCloseoutRepository(fixture.temporary, taskId);
@@ -275,7 +300,7 @@ integrationTest("planner closeout soft-deletes disposable Thurbox sessions", () 
       "--task-dir", repository,
       "--planner-session-id", "planner-1",
       "--session-host", "thurbox",
-      "--coder-session-id", "thurbox-coder"
+      "--coder-session-id", `coder-${taskId}`
     ], { cwd: repository, env: fixture.env });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /planner_closeout_ok /);
@@ -285,7 +310,93 @@ integrationTest("planner closeout soft-deletes disposable Thurbox sessions", () 
     const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
     assert.equal(archive.sessions[0].delete_mode, "soft-delete");
     assert.equal(archive.sessions[0].recoverable, true);
+    assert.equal(archive.sessions[0].path, "/tmp/work");
+    assert.equal(archive.sessions[0].parent_session_id, "planner-1");
     assert.equal(fs.existsSync(path.join(artifactRoot, "planner-workspace.json")), false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("task-session cleanup resolves an inactive Thurbox session by exact UUID", () => {
+  const taskId = "20260809-1204-thurbox-inactive";
+  const sessionId = "123e4567-e89b-42d3-a456-426614174000";
+  const fixture = makeFixture([
+    { uuid: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1", active: false }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "artifacts");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--planner-session-id", "planner-1",
+      "--session-host", "thurbox",
+      "--coder-session-id", sessionId,
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions, []);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.equal(archive.sessions[0].found, true);
+    assert.equal(archive.sessions[0].session_id, sessionId);
+    assert.equal(archive.sessions[0].delete_status, "deleted");
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("task-session cleanup fails closed when exact Thurbox UUID lookup fails", () => {
+  const taskId = "20260809-1205-thurbox-get-failure";
+  const sessionId = "123e4567-e89b-42d3-a456-426614174001";
+  const fixture = makeFixture([
+    { uuid: sessionId, name: `coder-${taskId}`, active: false }
+  ]);
+  try {
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--planner-session-id", "planner-1",
+      "--session-host", "thurbox",
+      "--coder-session-id", sessionId,
+      "--artifact-root", path.join(fixture.temporary, "artifacts"),
+      "--apply"
+    ], { env: { ...fixture.env, ADWF_TEST_FAIL_GET: sessionId } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /failed to query Thurbox session .*database is locked/);
+    assert.equal(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.length, 1);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("planner closeout retains its task lock when Thurbox inventory fails", () => {
+  const taskId = "20260809-1204-thurbox-query-failure";
+  const fixture = makeFixture([
+    { uuid: "thurbox-coder", name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
+  ]);
+  try {
+    const { repository, artifactRoot } = initCloseoutRepository(fixture.temporary, taskId);
+    const lockDir = writeActiveTaskLock(artifactRoot, taskId);
+    const result = run(process.execPath, [
+      closeoutScript,
+      "--task-id", taskId,
+      "--task-branch", `task/${taskId}`,
+      "--integration-branch", "main",
+      "--worker-workspace", repository,
+      "--planner-workspace", repository,
+      "--task-dir", repository,
+      "--planner-session-id", "planner-1",
+      "--session-host", "thurbox",
+      "--coder-session-id", "thurbox-coder"
+    ], { cwd: repository, env: { ...fixture.env, ADWF_TEST_FAIL_LIST: "1" } });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /planner_closeout_ok_with_optional_warn/);
+    assert.equal(fs.existsSync(lockDir), true);
+    assert.equal(fs.existsSync(path.join(artifactRoot, "planner-workspace.json")), true);
+    const state = JSON.parse(fs.readFileSync(path.join(artifactRoot, "workflow-progress", `closeout-state-${taskId}.json`), "utf8"));
+    assert.equal(state.optional_actions.session_cleanup, "failed");
+    assert.equal(state.optional_actions.workspace_lock, "retained_session_cleanup_failure");
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

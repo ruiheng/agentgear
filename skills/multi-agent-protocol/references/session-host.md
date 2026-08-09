@@ -63,3 +63,9 @@ using exact recorded ids and that adapter's ownership guards. Preserve and
 report sessions when the host has no supported cleanup adapter or a guard
 fails. Explicitly reusable sessions are never disposable. Waypost delivery is
 durable truth; a host wake is only a best-effort hint.
+
+When a durable send succeeds but its wake is failed or unverified, report the
+wake result and stop. The host may have submitted the hint despite a false
+negative. Do not resend, press Enter, restart, inspect, or otherwise repair the
+target session unless the user explicitly authorizes troubleshooting that
+specific session.

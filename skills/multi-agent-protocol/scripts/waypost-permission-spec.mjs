@@ -4,7 +4,8 @@ import path from "node:path";
 import { resolveCommand, run } from "./workflow-lib.mjs";
 
 const ACTIONS = ["read", "list"];
-const MANIFEST_VERSION = 2;
+const MANIFEST_VERSION = 3;
+const WAYPOST_MCP_PERMISSION = /^mcp__waypost__[A-Za-z0-9_]+$/;
 const WAYPOST_EXECUTABLE = /^waypost(?:[._-].*)?$/;
 const SAFE_SHELL_WORD = /^[A-Za-z0-9_@%+=:,./-]+$/;
 const LEGACY_SAFE_PLAIN_SHELL_WORD = /^(?:[^\s\\$`"';&|()<>*?\[\]{}!#]|\\[^\r\n])(?:[^\s\\$`"';&|()<>*?\[\]{}!]|\\[^\r\n])*$/;
@@ -47,12 +48,26 @@ function writeAtomic(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
   fs.writeFileSync(temporary, content);
+  if (existing) fs.chmodSync(temporary, existing.mode & 0o777);
   try {
     fs.renameSync(temporary, filePath);
   } catch (error) {
     fs.rmSync(temporary, { force: true });
     throw error;
   }
+}
+
+function stableMcpPermissions(permissions) {
+  if (!Array.isArray(permissions) || permissions.length > 64) {
+    throw new Error("invalid Waypost MCP ownership permission set");
+  }
+  if (!permissions.every(permission => typeof permission === "string" && WAYPOST_MCP_PERMISSION.test(permission))) {
+    throw new Error("invalid Waypost MCP ownership permission");
+  }
+  if (new Set(permissions).size !== permissions.length) {
+    throw new Error("Waypost MCP ownership permissions are not unique");
+  }
+  return permissions;
 }
 
 export function pathIsWithin(candidate, root) {
@@ -263,7 +278,7 @@ export function ownershipManifestPath(projectDir) {
 export function readWaypostOwnershipManifest(projectDir) {
   const manifestPath = ownershipManifestPath(projectDir);
   const info = safeLstat(manifestPath);
-  if (!info) return { present: false, permissions: [] };
+  if (!info) return { present: false, version: 0, permissions: [], mcpPermissions: [] };
   if (!isRegularFile(manifestPath)) {
     throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
   }
@@ -284,9 +299,9 @@ export function readWaypostOwnershipManifest(projectDir) {
     if (!manifest.permissions.every(isLegacyV1Permission)) {
       throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
     }
-    return { present: true, permissions: manifest.permissions, rules: [] };
+    return { present: true, version: 1, permissions: manifest.permissions, rules: [], mcpPermissions: [] };
   }
-  if (manifest.version !== MANIFEST_VERSION || !Array.isArray(manifest.rules)) {
+  if (![2, MANIFEST_VERSION].includes(manifest.version) || !Array.isArray(manifest.rules)) {
     throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
   }
   const rules = stableRules(manifest.rules);
@@ -298,15 +313,20 @@ export function readWaypostOwnershipManifest(projectDir) {
   if (storedPermissions.slice().sort().join("\0") !== permissions.slice().sort().join("\0")) {
     throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
   }
-  return { present: true, permissions, rules };
+  const mcpPermissions = manifest.version === 2
+    ? []
+    : stableMcpPermissions(manifest.mcp_permissions);
+  return { present: true, version: manifest.version, permissions, rules, mcpPermissions };
 }
 
-export function writeWaypostOwnershipManifest(projectDir, rules) {
+export function writeWaypostOwnershipManifest(projectDir, rules, mcpPermissions = []) {
   const normalizedRules = stableRules(rules);
   const permissions = permissionsForRules(normalizedRules);
+  const normalizedMcpPermissions = stableMcpPermissions(mcpPermissions);
   const manifest = {
     version: MANIFEST_VERSION,
     permissions,
+    mcp_permissions: normalizedMcpPermissions,
     rules: normalizedRules.map(rule => ({
       command: rule.command,
       state_dir: rule.stateDir,
@@ -317,6 +337,16 @@ export function writeWaypostOwnershipManifest(projectDir, rules) {
   const manifestPath = ownershipManifestPath(projectDir);
   writeAtomic(manifestPath, `${JSON.stringify(manifest)}\n`);
   return { manifestPath, permissions };
+}
+
+export function removeWaypostOwnershipManifest(projectDir) {
+  const manifestPath = ownershipManifestPath(projectDir);
+  const info = safeLstat(manifestPath);
+  if (!info) return;
+  if (!isRegularFile(manifestPath)) {
+    throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
+  }
+  fs.rmSync(manifestPath);
 }
 
 export function isLegacyBroadWaypostPermission(value) {

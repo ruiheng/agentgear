@@ -11,6 +11,7 @@ import { loadCatalog } from "../cli/lib/catalog.mjs";
 import { installSelection, resolveTargetRoots, selected } from "../cli/lib/installer.mjs";
 import { parseOptions } from "../cli/lib/options.mjs";
 import { directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
+import { deleteSession } from "../cli/lib/session-hosts.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -501,6 +502,53 @@ process.exit(7);
     assert.equal(payload.provider_stderr, "database is locked\n");
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("session delete launches Windows command shims through ComSpec", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-windows-provider-test-"));
+  const shim = path.join(temporary, "agent-deck.CMD");
+  fs.writeFileSync(shim, "@echo off\r\n");
+  const calls = [];
+  try {
+    const payload = deleteSession({ host: "agent-deck", sessionId: "coder-1", profile: "", json: true }, {
+      platform: "win32",
+      env: { PATH: temporary, PATHEXT: ".CMD", ComSpec: "test-cmd.exe" },
+      spawnSync(command, args, options) {
+        calls.push({ command, args, options });
+        return { status: 0, stdout: "removed\n", stderr: "" };
+      }
+    });
+    assert.equal(payload.status, "deleted");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, "test-cmd.exe");
+    assert.deepEqual(calls[0].args.slice(0, 3), ["/d", "/s", "/c"]);
+    assert.match(calls[0].args[3], /agent-deck\.CMD remove coder-1$/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("session delete rejects percent expansion through Windows command shims", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-windows-percent-test-"));
+  const shim = path.join(temporary, "agent-deck.CMD");
+  fs.writeFileSync(shim, "@echo off\r\n");
+  let called = false;
+  try {
+    const payload = deleteSession({ host: "agent-deck", sessionId: "%PATH%", profile: "", json: true }, {
+      platform: "win32",
+      env: { PATH: temporary, PATHEXT: ".CMD", ComSpec: "test-cmd.exe" },
+      spawnSync() {
+        called = true;
+        return { status: 0, stdout: "removed\n", stderr: "" };
+      }
+    });
+    assert.equal(called, false);
+    assert.equal(payload.status, "failed");
+    assert.equal(payload.error.code, "EINVAL");
+    assert.match(payload.error.message, /percent-containing provider value/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
 

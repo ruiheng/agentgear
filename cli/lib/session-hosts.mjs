@@ -1,4 +1,7 @@
 import childProcess from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
 
 const usage = `Usage: agentgear session delete [options]
 
@@ -82,14 +85,51 @@ function providerError(result) {
   };
 }
 
-export function deleteSession(options, { spawnSync = childProcess.spawnSync } = {}) {
+function resolveWindowsCommand(command, env = process.env) {
+  if (path.isAbsolute(command) || command.includes(path.sep)) return command;
+  const extensions = (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";");
+  for (const directory of (env.PATH || "").split(path.delimiter)) {
+    for (const extension of extensions) {
+      const candidate = path.join(directory, command.endsWith(extension) ? command : `${command}${extension}`);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return command;
+}
+
+function quoteWindowsArgument(value) {
+  if (/^[^\s"&|<>^()]+$/.test(value)) return value;
+  return `"${String(value).replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\*)$/, "$1$1")}"`;
+}
+
+function rejectedWindowsCommandValue(values) {
+  return values.find(value => String(value).includes("%"));
+}
+
+function invokeProvider(command, args, { spawnSync, env = process.env, platform = process.platform }) {
+  const resolved = platform === "win32" ? resolveWindowsCommand(command, env) : command;
+  if (platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved)) {
+    const rejected = rejectedWindowsCommandValue([resolved, ...args]);
+    if (rejected !== undefined) {
+      const error = new Error("refusing to pass a percent-containing provider value through cmd.exe");
+      error.code = "EINVAL";
+      return { error, status: null, stdout: "", stderr: "" };
+    }
+    const line = [resolved, ...args].map(quoteWindowsArgument).join(" ");
+    return spawnSync(env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], {
+      encoding: "utf8",
+      windowsHide: true,
+      env
+    });
+  }
+  return spawnSync(resolved, args, { encoding: "utf8", windowsHide: true, env });
+}
+
+export function deleteSession(options, { spawnSync = childProcess.spawnSync, env = process.env, platform = process.platform } = {}) {
   if (!options.host) fail("--host is required");
   if (!options.sessionId) fail("--session-id is required");
   const provider = providerCommand(options);
-  const result = spawnSync(provider.command, provider.args, {
-    encoding: "utf8",
-    windowsHide: true
-  });
+  const result = invokeProvider(provider.command, provider.args, { spawnSync, env, platform });
   const payload = {
     schema_version: 1,
     operation: "session_delete",

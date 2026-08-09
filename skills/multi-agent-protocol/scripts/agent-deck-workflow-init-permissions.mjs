@@ -9,6 +9,7 @@ import {
   claudeWaypostPermission,
   isLegacyBroadWaypostPermission,
   readWaypostOwnershipManifest,
+  removeWaypostOwnershipManifest,
   resolveWaypostPermissionContext,
   writeWaypostOwnershipManifest
 } from "./waypost-permission-spec.mjs";
@@ -68,6 +69,7 @@ function writeAtomic(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
   fs.writeFileSync(temporary, content);
+  if (existing) fs.chmodSync(temporary, existing.mode & 0o777);
   try {
     fs.renameSync(temporary, filePath);
   } catch (error) {
@@ -108,10 +110,14 @@ function generatedClaudePermissions(waypost) {
     "Write(/.agent-artifacts/**)"
   ];
   permissions.push(...waypost.rules.map(claudeWaypostPermission));
-  if (waypost.trusted) {
-    permissions.push(...workflowWaypostMcpTools.map(name => `mcp__waypost__${name}`));
-  }
+  permissions.push(...generatedClaudeMcpPermissions(waypost));
   return [...new Set(permissions)];
+}
+
+function generatedClaudeMcpPermissions(waypost) {
+  return waypost.trusted
+    ? workflowWaypostMcpTools.map(name => `mcp__waypost__${name}`)
+    : [];
 }
 
 function isSafeRegularFile(filePath) {
@@ -128,7 +134,17 @@ function configureClaude(projectDir, waypost) {
   }
   const alreadyExists = Boolean(settingsInfo);
   const ownership = readWaypostOwnershipManifest(projectDir);
-  const ownedWaypostPermissions = new Set(ownership.permissions);
+  // Version 2 predated MCP ownership records but generated this exact static
+  // list whenever Waypost was trusted. Treat it as legacy installer-owned
+  // during one migration pass, then persist explicit v3 ownership.
+  const legacyMcpPermissions = ownership.version === 2
+    ? workflowWaypostMcpTools.map(name => `mcp__waypost__${name}`)
+    : [];
+  const ownedWaypostPermissions = new Set([
+    ...ownership.permissions,
+    ...ownership.mcpPermissions,
+    ...legacyMcpPermissions
+  ]);
   let settings = {};
   let originalSettings = "";
   if (alreadyExists) {
@@ -152,14 +168,16 @@ function configureClaude(projectDir, waypost) {
     ...generatedClaudePermissions(waypost)
   ])];
   writeAtomic(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
-  if (waypost.trusted) {
-    try {
-      writeWaypostOwnershipManifest(projectDir, waypost.rules);
-    } catch (error) {
-      if (alreadyExists) writeAtomic(settingsFile, originalSettings);
-      else fs.rmSync(settingsFile, { force: true });
-      throw error;
+  try {
+    if (waypost.trusted) {
+      writeWaypostOwnershipManifest(projectDir, waypost.rules, generatedClaudeMcpPermissions(waypost));
+    } else {
+      removeWaypostOwnershipManifest(projectDir);
     }
+  } catch (error) {
+    if (alreadyExists) writeAtomic(settingsFile, originalSettings);
+    else fs.rmSync(settingsFile, { force: true });
+    throw error;
   }
   log("ok", `${alreadyExists ? "Merged permissions into" : "Created"} ${settingsFile}`);
 }
@@ -173,7 +191,10 @@ function codexRule(pattern, justification, extra = "") {
 }
 
 function codexWaypostMcpConfig() {
-  return path.join(getHome(), ".codex", "config.toml");
+  const codexHome = process.env.CODEX_HOME
+    ? path.resolve(process.env.CODEX_HOME)
+    : path.join(getHome(), ".codex");
+  return path.join(codexHome, "config.toml");
 }
 
 function codexWaypostServerIsConfigured(source) {
@@ -198,6 +219,20 @@ function codexWaypostToolSection(name) {
   return `[mcp_servers.waypost.tools.${name}]`;
 }
 
+function codexWaypostUsesInlineTools(source) {
+  const lines = source.split(/\r?\n/);
+  let inWaypostSection = false;
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      if (inWaypostSection) return false;
+      inWaypostSection = /^\s*\[\s*mcp_servers\.(?:waypost|"waypost")\s*\]\s*(?:#.*)?$/.test(line);
+      continue;
+    }
+    if (inWaypostSection && /^\s*tools\s*=/.test(line)) return true;
+  }
+  return false;
+}
+
 function configureCodexWaypostMcpPermissions(waypost) {
   if (!waypost.trusted) return;
   const configFile = codexWaypostMcpConfig();
@@ -218,6 +253,9 @@ function configureCodexWaypostMcpPermissions(waypost) {
   if (missing.length === 0) {
     log("ok", "Codex Waypost MCP approvals are already configured");
     return;
+  }
+  if (codexWaypostUsesInlineTools(source)) {
+    throw new Error(`refusing to extend inline Waypost tools in ${configFile}; convert 'tools = {...}' to explicit TOML tables first`);
   }
   const separator = source.endsWith("\n") ? "\n" : "\n\n";
   const additions = missing.map(name => `${codexWaypostToolSection(name)}\napproval_mode = "approve"`).join("\n\n");

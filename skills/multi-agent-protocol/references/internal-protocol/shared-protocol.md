@@ -66,7 +66,10 @@ is unresolved.
 
 - `waypost_send` completes delivery; replies are later inbound work.
 - Continue only with independent local work; otherwise return the action's confirmation/status.
-- Keep target execution receiver-owned; inspect, repair, or resend only during explicit troubleshooting.
+- Keep target execution receiver-owned. A failed or unverified wake does not
+  reverse durable delivery and may be a false negative. Do not resend, press
+  Enter, restart, inspect, or repair the target unless the user explicitly
+  authorizes troubleshooting that specific session.
 
 ## Receiver Contract
 

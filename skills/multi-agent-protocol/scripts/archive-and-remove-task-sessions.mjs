@@ -159,13 +159,59 @@ function deleteProviderRecord(deletion) {
   };
 }
 
+function thurboxSessionInventory() {
+  const result = run("thurbox-cli", ["session", "list", "--json"]);
+  if (result.error || result.status !== 0) {
+    fail(`failed to query Thurbox sessions: ${result.error?.message || result.stderr.trim() || result.stdout.trim() || `exit code ${result.status}`}`);
+  }
+  let payload;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch {
+    fail("failed to parse Thurbox session list JSON");
+  }
+  const sessions = Array.isArray(payload) ? payload : payload?.sessions;
+  if (!Array.isArray(sessions)) fail("Thurbox session list JSON has no sessions array");
+  return sessions;
+}
+
+function thurboxUuid(value) {
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function thurboxSessionByUuid(uuid) {
+  const result = run("thurbox-cli", ["session", "get", uuid, "--json"]);
+  if (result.error) fail(`failed to query Thurbox session ${uuid}: ${result.error.message}`);
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.status}`;
+    if (result.status === 1 && /session not found/i.test(detail)) return null;
+    fail(`failed to query Thurbox session ${uuid}: ${detail}`);
+  }
+  let payload;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch {
+    fail(`failed to parse Thurbox session JSON for ${uuid}`);
+  }
+  const session = payload?.session && typeof payload.session === "object" ? payload.session : payload;
+  if (!session || typeof session !== "object" || Array.isArray(session)) {
+    fail(`Thurbox session JSON has no session object for ${uuid}`);
+  }
+  return session;
+}
+
 function archiveThurboxSessions(options, roleRefs, archiveFile) {
   if (!resolveCommand("thurbox-cli")) fail("thurbox-cli not found in PATH");
   if (!options.plannerSessionId) fail("--planner-session-id is required for Thurbox cleanup");
+  const inventory = thurboxSessionInventory();
   const entries = [];
   let failed = 0;
   for (const [role, ref] of roleRefs) {
-    const shown = commandJson("thurbox-cli", ["session", "get", ref, "--json"]);
+    const listed = inventory.find(session => [
+      stringField(session, "uuid"), stringField(session, "id"),
+      stringField(session, "name"), stringField(session, "title")
+    ].includes(ref)) || null;
+    const shown = listed || (thurboxUuid(ref) ? thurboxSessionByUuid(ref) : null);
     const id = stringField(shown, "uuid") || stringField(shown, "id");
     const title = stringField(shown, "name") || stringField(shown, "title");
     const deleteEligible = disposable(role, title, options.taskId);
@@ -198,8 +244,8 @@ function archiveThurboxSessions(options, roleRefs, archiveFile) {
       session_host: "thurbox",
       session_id: id || null,
       session_title: title || null,
-      path: stringField(shown, "repo_path") || stringField(shown, "path") || null,
-      parent_session_id: stringField(shown, "parent") || stringField(shown, "parent_id") || null,
+      path: stringField(shown, "cwd") || stringField(shown, "repo_path") || stringField(shown, "path") || null,
+      parent_session_id: stringField(shown, "parent_session_id") || stringField(shown, "parent") || stringField(shown, "parent_id") || null,
       delete_eligible: deleteEligible,
       delete_applied: options.apply,
       delete_mode: "soft-delete",

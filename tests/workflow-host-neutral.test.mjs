@@ -44,6 +44,16 @@ test("the shared contract uses resolver-provided launch values", () => {
   assert.match(resolverContract, /thurbox_agent_key/);
 });
 
+test("the shared contract does not auto-repair unverified wake hints", () => {
+  const hostContract = read("skills/multi-agent-protocol/references/session-host.md");
+  const sharedProtocol = read("skills/multi-agent-protocol/references/internal-protocol/shared-protocol.md");
+  for (const source of [hostContract, sharedProtocol]) {
+    assert.match(source, /false\s+negative/);
+    assert.match(source, /Do not resend, press\s+Enter, restart, inspect, or (?:otherwise )?repair/);
+    assert.match(source, /explicitly\s+authorizes troubleshooting/);
+  }
+});
+
 test("generic workflow scripts require explicit Waypost routes", () => {
   for (const name of [
     "acquire-active-task-lock.mjs",
