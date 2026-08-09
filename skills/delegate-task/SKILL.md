@@ -150,7 +150,7 @@ Round: 1
 3. For a Waypost worker:
 
    - found: call `session_require` with its returned host, real id, and workspace
-   - absent: require the requester parent, resolve role `<worker_tool_role>`, then call `session_create` with the selected opaque launch candidate and `parent_session_id = <requester_session_id>`
+   - absent: resolve role `<worker_tool_role>`, then call `session_create` with the selected opaque launch candidate and `parent_session_id = <requester_session_id>`; it verifies the requester parent, so do not preflight that parent with `session_require`
    - record the returned real id and sole address; fill `{{TO_SESSION_ID}}`, then call `waypost_send` from `waypost_status.default_sender` to that address, subject `delegate: <task_id> -> worker`
    - follow the shared Async sender rule
 

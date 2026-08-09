@@ -30,6 +30,28 @@ const colors = {
   reset: "\x1b[0m"
 };
 
+// Keep this list limited to the MCP operations used by the shipped workflow
+// skills.  In particular, do not grant newly added Waypost operations merely
+// because they happen to share the server.
+export const workflowWaypostMcpTools = [
+  "session_create",
+  "session_require",
+  "session_resolve",
+  "waypost_ack",
+  "waypost_bind",
+  "waypost_defer",
+  "waypost_fail",
+  "waypost_group_add_member",
+  "waypost_group_add_subscriber",
+  "waypost_group_create",
+  "waypost_list",
+  "waypost_read",
+  "waypost_recv",
+  "waypost_release",
+  "waypost_send",
+  "waypost_status"
+];
+
 function log(kind, message) {
   process.stdout.write(`${colors[kind]}[${kind.toUpperCase()}]${colors.reset} ${message}\n`);
 }
@@ -76,7 +98,7 @@ function adwfForms() {
   return ["~/.local/bin/adwf-send-and-wake", absolute];
 }
 
-function generatedClaudePermissions(waypostRules) {
+function generatedClaudePermissions(waypost) {
   const permissions = [
     jsonPermission("agent-deck"), jsonPermission("agent-deck *"),
     "Bash(git diff)", "Bash(git diff *)", "Bash(git show)", "Bash(git show *)", "Bash(git status)", "Bash(git status *)", "Bash(git log)", "Bash(git log *)", "Bash(git rev-parse)", "Bash(git rev-parse *)",
@@ -85,7 +107,10 @@ function generatedClaudePermissions(waypostRules) {
     ...launcherForms().map(command => jsonPermission(`${command} resolve-tool-command *`)),
     "Write(/.agent-artifacts/**)"
   ];
-  permissions.push(...waypostRules.map(claudeWaypostPermission));
+  permissions.push(...waypost.rules.map(claudeWaypostPermission));
+  if (waypost.trusted) {
+    permissions.push(...workflowWaypostMcpTools.map(name => `mcp__waypost__${name}`));
+  }
   return [...new Set(permissions)];
 }
 
@@ -124,7 +149,7 @@ function configureClaude(projectDir, waypost) {
   const prior = Array.isArray(settings.permissions.allow) ? settings.permissions.allow : [];
   settings.permissions.allow = [...new Set([
     ...prior.filter(item => !ownedWaypostPermissions.has(item) && (ownership.present || !isLegacyBroadWaypostPermission(item))),
-    ...generatedClaudePermissions(waypost.rules)
+    ...generatedClaudePermissions(waypost)
   ])];
   writeAtomic(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
   if (waypost.trusted) {
@@ -147,6 +172,59 @@ function codexRule(pattern, justification, extra = "") {
   return `prefix_rule(\n    pattern = [${pattern.map(tomlString).join(", ")}],\n    decision = "allow",\n    justification = ${tomlString(justification)},${extra}\n)\n`;
 }
 
+function codexWaypostMcpConfig() {
+  return path.join(getHome(), ".codex", "config.toml");
+}
+
+function codexWaypostServerIsConfigured(source) {
+  const lines = source.split(/\r?\n/);
+  let inWaypostSection = false;
+  let command = false;
+  let args = false;
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      if (inWaypostSection) break;
+      inWaypostSection = /^\s*\[\s*mcp_servers\.(?:waypost|"waypost")\s*\]\s*(?:#.*)?$/.test(line);
+      continue;
+    }
+    if (!inWaypostSection) continue;
+    if (/^\s*command\s*=\s*"waypost"\s*(?:#.*)?$/.test(line)) command = true;
+    if (/^\s*args\s*=\s*\[\s*"mcp"(?:\s*,[^\]]*)?\]\s*(?:#.*)?$/.test(line)) args = true;
+  }
+  return inWaypostSection && command && args;
+}
+
+function codexWaypostToolSection(name) {
+  return `[mcp_servers.waypost.tools.${name}]`;
+}
+
+function configureCodexWaypostMcpPermissions(waypost) {
+  if (!waypost.trusted) return;
+  const configFile = codexWaypostMcpConfig();
+  const info = fs.lstatSync(configFile, { throwIfNoEntry: false });
+  if (!info) {
+    log("warn", `Skipping Codex Waypost MCP approvals: configure the Waypost MCP server first (${configFile})`);
+    return;
+  }
+  if (!isSafeRegularFile(configFile)) {
+    throw new Error(`refusing symlinked or non-file Codex config path: ${configFile}`);
+  }
+  const source = fs.readFileSync(configFile, "utf8");
+  if (!codexWaypostServerIsConfigured(source)) {
+    log("warn", `Skipping Codex Waypost MCP approvals: ${configFile} does not configure waypost as 'waypost mcp'`);
+    return;
+  }
+  const missing = workflowWaypostMcpTools.filter(name => !source.includes(codexWaypostToolSection(name)));
+  if (missing.length === 0) {
+    log("ok", "Codex Waypost MCP approvals are already configured");
+    return;
+  }
+  const separator = source.endsWith("\n") ? "\n" : "\n\n";
+  const additions = missing.map(name => `${codexWaypostToolSection(name)}\napproval_mode = "approve"`).join("\n\n");
+  writeAtomic(configFile, `${source}${separator}# Agentgear multi-agent-protocol Waypost MCP approvals\n${additions}\n`);
+  log("ok", `Added ${missing.length} Codex Waypost MCP approval${missing.length === 1 ? "" : "s"}: ${configFile}`);
+}
+
 function configureCodex(projectDir, waypost) {
   log("info", "Configuring Codex escalation rules...");
   const rulesFile = path.join(projectDir, ".codex", "rules", "agent-deck-workflow.rules");
@@ -162,6 +240,7 @@ function configureCodex(projectDir, waypost) {
   ].join("\n");
   writeAtomic(rulesFile, rules);
   log("ok", `Created ${rulesFile}`);
+  configureCodexWaypostMcpPermissions(waypost);
 
   // Updating an existing TOML config without a TOML parser risks clobbering
   // user settings. Surface the rare external-worktree case instead.

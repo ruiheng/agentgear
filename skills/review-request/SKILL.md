@@ -40,6 +40,7 @@ For a task review with a complete Workspace Handoff:
   - `requester_session_id`
   - `reviewer_session_ref`
   - `reviewer_session_id`
+  - `session_host` (task lane; recorded host returned for the task sessions)
   - `review_lane`: `task` | `integration_final` | `standalone`
   - `review_focus` (explicit optional emphasis; do not infer)
   - `author_intent`
@@ -111,6 +112,7 @@ Skill-specific context resolution:
 - `requester_session_id`: explicit -> current session id -> delegated context -> ask
 - `reviewer_session_ref`: explicit -> delegated context -> `reviewer-<review_lane>-<owner_session_id>-<task_id>`; owner is planner for `task` / `integration_final`, requester for `standalone`
 - `reviewer_session_id`: explicit actual id -> delegated context actual id -> created on demand when missing
+- `session_host`: task -> explicit -> delegated task context -> returned requester host; other lanes -> omit
 - `workflow_policy` (optional): explicit -> delegated context -> default unattended policy
 - `special_requirements` (optional fallback): explicit -> delegated context -> omit
 - `user_decisions` (optional): explicit -> delegated context -> omit
@@ -221,6 +223,12 @@ Planner: <planner_session_id>
 Planner workspace: <planner_workspace>
 ```
 
+For `task`, also insert after `Planner`:
+
+```markdown
+Session host: <session_host>
+```
+
 For task, insert after `Original Task`:
 
 ```markdown
@@ -312,8 +320,8 @@ Workflow send sequence:
 2. compose the body with `{{TO_SESSION_ID}}` where the real reviewer session id must appear
 3. choose candidate: known `reviewer_session_id`, otherwise resolve `reviewer_session_ref` with `session_resolve`
 4. if a candidate resolves, call `session_require` with its returned host, real id, and `workdir = <current workspace>`
-5. otherwise resolve role `reviewer` through the shared tool-resolution contract. Require the parent first, using `<planner_session_id>` for `task` / `integration_final` or `<requester_session_id>` for `standalone`; then call `session_create` for `<reviewer_session_ref>` with the selected opaque launch candidate.
-6. record the returned host, real id, and sole address as the authoritative reviewer route
+5. otherwise resolve role `reviewer` through the shared tool-resolution contract, then call `session_create` for `<reviewer_session_ref>` with the selected opaque launch candidate and the recorded parent: `<planner_session_id>` for `task` / `integration_final` or `<requester_session_id>` for `standalone`. It verifies that parent; do not preflight it with `session_require`.
+6. record the returned host, real id, and sole address as the authoritative reviewer route; for a task lane, require that host to match the recorded task session host
 7. fill the final body and call `waypost_send` with:
    - `from_address = waypost_status.default_sender`
    - `to_address = <reviewer returned address>`

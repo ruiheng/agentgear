@@ -118,7 +118,7 @@ Round: 1
    - if the preferred branch name already exists and resume was not explicit, choose a new unique suffix instead of reusing that ref
    - on resume, preserve the recorded `review_base`
 9. call `waypost_status` and resolve the planner target by its real id or ref.
-10. if this dispatch allocates a new planner lane, require the supervisor parent, then call `session_create` for `<planner_session_ref>` with the selected opaque launch candidate, the parent real id, and `<planner_workspace>`.
+10. if this dispatch allocates a new planner lane, call `session_create` for `<planner_session_ref>` with the selected opaque launch candidate, the recorded supervisor parent real id, and `<planner_workspace>`. It verifies the parent; do not preflight it with `session_require`.
 11. otherwise call `session_require` with the returned host, real planner id, and `<planner_workspace>`.
 12. record the returned host, real id, and sole address as the authoritative planner route for later workflow turns.
 13. fill `{{TO_SESSION_ID}}`

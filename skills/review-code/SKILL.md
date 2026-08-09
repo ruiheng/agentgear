@@ -194,6 +194,12 @@ For the implementer/author:
 
 ```
 
+For `task`, insert after `Round`:
+
+```markdown
+Session host: <session_host>
+```
+
 When UI impact is detected or a human UI gate applies, append:
 
 ```markdown
@@ -265,6 +271,7 @@ For `browser_check_report`, `explicit -> matching/recovered frame` owns all revi
 - `task_id`: explicit -> message body -> ask
 - `browser_check_id` (browser report): required header -> matching sent check; never infer from task/round
 - `reviewer_session_id`: explicit -> message body `To` header -> bound Waypost sender context -> ask
+- `session_host`: task -> message body `Session host` -> matched review context -> ask; other lanes -> omit
 - `browser_tester_session_id` (optional): explicit actual id -> message/review context -> omit
 - `browser_tester_session_ref` (optional): explicit -> message/review context -> default `browser-tester`
 - `browser_tester_workspace` (optional): explicit -> message/review context -> current workspace

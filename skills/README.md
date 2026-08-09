@@ -92,7 +92,7 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 2. After `delegate-task` Selection-Only Use selects a Waypost worker for a code task, Planner runs `delegate-code-task` and sends one code delegate workflow message.
 3. Planner or Coder may start two-architect drafting for an unresolved goal, or request direct review of mature committed design specifications.
 4. Coder implements changes and commits a delivery snapshot. In delegated coder flow, that commit is already workflow-authorized and overrides generic default commit-approval rules.
-5. Task-level review is planner-controlled: when required, coder runs `review-request`; it creates or reuses a reviewer with the verified planner parent. A `standalone` review has no planner or closeout; its reviewer uses the verified requester parent.
+5. Task-level review is planner-controlled: when required, coder runs `review-request`; it creates or reuses a reviewer with the recorded planner parent, which `session_create` verifies. A `standalone` review has no planner or closeout; its reviewer uses the requester parent the same way.
 6. Reviewer runs `review-code` and sends either:
    - `rework_required` back to Coder, or
    - `browser_check_requested` to Browser Tester, or
@@ -102,7 +102,7 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 9. Repeat until quality is acceptable under workflow policy; unattended mode auto-accepts no-must-fix results by default unless the user or policy explicitly requires a human gate.
 10. After task acceptance, Reviewer runs `review-closeout` and sends one closeout Waypost message to Planner.
 11. Planner runs `planner-closeout` from that `closeout_delivered` body and batches merge/progress/next-task work.
-12. Coder, Reviewer, Architect, and Browser Tester lifecycle is provider-managed; generic workflow closeout does not delete sessions.
+12. Successful task closeout removes verified task-scoped disposable Coder and Reviewer sessions through the owning host adapter. Reusable sessions, unsupported hosts, and guard failures are preserved and reported.
 
 ## Supervisor-To-Planner Plan Execution
 

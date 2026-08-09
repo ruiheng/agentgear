@@ -114,6 +114,21 @@ function writeExecutable(directory, name) {
   return filePath;
 }
 
+function writeNodeExecutable(directory, name, source) {
+  const filePath = process.platform === "win32"
+    ? path.join(directory, `${name}.cmd`)
+    : path.join(directory, name);
+  fs.mkdirSync(directory, { recursive: true });
+  if (process.platform === "win32") {
+    fs.writeFileSync(filePath, `@echo off\r\n"${process.execPath}" "%~dp0\\${name}.cjs" %*\r\n`);
+    fs.writeFileSync(path.join(directory, `${name}.cjs`), source);
+  } else {
+    fs.writeFileSync(filePath, `#!${process.execPath}\n${source}`);
+    fs.chmodSync(filePath, 0o755);
+  }
+  return filePath;
+}
+
 test("canonical fingerprints match fixed golden vectors on POSIX filesystems", t => {
   if (process.platform === "win32") {
     // Windows reports different mode bits and wrapper fingerprints require the
@@ -401,6 +416,78 @@ test("resolve-tool-command is available as a top-level Agentgear command", () =>
     );
     assert.equal(resolved.status, 0, resolved.stderr);
     assert.match(resolved.stdout, /Usage: resolve-tool-command\.js \[options\]/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("session delete maps Agent Deck to its remove command", () => {
+  const fixture = environmentFixture();
+  const bin = path.join(fixture.temporary, "bin");
+  const capture = path.join(fixture.temporary, "agent-deck-args.json");
+  try {
+    writeNodeExecutable(bin, "agent-deck", `
+const fs = require("node:fs");
+fs.writeFileSync(process.env.AGENTGEAR_TEST_CAPTURE, JSON.stringify(process.argv.slice(2)));
+process.stdout.write("removed\\n");
+`);
+    const result = spawnAgentgear([
+      "session", "delete", "--host", "agent-deck", "--session-id", "coder-1", "--profile", "personal", "--json"
+    ], fixture, { ...fixture.environment, PATH: bin, AGENTGEAR_TEST_CAPTURE: capture });
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.status, "deleted");
+    assert.equal(payload.delete_mode, "remove");
+    assert.equal(payload.recoverable, false);
+    assert.deepEqual(JSON.parse(fs.readFileSync(capture, "utf8")), ["-p", "personal", "remove", "coder-1"]);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("session delete maps Thurbox to recoverable soft-delete without force", () => {
+  const fixture = environmentFixture();
+  const bin = path.join(fixture.temporary, "bin");
+  const capture = path.join(fixture.temporary, "thurbox-args.json");
+  try {
+    writeNodeExecutable(bin, "thurbox-cli", `
+const fs = require("node:fs");
+fs.writeFileSync(process.env.AGENTGEAR_TEST_CAPTURE, JSON.stringify(process.argv.slice(2)));
+process.stdout.write(JSON.stringify({ status: "deleted" }));
+`);
+    const result = spawnAgentgear([
+      "session", "delete", "--host", "thurbox", "--session-id", "thurbox-1", "--json"
+    ], fixture, { ...fixture.environment, PATH: bin, AGENTGEAR_TEST_CAPTURE: capture });
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.status, "deleted");
+    assert.equal(payload.delete_mode, "soft-delete");
+    assert.equal(payload.recoverable, true);
+    const args = JSON.parse(fs.readFileSync(capture, "utf8"));
+    assert.deepEqual(args, ["session", "delete", "thurbox-1", "--json"]);
+    assert.equal(args.includes("--force"), false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("session delete returns provider failure details in one stable schema", () => {
+  const fixture = environmentFixture();
+  const bin = path.join(fixture.temporary, "bin");
+  try {
+    writeNodeExecutable(bin, "thurbox-cli", `
+process.stderr.write("database is locked\\n");
+process.exit(7);
+`);
+    const result = spawnAgentgear([
+      "session", "delete", "--host", "thurbox", "--session-id", "thurbox-1", "--json"
+    ], fixture, { ...fixture.environment, PATH: bin });
+    assert.equal(result.status, 3, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.status, "failed");
+    assert.equal(payload.error.exit_code, 7);
+    assert.equal(payload.error.message, "database is locked");
+    assert.equal(payload.provider_stderr, "database is locked\n");
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

@@ -10,7 +10,7 @@ import { notifyWorkflowEvent } from "./notify-workflow-event.mjs";
 const usage = `Planner closeout batch with strict required-action ordering.
 
 Required actions (hard-fail): merge the task branch, then append a planner progress record.
-Optional actions: message acknowledgement, active-task-lock cleanup, mirrored workspace-record cleanup, branch pruning, and notifications.
+Optional actions: message acknowledgement, active-task-lock cleanup, task-session cleanup, mirrored workspace-record cleanup, branch pruning, and notifications.
 
 Usage:
   planner-closeout-batch.mjs [options]
@@ -28,6 +28,11 @@ Options:
   --task-dir <path>                Required task worktree for task lock cleanup
   --worker-dir <path>              Alias for --task-dir
   --planner-session-id <id>        Required opaque planner session id
+  --session-host <host>            Recorded task session host
+  --coder-session-id <id>          Exact task coder session id
+  --reviewer-session-id <id>       Exact task reviewer session id
+  --architect-session-id <id>      Exact task architect session id
+  --session-profile <name>         Optional host profile
   --merge-mode <mode>              ff-only|ff|no-ff (default: ff-only)
   --allow-dirty                    Allow dirty planner worktree
   --override-workspaces            Replace workspace records after confirmation
@@ -79,12 +84,29 @@ function releaseLock(root, taskId) {
   }
 }
 
+function cleanupArchiveSummary(filePath) {
+  if (!fs.existsSync(filePath)) return { status: "archive_missing", failed: true, warning: true };
+  const archive = readJson(filePath);
+  const sessions = Array.isArray(archive.sessions) ? archive.sessions : [];
+  const statuses = sessions.map(session => stringField(session, "delete_status"));
+  if (statuses.some(status => ["blocked_missing_provider_session_id", "delete_failed"].includes(status))) {
+    return { status: "failed", failed: true, warning: true };
+  }
+  if (statuses.some(status => status === "skipped_non_disposable_session")) {
+    return { status: "preserved_non_disposable", failed: false, warning: true };
+  }
+  if (statuses.some(status => status === "preserved_unsupported_host")) {
+    return { status: "preserved_unsupported_host", failed: false, warning: true };
+  }
+  return { status: "complete", failed: false, warning: false };
+}
+
 export function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
-    values: ["--task-id", "--task-branch", "--integration-branch", "--worker-workspace", "--planner-workspace", "--worker-artifact-root", "--planner-artifact-root", "--artifact-root", "--progress-file", "--task-dir", "--worker-dir", "--planner-session-id", "--merge-mode", "--ack-delivery-id", "--ack-lease-token"],
+    values: ["--task-id", "--task-branch", "--integration-branch", "--worker-workspace", "--planner-workspace", "--worker-artifact-root", "--planner-artifact-root", "--artifact-root", "--progress-file", "--task-dir", "--worker-dir", "--planner-session-id", "--session-host", "--coder-session-id", "--reviewer-session-id", "--architect-session-id", "--session-profile", "--merge-mode", "--ack-delivery-id", "--ack-lease-token"],
     flags: ["--allow-dirty", "--override-planner-workspace", "--override-workspaces", "--run-prune", "--prune-apply"],
     defaults: {
-      taskId: "", taskBranch: "", integrationBranch: "", workerWorkspace: "", plannerWorkspace: "", workerArtifactRoot: "", plannerArtifactRoot: "", artifactRoot: "", progressFile: "", taskDir: "", workerDir: "", plannerSessionId: "", mergeMode: "ff-only", allowDirty: false, overridePlannerWorkspace: false, overrideWorkspaces: false, runPrune: false, pruneApply: false, ackDeliveryId: "", ackLeaseToken: ""
+      taskId: "", taskBranch: "", integrationBranch: "", workerWorkspace: "", plannerWorkspace: "", workerArtifactRoot: "", plannerArtifactRoot: "", artifactRoot: "", progressFile: "", taskDir: "", workerDir: "", plannerSessionId: "", sessionHost: "", coderSessionId: "", reviewerSessionId: "", architectSessionId: "", sessionProfile: "", mergeMode: "ff-only", allowDirty: false, overridePlannerWorkspace: false, overrideWorkspaces: false, runPrune: false, pruneApply: false, ackDeliveryId: "", ackLeaseToken: ""
     }
   });
   if (options.help) {
@@ -98,6 +120,8 @@ export function main(argv = process.argv.slice(2)) {
   if (!options.workerWorkspace) fail("--worker-workspace is required");
   if (!options.plannerWorkspace) fail("--planner-workspace is required");
   if (!options.plannerSessionId) fail("--planner-session-id is required");
+  const taskSessionIds = [options.coderSessionId, options.reviewerSessionId, options.architectSessionId].filter(Boolean);
+  if (taskSessionIds.length > 0 && !options.sessionHost) fail("--session-host is required when task session ids are provided");
   if (!["ff-only", "ff", "no-ff"].includes(options.mergeMode)) fail("--merge-mode must be one of: ff-only|ff|no-ff");
   if (options.pruneApply && !options.runPrune) fail("--prune-apply requires --run-prune");
   if (Boolean(options.ackDeliveryId) !== Boolean(options.ackLeaseToken)) fail(options.ackLeaseToken ? "--ack-lease-token requires --ack-delivery-id" : "--ack-delivery-id requires --ack-lease-token");
@@ -197,7 +221,10 @@ export function main(argv = process.argv.slice(2)) {
   let workspaceLockStatus = "not_checked";
   let taskWorkspaceLockStatus = "not_checked";
   let workspaceRecordStatus = "not_checked";
+  let sessionCleanupStatus = taskSessionIds.length > 0 ? "pending" : "not_requested";
+  let sessionCleanupArchive = null;
   let optionalFails = 0;
+  let workspaceReleaseBlocked = false;
   let ackRequested = Boolean(options.ackDeliveryId);
   let ackCompleted = false;
   let ackStatus = ackRequested ? "pending" : "not_requested";
@@ -211,7 +238,7 @@ export function main(argv = process.argv.slice(2)) {
     required_actions: { switched_integration_branch: switched, merge_mode: options.mergeMode, merge_completed: true, merged_sha: mergedSha, progress_updated: true,
       message_ack_requested: ackRequested, message_ack_completed: ackCompleted,
       message_ack: ackRequested ? { delivery_id: options.ackDeliveryId, status: ackStatus, lease_token_present: true } : null },
-    optional_actions: { workspace_lock: workspaceLockStatus, task_workspace_lock: taskWorkspaceLockStatus, workspace_records: workspaceRecordStatus, prune: pruneStatus, health_gate: healthStatus },
+    optional_actions: { workspace_lock: workspaceLockStatus, task_workspace_lock: taskWorkspaceLockStatus, workspace_records: workspaceRecordStatus, session_cleanup: sessionCleanupStatus, session_cleanup_archive: sessionCleanupArchive, prune: pruneStatus, health_gate: healthStatus },
     optional_fail_count: optionalFails
   });
   writeState();
@@ -240,19 +267,42 @@ export function main(argv = process.argv.slice(2)) {
     taskWorkspaceLockStatus = taskLock.status;
     if (taskLock.failed) { optionalFails += 1; warn(taskLock.warning); }
   }
+  workspaceReleaseBlocked = optionalFails > 0;
+  if (taskSessionIds.length > 0) {
+    if (optionalFails > 0 || (ackRequested && !ackCompleted)) {
+      sessionCleanupStatus = "skipped_prior_optional_failure";
+    } else {
+      const cleanupArgs = ["--task-id", options.taskId, "--planner-session-id", plannerSessionRef, "--session-host", options.sessionHost, "--artifact-root", plannerArtifactRoot, "--apply"];
+      if (options.coderSessionId) cleanupArgs.push("--coder-session-id", options.coderSessionId);
+      if (options.reviewerSessionId) cleanupArgs.push("--reviewer-session-id", options.reviewerSessionId);
+      if (options.architectSessionId) cleanupArgs.push("--architect-session-id", options.architectSessionId);
+      if (options.sessionProfile) cleanupArgs.push("--profile", options.sessionProfile);
+      const cleanup = invokeNodeScript(path.join(scriptDir, "archive-and-remove-task-sessions.mjs"), cleanupArgs);
+      if (cleanup.stdout) process.stdout.write(cleanup.stdout);
+      if (cleanup.stderr) process.stderr.write(cleanup.stderr);
+      sessionCleanupArchive = path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), options.taskId, `session-archive-${options.taskId}.json`);
+      const summary = cleanupArchiveSummary(sessionCleanupArchive);
+      sessionCleanupStatus = cleanup.status === 0 ? summary.status : "failed";
+      if (cleanup.status !== 0 || summary.warning) {
+        optionalFails += 1;
+        warn(`task-session cleanup incomplete status=${sessionCleanupStatus}; inspect ${sessionCleanupArchive}`);
+      }
+      if (cleanup.status !== 0 || summary.failed) workspaceReleaseBlocked = true;
+    }
+  }
+  if (!workspaceReleaseBlocked) {
+    const result = invokeNodeScript(path.join(scriptDir, "prepare-workspaces.mjs"), ["--worker-workspace", workerWorkspace, "--planner-workspace", plannerWorkspace, "--planner-session-id", plannerSessionRef, "--worker-artifact-root", workerArtifactRoot, "--planner-artifact-root", plannerArtifactRoot, "--release-workspaces"]);
+    if (result.status === 0) workspaceRecordStatus = result.stdout.includes("status=already_absent") ? "already_absent" : "released";
+    else { workspaceRecordStatus = "failed"; optionalFails += 1; warn(`failed to release mirrored workspace records rc=${result.status}; rerun prepare-workspaces.mjs --release-workspaces with the same worker/planner workspace pair`); }
+  } else {
+    workspaceRecordStatus = "skipped_optional_failures";
+  }
   if (options.runPrune) {
     const result = invokeNodeScript(path.join(scriptDir, "prune-task-branches.mjs"), options.pruneApply ? ["--apply"] : [], { cwd: plannerWorkspace });
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     if (result.status === 0) pruneStatus = "ok";
     else { pruneStatus = "failed"; optionalFails += 1; warn(`optional prune failed rc=${result.status}`); }
-  }
-  if (optionalFails === 0) {
-    const result = invokeNodeScript(path.join(scriptDir, "prepare-workspaces.mjs"), ["--worker-workspace", workerWorkspace, "--planner-workspace", plannerWorkspace, "--planner-session-id", plannerSessionRef, "--worker-artifact-root", workerArtifactRoot, "--planner-artifact-root", plannerArtifactRoot, "--release-workspaces"]);
-    if (result.status === 0) workspaceRecordStatus = result.stdout.includes("status=already_absent") ? "already_absent" : "released";
-    else { workspaceRecordStatus = "failed"; optionalFails += 1; warn(`failed to release mirrored workspace records rc=${result.status}; rerun prepare-workspaces.mjs --release-workspaces with the same worker/planner workspace pair`); }
-  } else {
-    workspaceRecordStatus = "skipped_optional_failures";
   }
   writeState();
   if (optionalFails > 0) {

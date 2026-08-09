@@ -187,7 +187,21 @@ initializer.
 | `status` | Show whether each managed skill is linked or copied. |
 | `uninstall` | Remove selected installer-managed skills; `--purge` also removes installer-owned runtime artifacts. |
 | `doctor` | Check declared external commands, upstream requirements, and supported session hosts. |
+| `session delete` | Delete a session through a stable host-neutral interface; Thurbox uses recoverable soft-delete. |
 | `run` | Run a script bundled with an installed skill. |
+
+`agentgear session delete` normalizes host-specific deletion and failure
+reporting:
+
+```bash
+agentgear session delete --host agent-deck --session-id <id> [--profile <name>] --json
+agentgear session delete --host thurbox --session-id <uuid> --json
+```
+
+Thurbox uses its recoverable soft-delete. Agentgear intentionally does not
+expose Thurbox's destructive `--force` cleanup through this interface. Agent
+Deck removal is not recoverable, so callers must validate ownership before
+passing an exact session id; workflow closeout performs that validation.
 
 The development-only command is `node ./bin/agentgear-link.mjs` from a source
 checkout. It accepts the same pack, skill, target, scope, destination,

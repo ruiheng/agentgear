@@ -5,7 +5,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { main as cliMain } from "../cli/agentgear.mjs";
-import { main as configurePermissions } from "../skills/multi-agent-protocol/scripts/agent-deck-workflow-init-permissions.mjs";
+import {
+  main as configurePermissions,
+  workflowWaypostMcpTools
+} from "../skills/multi-agent-protocol/scripts/agent-deck-workflow-init-permissions.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -75,6 +78,76 @@ test("workflow permissions use the stable launcher and never an old source path"
     assert.equal(claude.permissions.allow.includes("Bash(agentgear install *)"), false);
     assert.match(generated[1], /pattern = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "resolve-tool-command"\]/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("workflow permissions add explicit Waypost MCP approvals for Claude and Codex", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-mcp-permissions-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const bin = path.join(temporary, "bin");
+  const stateDir = path.join(temporary, "waypost-state");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    WAYPOST_STATE_DIR: stateDir,
+    PATH: bin
+  };
+  const codexConfig = path.join(home, ".codex", "config.toml");
+
+  try {
+    writeWaypostExecutable(bin);
+    fs.mkdirSync(path.dirname(codexConfig), { recursive: true });
+    fs.writeFileSync(codexConfig, `[mcp_servers.waypost]\ncommand = "waypost"\nargs = ["mcp"]\n\n[mcp_servers.waypost.tools.user_owned]\napproval_mode = "deny"\n`);
+    fs.mkdirSync(project, { recursive: true });
+
+    withEnvironment(environment, () => configurePermissions([project]));
+    withEnvironment(environment, () => configurePermissions([project]));
+
+    const claude = JSON.parse(fs.readFileSync(path.join(project, ".claude", "settings.json"), "utf8"));
+    for (const tool of workflowWaypostMcpTools) {
+      assert.equal(claude.permissions.allow.includes(`mcp__waypost__${tool}`), true, `Claude permits ${tool}`);
+    }
+
+    const codex = fs.readFileSync(codexConfig, "utf8");
+    assert.match(codex, /\[mcp_servers\.waypost\.tools\.user_owned\]\napproval_mode = "deny"/);
+    for (const tool of workflowWaypostMcpTools) {
+      const section = `[mcp_servers.waypost.tools.${tool}]\napproval_mode = "approve"`;
+      assert.equal(codex.split(section).length - 1, 1, `Codex permits ${tool} exactly once`);
+    }
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("workflow permissions do not create Codex approvals without a configured Waypost MCP", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-mcp-missing-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const bin = path.join(temporary, "bin");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
+    PATH: bin
+  };
+  const codexConfig = path.join(home, ".codex", "config.toml");
+
+  try {
+    writeWaypostExecutable(bin);
+    fs.mkdirSync(path.dirname(codexConfig), { recursive: true });
+    fs.writeFileSync(codexConfig, "model = \"gpt-5\"\n");
+    fs.mkdirSync(project, { recursive: true });
+    withEnvironment(environment, () => configurePermissions([project]));
+
+    const codex = fs.readFileSync(codexConfig, "utf8");
+    for (const tool of workflowWaypostMcpTools) {
+      assert.doesNotMatch(codex, new RegExp(`mcp_servers\\.waypost\\.tools\\.${tool}`));
+    }
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

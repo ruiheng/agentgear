@@ -23,12 +23,13 @@ For a target ref:
    batch) and the known host when present.
 2. If it is found, call `session_require` with its returned `host`, exact
    `session_id`, and expected `workdir`. Continue only when `status = ready`.
-3. If it is not found, first require the workflow-owned parent and retain that
-   parent's returned host and exact id. Resolve the workflow role by
-   `tool-resolution.md`, then call `session_create` with that host,
-   `session_name`, `workdir`, `parent_session_id`, and the selected candidate's
-   `full_command_line` / `thurbox_agent_key`. Continue only when
-   `status = created`.
+3. If it is not found, retain the recorded workflow-owned parent's exact id.
+   Resolve the workflow role by `tool-resolution.md`, then call
+   `session_create` with the parent host when known, `session_name`, `workdir`,
+   `parent_session_id`, and the selected candidate's `full_command_line` /
+   `thurbox_agent_key`. `session_create` verifies that parent and its workdir;
+   do not call `session_require` on a parent merely as creation preflight.
+   Continue only when `status = created`.
 
 Generic creation always needs a same-host parent with the same verified
 workdir. It has no detached, parentless, group-placement, or startup-instruction
@@ -54,7 +55,11 @@ pass both opaque values from one resolver candidate.
 
 ## Lifecycle Boundary
 
-Generic workflow turns may resolve, require, create, send to, and report
+Ordinary workflow turns may resolve, require, create, send to, and report
 sessions. They must not delete, restart, move, group, or otherwise manage a
-host through its CLI. Waypost delivery is durable truth; a host wake is only a
-best-effort hint.
+host through its CLI. The designated successful closeout path is the exception:
+it removes task-scoped disposable sessions through the owning host adapter,
+using exact recorded ids and that adapter's ownership guards. Preserve and
+report sessions when the host has no supported cleanup adapter or a guard
+fails. Explicitly reusable sessions are never disposable. Waypost delivery is
+durable truth; a host wake is only a best-effort hint.

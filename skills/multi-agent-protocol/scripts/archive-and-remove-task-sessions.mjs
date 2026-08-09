@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import {
-  agentDeckArgs, commandJson, execute, fail, isMain, nowIso, parseArgs, resolveCommand, run, stringField, writeJsonAtomic
+  agentDeckArgs, commandJson, currentScriptDirectory, execute, fail, isMain, nowIso, parseArgs, resolveCommand, run, stringField, writeJsonAtomic
 } from "./workflow-lib.mjs";
 
 const usage = `Archive task-session resume metadata, then optionally remove coder/reviewer/architect sessions.
@@ -17,13 +18,15 @@ Options:
   --coder-session-id <id|title>     Coder session ref (default: coder-<task-id>)
   --reviewer-session-id <id|title>  Reviewer session ref (default: reviewer-<task-id>)
   --architect-session-id <id|title> Architect session ref (default: architect-<task-id>)
+  --session-host <host>             Session host (default: agent-deck)
   --artifact-root <path>            Artifact root (default: .agent-artifacts)
   --profile <name>                  Agent-deck profile
   --apply                            Remove disposable sessions after archiving
   -h, --help                        Show help
 
-Deletion is guarded for Codex, Claude, Gemini, and OpenCode sessions: their
-matching provider resume id must be recorded before they can be removed.`;
+Agent Deck deletion is guarded for Codex, Claude, Gemini, and OpenCode
+sessions: their matching provider resume id must be recorded first. Thurbox
+uses exact id/name checks and recoverable soft-delete; it never uses --force.`;
 
 function debug(message) {
   if (process.env.ADWF_DEBUG === "1") process.stderr.write(`DEBUG: ${message}\n`);
@@ -66,10 +69,36 @@ function providerIdsFromStateDatabase(sessionId, databasePath) {
   }
 }
 
-function providerIdsFromHook(sessionId, tool) {
+function agentDeckDataRoots(env = process.env) {
+  const home = env.HOME || os.homedir() || process.cwd();
+  const xdgDataHome = env.XDG_DATA_HOME
+    ? path.resolve(env.XDG_DATA_HOME)
+    : path.join(home, ".local", "share");
+  const roots = [
+    path.join(xdgDataHome, "agent-deck"),
+    path.join(home, ".agent-deck")
+  ];
+  return [...new Set(roots)];
+}
+
+function selectAgentDeckDataRoot(profileName, env = process.env) {
+  const roots = agentDeckDataRoots(env);
+  const [xdgRoot, legacyRoot] = roots;
+  const xdgDatabase = path.join(xdgRoot, "profiles", profileName, "state.db");
+  const legacyDatabase = path.join(legacyRoot, "profiles", profileName, "state.db");
+
+  // Agent Deck v1.9.49+ uses the XDG root. Prefer it whenever it has been
+  // initialized, including a root that only contains hook metadata. Fall
+  // back to the legacy root only when the XDG root is absent.
+  if (fs.existsSync(xdgDatabase) || fs.existsSync(xdgRoot)) return xdgRoot;
+  if (fs.existsSync(legacyDatabase) || fs.existsSync(legacyRoot)) return legacyRoot;
+  return xdgRoot;
+}
+
+function providerIdsFromHook(sessionId, tool, dataRoot) {
   const expected = expectedProviderKey(tool);
   if (!sessionId || !expected) return {};
-  const filePath = path.join(process.env.HOME || process.cwd(), ".agent-deck", "hooks", `${sessionId}.json`);
+  const filePath = path.join(dataRoot, "hooks", `${sessionId}.json`);
   if (!fs.existsSync(filePath)) return {};
   try {
     const hook = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -103,38 +132,177 @@ function flattenGroups(groups) {
   return result;
 }
 
+function deleteThroughAgentgear(host, sessionId, profile = "") {
+  const agentgear = path.resolve(currentScriptDirectory(import.meta.url), "../../../bin/agentgear.mjs");
+  if (!fs.statSync(agentgear, { throwIfNoEntry: false })?.isFile()) fail(`agentgear CLI not found: ${agentgear}`);
+  const args = [agentgear, "session", "delete", "--host", host, "--session-id", sessionId, "--json"];
+  if (profile) args.push("--profile", profile);
+  const result = run(process.execPath, args);
+  let payload = null;
+  if (result.stdout.trim()) {
+    try { payload = JSON.parse(result.stdout); } catch { /* Report malformed CLI output below. */ }
+  }
+  const error = payload?.error || (result.status === 0 && payload ? null : {
+    message: result.status === 0
+      ? "agentgear session delete returned invalid JSON"
+      : result.stderr.trim() || result.stdout.trim() || `agentgear session delete exited with status ${result.status}`,
+    exit_code: result.status
+  });
+  return { result, payload, error };
+}
+
+function deleteProviderRecord(deletion) {
+  return {
+    command: deletion.payload?.provider_command || null,
+    stdout: deletion.payload?.provider_stdout ?? deletion.result.stdout,
+    stderr: deletion.payload?.provider_stderr ?? deletion.result.stderr
+  };
+}
+
+function archiveThurboxSessions(options, roleRefs, archiveFile) {
+  if (!resolveCommand("thurbox-cli")) fail("thurbox-cli not found in PATH");
+  if (!options.plannerSessionId) fail("--planner-session-id is required for Thurbox cleanup");
+  const entries = [];
+  let failed = 0;
+  for (const [role, ref] of roleRefs) {
+    const shown = commandJson("thurbox-cli", ["session", "get", ref, "--json"]);
+    const id = stringField(shown, "uuid") || stringField(shown, "id");
+    const title = stringField(shown, "name") || stringField(shown, "title");
+    const deleteEligible = disposable(role, title, options.taskId);
+    let deleted = false;
+    let deleteStatus = "not_found";
+    let deleteError = null;
+    let deleteProvider = null;
+    if (id) {
+      if (!options.apply) deleteStatus = "skipped_no_apply";
+      else if (!deleteEligible) {
+        deleteStatus = "skipped_non_disposable_session";
+        process.stdout.write(`session_preserved role=${role} ref=${ref} id=${id} title=${title} reason=non_disposable_session\n`);
+      } else {
+        const removed = deleteThroughAgentgear("thurbox", id);
+        deleteProvider = deleteProviderRecord(removed);
+        if (removed.result.status === 0 && removed.payload?.status === "deleted") {
+          deleteStatus = "deleted";
+          deleted = true;
+        } else {
+          deleteStatus = "delete_failed";
+          deleteError = removed.error;
+          failed += 1;
+        }
+      }
+    }
+    entries.push({
+      role,
+      ref,
+      found: Boolean(id),
+      session_host: "thurbox",
+      session_id: id || null,
+      session_title: title || null,
+      path: stringField(shown, "repo_path") || stringField(shown, "path") || null,
+      parent_session_id: stringField(shown, "parent") || stringField(shown, "parent_id") || null,
+      delete_eligible: deleteEligible,
+      delete_applied: options.apply,
+      delete_mode: "soft-delete",
+      recoverable: true,
+      deleted,
+      delete_status: deleteStatus,
+      delete_block_reason: deleteStatus === "skipped_non_disposable_session" ? "non_disposable_session" : null,
+      delete_error: deleteError,
+      delete_provider: deleteProvider,
+      session_get: shown
+    });
+    process.stdout.write(`session role=${role} ref=${ref} found=${id ? 1 : 0}${id ? ` id=${id}` : ""} delete_status=${deleteStatus}\n`);
+  }
+  writeJsonAtomic(archiveFile, {
+    task_id: options.taskId,
+    archived_at: nowIso(),
+    mode: options.apply ? "archive_and_remove" : "archive_only",
+    session_host: "thurbox",
+    planner_session_ref: options.plannerSessionId,
+    planner_session_id: options.plannerSessionId,
+    planner_session_group: null,
+    profile_name: null,
+    state_db_path: null,
+    sessions: entries,
+    group_cleanup: []
+  });
+  process.stdout.write(`archive_ok file=${archiveFile} mode=${options.apply ? "apply" : "preview"}\n`);
+  if (failed > 0) {
+    process.stdout.write(`delete_failed count=${failed}\n`);
+    process.exitCode = 3;
+  }
+}
+
 export function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
-    values: ["--task-id", "--planner-session-id", "--coder-session-id", "--reviewer-session-id", "--architect-session-id", "--artifact-root", "--profile"],
+    values: ["--task-id", "--planner-session-id", "--coder-session-id", "--reviewer-session-id", "--architect-session-id", "--session-host", "--artifact-root", "--profile"],
     flags: ["--apply"],
-    defaults: { taskId: "", plannerSessionId: "", coderSessionId: "", reviewerSessionId: "", architectSessionId: "", artifactRoot: ".agent-artifacts", profile: "", apply: false }
+    defaults: { taskId: "", plannerSessionId: "", coderSessionId: "", reviewerSessionId: "", architectSessionId: "", sessionHost: "agent-deck", artifactRoot: ".agent-artifacts", profile: "", apply: false }
   });
   if (options.help) {
     process.stdout.write(`${usage}\n`);
     return;
   }
   if (!options.taskId) fail("--task-id is required");
+  const explicitRoleRefs = [
+    ["coder", options.coderSessionId],
+    ["reviewer", options.reviewerSessionId],
+    ["architect", options.architectSessionId]
+  ].filter(([, ref]) => Boolean(ref));
+  const roleRefs = explicitRoleRefs.length > 0 ? explicitRoleRefs : [
+    ["coder", `coder-${options.taskId}`],
+    ["reviewer", `reviewer-${options.taskId}`],
+    ["architect", `architect-${options.taskId}`]
+  ];
+  const artifactDir = path.join(options.artifactRoot.replace(/[\\/]+$/, ""), options.taskId);
+  const archiveFile = path.join(artifactDir, `session-archive-${options.taskId}.json`);
+  if (options.sessionHost === "thurbox") {
+    archiveThurboxSessions(options, roleRefs, archiveFile);
+    return;
+  }
+  if (options.sessionHost !== "agent-deck") {
+    writeJsonAtomic(archiveFile, {
+      task_id: options.taskId,
+      archived_at: nowIso(),
+      mode: "preserve_unsupported_host",
+      session_host: options.sessionHost,
+      planner_session_ref: options.plannerSessionId || null,
+      planner_session_id: null,
+      planner_session_group: null,
+      profile_name: null,
+      state_db_path: null,
+      sessions: roleRefs.map(([role, ref]) => ({
+        role,
+        ref,
+        found: null,
+        delete_applied: false,
+        deleted: false,
+        delete_status: "preserved_unsupported_host",
+        delete_block_reason: "unsupported_host"
+      })),
+      group_cleanup: []
+    });
+    process.stdout.write(`session_cleanup_preserved host=${options.sessionHost} reason=unsupported_host archive=${archiveFile}\n`);
+    return;
+  }
   if (!resolveCommand("agent-deck")) fail("agent-deck not found in PATH");
   const ad = args => run("agent-deck", agentDeckArgs(options.profile, args));
   const adJson = args => commandJson("agent-deck", agentDeckArgs(options.profile, args));
-  const current = commandJson("agent-deck", ["session", "current", "--json"]);
+  const current = commandJson("agent-deck", agentDeckArgs(options.profile, ["session", "current", "--json"]));
   if (!options.plannerSessionId) {
     options.plannerSessionId = stringField(current, "id");
     if (!options.plannerSessionId) fail("failed to resolve current agent-deck session id; pass --planner-session-id");
   }
-  const roleRefs = [
-    ["coder", options.coderSessionId || `coder-${options.taskId}`],
-    ["reviewer", options.reviewerSessionId || `reviewer-${options.taskId}`],
-    ["architect", options.architectSessionId || `architect-${options.taskId}`]
-  ];
   const profileName = options.profile || stringField(current, "profile") || "default";
-  const databasePath = path.join(process.env.HOME || process.cwd(), ".agent-deck", "profiles", profileName, "state.db");
+  const dataRoot = selectAgentDeckDataRoot(profileName);
+  const databasePath = path.join(dataRoot, "profiles", profileName, "state.db");
   if (!fs.existsSync(databasePath)) debug(`provider_id_source=db result=state_db_missing profile=${profileName}`);
   const planner = adJson(["session", "show", options.plannerSessionId, "--json"]);
   const plannerId = stringField(planner, "id");
   const plannerGroup = stringField(planner, "group");
   const candidateGroups = new Set();
   let blocked = 0;
+  let failed = 0;
   const entries = [];
 
   for (const [role, ref] of roleRefs) {
@@ -146,7 +314,7 @@ export function main(argv = process.argv.slice(2)) {
     let ids = providerIdsFromStateDatabase(id, databasePath);
     let providerSource = "state_db_tool_data";
     if (expected && !ids[expected]) {
-      const hookIds = providerIdsFromHook(id, tool);
+      const hookIds = providerIdsFromHook(id, tool, dataRoot);
       if (hookIds[expected]) {
         ids = { ...ids, ...hookIds };
         providerSource = Object.keys(ids).length > Object.keys(hookIds).length ? "state_db_tool_data+hook_status_file" : "hook_status_file";
@@ -158,6 +326,8 @@ export function main(argv = process.argv.slice(2)) {
     let deleted = false;
     let deleteStatus;
     let deleteBlockReason = "";
+    let deleteError = null;
+    let deleteProvider = null;
     if (!id) {
       deleteStatus = "not_found";
       entries.push({
@@ -182,8 +352,9 @@ export function main(argv = process.argv.slice(2)) {
       process.stdout.write(`manual_close_required role=${role} ref=${ref} id=${id} tool=${tool} expected_key=${expected} reason=${deleteBlockReason}\n`);
       process.stdout.write(`manual_close_suggestion command='agent-deck remove ${id}'\n`);
     } else {
-      const removed = ad(["remove", id]);
-      if (removed.status === 0) {
+      const removed = deleteThroughAgentgear("agent-deck", id, options.profile);
+      deleteProvider = deleteProviderRecord(removed);
+      if (removed.result.status === 0 && removed.payload?.status === "deleted") {
         deleteStatus = "deleted";
         deleted = true;
         const sessionGroup = stringField(shown, "group");
@@ -198,6 +369,8 @@ export function main(argv = process.argv.slice(2)) {
         }
       } else {
         deleteStatus = "delete_failed";
+        deleteError = removed.error;
+        failed += 1;
       }
     }
     entries.push({
@@ -206,7 +379,7 @@ export function main(argv = process.argv.slice(2)) {
       has_provider_resume_id: Object.keys(ids).some(key => key.endsWith("_session_id")), provider_guard_expected_key: expected || null,
       provider_guard_required: guardRequired, provider_guard_passed: guardPassed, delete_eligible: deleteEligible,
       provider_resume_source: providerSource, session_show: shown, delete_applied: options.apply, deleted, delete_status: deleteStatus,
-      delete_block_reason: deleteBlockReason || null
+      delete_block_reason: deleteBlockReason || null, delete_error: deleteError, delete_provider: deleteProvider
     });
     process.stdout.write(`session role=${role} ref=${ref} found=1 id=${id} delete_status=${deleteStatus}\n`);
   }
@@ -247,10 +420,9 @@ export function main(argv = process.argv.slice(2)) {
       process.stdout.write(`group_cleanup group=${groupPath} delete_status=${status}\n`);
     }
   }
-  const artifactDir = path.join(options.artifactRoot.replace(/[\\/]+$/, ""), options.taskId);
-  const archiveFile = path.join(artifactDir, `session-archive-${options.taskId}.json`);
   writeJsonAtomic(archiveFile, {
     task_id: options.taskId, archived_at: nowIso(), mode: options.apply ? "archive_and_remove" : "archive_only",
+    session_host: options.sessionHost,
     planner_session_ref: options.plannerSessionId, planner_session_id: plannerId || null, planner_session_group: plannerGroup || null,
     profile_name: profileName, state_db_path: fs.existsSync(databasePath) ? databasePath : null, sessions: entries, group_cleanup: groupCleanup
   });
@@ -259,6 +431,11 @@ export function main(argv = process.argv.slice(2)) {
     process.stdout.write(`delete_guard_blocked count=${blocked} reason=missing_provider_session_id\n`);
     process.stdout.write("delete_guard_action=manual_close_required\n");
     process.stdout.write("delete_guard_hint set ADWF_DEBUG=1 and rerun for provider-id source diagnostics\n");
+  }
+  if (failed > 0) {
+    process.stdout.write(`delete_failed count=${failed}\n`);
+  }
+  if (blocked > 0 || failed > 0) {
     process.exitCode = 3;
   }
 }

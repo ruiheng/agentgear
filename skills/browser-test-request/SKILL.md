@@ -132,10 +132,11 @@ Use the `waypost` MCP tools:
   - otherwise call `session_resolve` with `browser_tester_session_ref`
   - if that ref resolves and its returned `path` matches
     `<browser_tester_workspace>`, call `session_require`
-  - if it does not resolve, require a requester parent in the same workspace,
-    resolve role `browser_tester`, then call `session_create` with the selected
-    opaque launch candidate. If the requested tester workspace differs from
-    the requester parent workspace, ask the user to create the direct tester
+  - if it does not resolve, resolve role `browser_tester`, then call
+    `session_create` with the selected opaque launch candidate and recorded
+    requester parent. It verifies that parent; do not preflight it with
+    `session_require`. If the requested tester workspace differs from the
+    requester parent workspace, ask the user to create the direct tester
     session manually instead.
 - record the returned host, real id, and sole address as the authoritative
   `browser_tester_session_id` route

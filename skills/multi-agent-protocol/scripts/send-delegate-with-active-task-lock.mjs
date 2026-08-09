@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, writeJsonAtomic
+  currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic
 } from "./workflow-lib.mjs";
 
 const usage = `Send one delegated task with workflow-owned active-task lock protection.
@@ -68,6 +68,19 @@ function mutateLock(lockFile, mutate) {
   const lock = readJson(lockFile);
   mutate(lock);
   writeJsonAtomic(lockFile, lock);
+}
+
+function rollbackPendingLock(lockFile, lockDir, taskId) {
+  let lock;
+  try {
+    lock = readJson(lockFile);
+  } catch {
+    // Preserve an unreadable lock: it cannot safely be attributed to this run.
+    return;
+  }
+  if (stringField(lock, "task_id") === taskId && stringField(lock, "state") === "pending_send") {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+  }
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -140,12 +153,7 @@ export async function main(argv = process.argv.slice(2)) {
     else process.stdout.write(`delegate_dispatch_ok task_id=${options.taskId} delivery_id=${receipt.delivery_id} wakeup_status=waypost_managed lock_dir=${lockDir}\n`);
   } finally {
     if (rollback && !completed && fs.existsSync(lockFile)) {
-      try {
-        const lock = readJson(lockFile);
-        if (stringField(lock, "task_id") === options.taskId && stringField(lock, "state") === "pending_send") fs.rmSync(lockDir, { recursive: true, force: true });
-      } catch {
-        // Preserve a lock we cannot prove belongs to this invocation.
-      }
+      rollbackPendingLock(lockFile, lockDir, options.taskId);
     }
   }
 }

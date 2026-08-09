@@ -122,7 +122,7 @@ Resolve requester identity from explicit input, then current session context. Re
 Resolve both deterministic refs with `session_resolve`. For each target:
 
 - found: verify its returned path, then call `session_require` with its returned host, real id, and expected workdir;
-- not found: require the requester parent, resolve the target's architect role, then call `session_create` with the deterministic ref and selected opaque launch candidate.
+- not found: resolve the target's architect role, then call `session_create` with the deterministic ref, recorded requester parent, and selected opaque launch candidate. It verifies that parent; do not preflight it with `session_require`.
 
 Require distinct author and reviewer real ids; stop if they match. Record both ids, hosts, and sole addresses, and derive the artifact directory from the author id. After interrupted setup, repeat this resolve-first flow; never create a target that resolves. After review history exists, recover missing real ids from Waypost history and stop if recovery fails.
 

@@ -129,7 +129,7 @@ Use the `waypost` MCP tools:
 2. compose the body with `{{TO_SESSION_ID}}` where the real reviewer session id must appear
 3. resolve an existing reviewer by real id or ref with `session_resolve`.
 4. if it is found, call `session_require` with its returned host, real id, and `workdir = <current workspace>`.
-5. otherwise resolve role `reviewer`, require the requester parent, and call `session_create` for `<refactor_reviewer_session_ref>` with the selected opaque launch candidate. Record the returned host, real id, and sole address for later turns.
+5. otherwise resolve role `reviewer`, then call `session_create` for `<refactor_reviewer_session_ref>` with the selected opaque launch candidate and recorded requester parent. It verifies that parent; do not preflight it with `session_require`. Record the returned host, real id, and sole address for later turns.
 6. use the returned real id as the authoritative `refactor_reviewer_session_id`
 7. fill the final body and call `waypost_send` with:
    - `from_address = waypost_status.default_sender`

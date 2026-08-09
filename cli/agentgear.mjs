@@ -32,6 +32,7 @@ import {
 } from "./lib/installer.mjs";
 import { parseOptions } from "./lib/options.mjs";
 import { isCommandAvailable } from "./lib/upstreams.mjs";
+import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
@@ -61,6 +62,7 @@ function usage() {
     "            [--project DIR] [--dest DIR] [--force]",
     "  doctor [--pack NAME] [--skill NAME]",
     "  resolve-tool-command [resolver options]",
+    "  session delete --host NAME --session-id ID [--profile NAME] [--json]",
     "  run <skill> <script> [args...]",
     "",
     "Install/update defaults:",
@@ -400,6 +402,10 @@ export function main(commandArguments = process.argv.slice(2)) {
   }
   if (command === "resolve-tool-command") {
     runResolveToolCommand(argumentsList);
+    return;
+  }
+  if (command === "session") {
+    runSessionCommand(argumentsList, { print });
     return;
   }
   const options = parseOptions(argumentsList);

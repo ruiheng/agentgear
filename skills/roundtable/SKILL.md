@@ -50,7 +50,7 @@ Resolve by priority: explicit input -> current roundtable context -> message bod
 5. Resolve each participant session.
    - First try `session_resolve` for an explicit existing `participant_session_id` or known `participant_session_ref`.
    - If an existing session is found, use `session_require` with its returned host, real id, and current workspace.
-   - If none exists, require the moderator parent, resolve role `roundtable_participant`, then create `<participant_session_ref>` with the selected opaque launch candidate.
+   - If none exists, resolve role `roundtable_participant`, then create `<participant_session_ref>` with the recorded moderator parent and selected opaque launch candidate. `session_create` verifies the parent; do not preflight it with `session_require`.
    - Record each returned host, real id, and sole address. The personal control message is the bootstrap path; do not inject a startup instruction.
 6. Send the opening user-intent message to the group with `waypost_send group:true`, `to_address = group_address`, and `from_address = moderator_notify_address`.
 7. Send each participant one personal control message with Action `roundtable_participant_turn`; first turns are parallel by default.

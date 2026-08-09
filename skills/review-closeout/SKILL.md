@@ -45,6 +45,8 @@ Skill-specific context resolution:
 - `closeout_sender_session_id`: explicit -> current session id -> review context -> ask
 - `closeout_sender_role`: explicit -> current workflow role -> review context -> default `closeout_executor`
 - `reviewer_session_id`: explicit -> accepted review report `From` header -> review context -> ask
+- `coder_session_id` (optional): explicit -> accepted review report `To: coder` header -> review context; omit when the requester is not a coder
+- `session_host`: explicit -> accepted review report `Session host` -> review context -> ask
 - `review_lane`: explicit -> accepted report/context -> require `task`
 - `workflow_policy` (optional): explicit -> review/report context -> default unattended
 - `special_requirements` (optional fallback): explicit -> review/report context -> omit
@@ -62,7 +64,7 @@ Branch-plan rule with a Handoff:
 
 If required values are resolved:
 1. normalize identity values before any comparison:
-   - resolve `planner_session_id` / `closeout_sender_session_id` / `reviewer_session_id` refs to real ids via `session_resolve`
+   - resolve `planner_session_id` / `closeout_sender_session_id` / `reviewer_session_id` and any present `coder_session_id` refs to real ids via `session_resolve`
    - if normalization fails for required identity, ask one short clarification question before sending
 2. choose message action and subject:
    - `closeout_delivered`; `closeout delivered: <task_id>`
@@ -140,12 +142,16 @@ No actionable items.
 
 Start with:
 
+Include the `Coder session` line only when `coder_session_id` is present.
+
 ```markdown
 Task: <task_id>
 Action: closeout_delivered
 From: <closeout_sender_role> <closeout_sender_session_id>
 To: planner <planner_session_id>
 Planner: <planner_session_id>
+Session host: <session_host>
+Coder session: <coder_session_id>
 Planner workspace: <planner_workspace>
 Worker workspace: <worker_workspace>
 Task dir: <task_dir>

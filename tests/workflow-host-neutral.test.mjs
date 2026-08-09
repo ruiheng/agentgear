@@ -58,3 +58,15 @@ test("generic workflow scripts require explicit Waypost routes", () => {
   assert.match(sender, /--from-address/);
   assert.match(sender, /--to-address/);
 });
+
+test("closeout documents exact task-session cleanup ownership", () => {
+  const plannerCloseout = read("skills/planner-closeout/SKILL.md");
+  const delegateCode = read("skills/delegate-code-task/SKILL.md");
+  const hostContract = read("skills/multi-agent-protocol/references/session-host.md");
+  assert.match(plannerCloseout, /--coder-session-id <coder_session_id>/);
+  assert.match(plannerCloseout, /--reviewer-session-id <reviewer_session_id>/);
+  assert.match(plannerCloseout, /--session-host <session_host>/);
+  assert.match(delegateCode, /task-scoped coder/);
+  assert.match(hostContract, /exact recorded ids/);
+  assert.doesNotMatch(plannerCloseout, /Generic workflow code does not remove or rehome host sessions/);
+});

@@ -44,6 +44,7 @@ Use the shared context priority. Resolve before dispatch:
   - `task_branch`: reuse `start_branch` only when it is an explicitly recorded unfinished task branch; otherwise `task/<task_id>` from `integration_branch`
   - normal merge flow requires `task_branch != integration_branch`; never guess through ambiguity
 - `coder_session_ref`: `coder-<task_id>`
+- `session_host`: returned by `session_require` / `session_create`; preserve it through terminal closeout
 - reviewer routing:
   - `reviewer_session_ref`: explicit -> workflow context -> `reviewer-<task_id>`
   - `reviewer_session_id`: explicit actual id -> workflow context -> omit
@@ -68,6 +69,7 @@ Action: execute_delegate_task
 From: planner <planner_session_id>
 To: coder {{TO_SESSION_ID}}
 Planner: <planner_session_id>
+Session host: <session_host>
 Planner workspace: <planner_workspace>
 Worker workspace: <worker_workspace>
 Task dir: <task_dir>
@@ -141,10 +143,13 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 
    - reuse a found coder with `session_require` and its returned host, real id,
      path, and address;
-   - otherwise require the planner parent, resolve role `coder`, and create
-     `<coder_session_ref>` with its selected opaque launch candidate.
+   - otherwise resolve role `coder`, then create `<coder_session_ref>` with
+     its selected opaque launch candidate and recorded planner parent.
+     `session_create` verifies that parent; do not preflight it with
+     `session_require`.
 
-   Record the returned host, real id, and sole address. Do not create the
+   Record the returned host, real id, and sole address. Put the returned host
+   in the delegate body. Do not create the
    reviewer; `review-request` resolves or reuses it on demand.
 
 3. Fill `{{TO_SESSION_ID}}`, then send through the lock-owning wrapper:
@@ -172,7 +177,7 @@ After dispatch:
 
 - follow the shared Async sender rule
 - treat the worker worktree as coder-owned until closeout, even when planner and worker paths are equal
-- leave the coder session provider-managed after closeout; report only workspace cleanup status
+- successful planner closeout removes this task-scoped coder when the host cleanup adapter verifies it as disposable; explicitly reusable or guard-blocked sessions are preserved and reported
 - keep any reviewer under the planner parent and in the same worker workspace
 - planner attempts recorded temporary-worktree cleanup after closeout and reports `cleanup=complete` or `cleanup=pending`; neither changes delivery completion
 
@@ -193,6 +198,7 @@ Action: code_delivery_complete
 From: coder <coder_session_id>
 To: planner <planner_session_id>
 Planner: <planner_session_id>
+Session host: <session_host>
 Planner workspace: <planner_workspace>
 Worker workspace: <worker_workspace>
 Task dir: <task_dir>
