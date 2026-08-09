@@ -2,3 +2,15 @@ dist/
 node_modules/
 .DS_Store
 *.log
+
+# Shared, least-privilege agent command rules. Keep all other host-local
+# configuration (for example .claude/settings.local.json) ignored.
+!.claude/
+.claude/*
+!.claude/settings.json
+
+!.codex/
+.codex/*
+!.codex/rules/
+.codex/rules/*
+!.codex/rules/project-commands.rules

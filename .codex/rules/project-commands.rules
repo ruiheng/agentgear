@@ -1,0 +1,32 @@
+# Project verification and build commands.
+# Keep mutating package-management and release commands approval-gated.
+
+prefix_rule(
+    pattern = ["npm", "test"],
+    decision = "allow",
+    justification = "Run the project's test suite."
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "test"],
+    decision = "allow",
+    justification = "Run the project's test suite."
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "validate"],
+    decision = "allow",
+    justification = "Validate the project's metadata and generated layouts."
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "build"],
+    decision = "allow",
+    justification = "Build the project's generated distribution."
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "check"],
+    decision = "allow",
+    justification = "Run the complete project validation, build, and test check."
+)
