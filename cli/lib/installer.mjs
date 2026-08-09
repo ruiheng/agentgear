@@ -103,6 +103,27 @@ function targetInstallPlan(state, targets, skills, options) {
   return plan;
 }
 
+function retiredSkillPlan(catalog, state) {
+  const retired = new Set(catalog.skills.retiredSkills ?? []);
+  const plan = [];
+  for (const [targetRoot, targetRecord] of Object.entries(state?.targets ?? {})) {
+    for (const [skill, record] of Object.entries(targetRecord.skills ?? {})) {
+      if (!retired.has(skill)) continue;
+      const destination = path.join(targetRoot, skill);
+      const destinationExists = exists(destination);
+      plan.push({
+        targetRoot,
+        skill,
+        record,
+        destination,
+        destinationExists,
+        owned: destinationExists && destinationMatchesRecord(destination, record)
+      });
+    }
+  }
+  return plan;
+}
+
 export function installSelection({
   catalog,
   options,
@@ -133,6 +154,7 @@ export function installSelection({
   }
   const installLauncher = !options.noLauncher;
   const installWorkflowHelpers = installLauncher && selection.skills.includes("multi-agent-protocol");
+  const retiredSkills = retiredSkillPlan(catalog, state);
   const retiredCommands = installLauncher
     ? legacyCommandEntries(env).filter(entry => state?.commands?.[entry.destination])
     : [];
@@ -154,8 +176,18 @@ export function installSelection({
 
   try {
     runtime = stageRuntime({ sourceRoot, env });
+    const paths = computePaths(env);
+    const previousRuntimeRoots = [
+      paths.currentPath,
+      ...(state?.releases ?? []).map(releaseId => path.join(paths.releasesRoot, releaseId))
+    ];
     for (const upstreamPlan of upstreamPlans) {
-      provisionUpstreamSkill({ plan: upstreamPlan, runtime, env });
+      provisionUpstreamSkill({
+        plan: upstreamPlan,
+        runtime,
+        previousRuntimeRoots,
+        env
+      });
     }
     const mode = chooseDeploymentMode({ runtime, targets, development, state, env, print });
     const consumerErrors = validateSharedRuntimeConsumers({
@@ -167,6 +199,7 @@ export function installSelection({
       installLauncher,
       installWorkflowHelpers,
       retireCommandDestinations: retiredCommands.map(entry => entry.destination),
+      retireSkillDestinations: retiredSkills.map(entry => entry.destination),
       plannedSkills: installedSkills
     });
     if (consumerErrors.length > 0) fail(consumerErrors.join("\n"));
@@ -184,6 +217,18 @@ export function installSelection({
     const shared = development && mode === "shared";
     const skillSourceRoot = shared ? computePaths(env).currentPath : runtime.root;
     let copiedSkillTargets = 0;
+
+    for (const item of retiredSkills) {
+      if (item.owned) {
+        transaction.replace([item.destination], () => undefined);
+        print(`removed retired skill: ${item.destination}`);
+      } else if (item.destinationExists) {
+        print(`preserved locally changed retired skill: ${item.destination}`);
+      }
+      const record = targetState(currentState, item.targetRoot);
+      delete record.skills[item.skill];
+      updateTargetState(currentState, item.targetRoot, record);
+    }
 
     for (const target of targets) {
       const record = targetState(currentState, target.root);

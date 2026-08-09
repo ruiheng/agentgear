@@ -25,6 +25,11 @@ function isSafeRelativeSkillPath(value) {
     && segments.every(segment => segment && segment !== "." && segment !== "..");
 }
 
+function isSafeSkillName(value) {
+  return typeof value === "string"
+    && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+}
+
 export function loadCatalog(rootDir) {
   return {
     skills: readJson(path.join(rootDir, "catalog", "skills.json")),
@@ -115,6 +120,23 @@ export function validateCatalog(rootDir, catalog) {
     .map(entry => entry.name)
     .sort();
   const catalogNames = Object.keys(catalog.skills.skills).sort();
+  const retiredSkills = catalog.skills.retiredSkills ?? [];
+
+  if (!Array.isArray(retiredSkills)) {
+    errors.push("retiredSkills must be an array");
+  } else {
+    const seenRetiredSkills = new Set();
+    for (const name of retiredSkills) {
+      if (!isSafeSkillName(name)) {
+        errors.push(`invalid retired skill name: ${JSON.stringify(name)}`);
+      } else if (seenRetiredSkills.has(name)) {
+        errors.push(`duplicate retired skill name: ${name}`);
+      } else if (catalog.skills.skills[name]) {
+        errors.push(`retired skill is still active: ${name}`);
+      }
+      seenRetiredSkills.add(name);
+    }
+  }
 
   for (const [name, upstream] of Object.entries(catalog.skills.upstreams ?? {})) {
     if (!isPlainObject(upstream)) {

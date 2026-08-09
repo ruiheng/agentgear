@@ -350,8 +350,12 @@ New state is recorded only after the replacement succeeds.
      the user to restore the original XDG spelling or cleanly reinstall.
 4. Apply the channel gate. A non-null channel different from the invoking
    command's channel fails before staging and cannot be forced.
-5. Validate collisions for selected skills and commands using exact ownership.
-   Unowned existing paths fail unless that selected path has `--force`. On
+5. Build the catalog-declared retired-skill plan, then validate collisions for
+   selected skills and commands using exact ownership. Retired records are
+   excluded from staged-runtime consumer validation; matching artifacts are
+   removed in the destination transaction, while locally changed artifacts are
+   preserved and released from installer state. Unowned existing selected
+   paths fail unless that selected path has `--force`. On
    Windows, test the primary command and its `.cmd` companion as one collision
    group: both absent is free, while any other combination requires one exact
    wrapper record and matching composite fingerprint or explicit force.

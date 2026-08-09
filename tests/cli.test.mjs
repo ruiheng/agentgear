@@ -12,6 +12,7 @@ import { installSelection, resolveTargetRoots, selected } from "../cli/lib/insta
 import { parseOptions } from "../cli/lib/options.mjs";
 import { directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
+import { provisionUpstreamSkill as provisionPinnedUpstreamSkill } from "../cli/lib/upstreams.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -701,6 +702,69 @@ test("workflow update removes the retired Agent Deck permission helper", t => {
   }
 });
 
+test("developer link transactionally retires obsolete linked skill names", t => {
+  if (process.platform === "win32") {
+    t.skip("legacy linked-skill migration fixture is POSIX-specific");
+    return;
+  }
+  const fixture = environmentFixture();
+  const targetRoot = path.join(fixture.home, ".agents", "skills");
+  const oldSkill = "agent-deck-workflow";
+  const oldDestination = path.join(targetRoot, oldSkill);
+  const oldSource = path.join(fixture.dataRoot, "current", "skills", oldSkill);
+  try {
+    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    fs.symlinkSync(oldSource, oldDestination, "dir");
+    const state = readState(fixture);
+    state.targets[targetRoot].skills[oldSkill] = { mode: "link", source: oldSource };
+    craftState(fixture, state);
+
+    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+
+    assert.equal(pathExists(oldDestination), false);
+    assert.equal(readState(fixture).targets[targetRoot].skills[oldSkill], undefined);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("release update removes owned retired copies and preserves changed ones", () => {
+  const fixture = environmentFixture();
+  const generalRoot = path.join(fixture.home, ".agents", "skills");
+  const claudeRoot = path.join(fixture.home, ".claude", "skills");
+  const oldSkill = "tech-design-assessment";
+  const ownedDestination = path.join(generalRoot, oldSkill);
+  const changedDestination = path.join(claudeRoot, oldSkill);
+  try {
+    run(["install", "--skill", "handoff"], fixture.environment);
+    for (const destination of [ownedDestination, changedDestination]) {
+      fs.mkdirSync(destination, { recursive: true });
+      fs.writeFileSync(path.join(destination, "SKILL.md"), "# Retired\n");
+    }
+    const state = readState(fixture);
+    state.targets[generalRoot].skills[oldSkill] = {
+      mode: "copy",
+      fingerprint: directoryFingerprint(ownedDestination)
+    };
+    state.targets[claudeRoot].skills[oldSkill] = {
+      mode: "copy",
+      fingerprint: directoryFingerprint(changedDestination)
+    };
+    craftState(fixture, state);
+    fs.appendFileSync(path.join(changedDestination, "SKILL.md"), "locally changed\n");
+
+    run(["update", "--skill", "handoff"], fixture.environment);
+
+    const updated = readState(fixture);
+    assert.equal(pathExists(ownedDestination), false);
+    assert.equal(pathExists(changedDestination), true);
+    assert.equal(updated.targets[generalRoot].skills[oldSkill], undefined);
+    assert.equal(updated.targets[claudeRoot].skills[oldSkill], undefined);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow installation stages the declared Agent Deck upstream skill", () => {
   const fixture = environmentFixture();
   const bin = path.join(fixture.temporary, "bin");
@@ -737,6 +801,43 @@ test("workflow installation stages the declared Agent Deck upstream skill", () =
     assert.equal(fs.existsSync(skill), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("upstream provisioning reuses the current runtime when the pin is unchanged", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-upstream-reuse-test-"));
+  const previousRuntimeRoot = path.join(temporary, "previous");
+  const runtime = { root: path.join(temporary, "next") };
+  const source = {
+    repository: "https://example.invalid/agent-deck.git",
+    skillPath: "skills/agent-deck",
+    ref: "v1.0.0",
+    commit: "0123456789abcdef0123456789abcdef01234567"
+  };
+  const plan = { upstream: "agent-deck", name: "agent-deck", source };
+  try {
+    fs.mkdirSync(path.join(previousRuntimeRoot, "catalog"), { recursive: true });
+    fs.mkdirSync(path.join(previousRuntimeRoot, "skills", "agent-deck"), { recursive: true });
+    fs.mkdirSync(path.join(runtime.root, "skills"), { recursive: true });
+    fs.writeFileSync(
+      path.join(previousRuntimeRoot, "catalog", "skills.json"),
+      `${JSON.stringify({ upstreams: { "agent-deck": source } })}\n`
+    );
+    fs.writeFileSync(path.join(previousRuntimeRoot, "skills", "agent-deck", "SKILL.md"), "# Agent Deck\n");
+
+    provisionPinnedUpstreamSkill({
+      plan,
+      runtime,
+      previousRuntimeRoots: [previousRuntimeRoot],
+      env: { PATH: "" }
+    });
+
+    assert.equal(
+      fs.readFileSync(path.join(runtime.root, "skills", "agent-deck", "SKILL.md"), "utf8"),
+      "# Agent Deck\n"
+    );
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
 

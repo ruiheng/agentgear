@@ -79,6 +79,39 @@ function resolveSkillPath(checkout, skillPath) {
   return source;
 }
 
+function samePinnedSource(left, right) {
+  return ["repository", "skillPath", "ref", "commit"]
+    .every(key => left?.[key] === right?.[key]);
+}
+
+function reusePinnedUpstreamSkill(plan, previousRuntimeRoots, destination) {
+  for (const previousRuntimeRoot of previousRuntimeRoots ?? []) {
+    if (!previousRuntimeRoot) continue;
+    const catalogFile = path.join(previousRuntimeRoot, "catalog", "skills.json");
+    const catalogInfo = fs.lstatSync(catalogFile, { throwIfNoEntry: false });
+    if (!catalogInfo?.isFile() || catalogInfo.isSymbolicLink()) continue;
+    let previousCatalog;
+    try {
+      previousCatalog = JSON.parse(fs.readFileSync(catalogFile, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!samePinnedSource(previousCatalog.upstreams?.[plan.upstream], plan.source)) continue;
+    const source = path.join(previousRuntimeRoot, "skills", plan.name);
+    try {
+      validateRegularTree(source);
+      const skillFile = path.join(source, "SKILL.md");
+      const skillInfo = fs.lstatSync(skillFile, { throwIfNoEntry: false });
+      if (!skillInfo?.isFile() || skillInfo.isSymbolicLink()) continue;
+    } catch {
+      continue;
+    }
+    fs.cpSync(source, destination, { recursive: true, preserveTimestamps: true });
+    return true;
+  }
+  return false;
+}
+
 export function selectedUpstreamSkillPlans(catalog, selection, state, env = process.env) {
   const selected = new Map();
   const all = new Map();
@@ -101,11 +134,18 @@ export function selectedUpstreamSkillNames(catalog, selection) {
     .map(plan => plan.name);
 }
 
-export function provisionUpstreamSkill({ plan, runtime, env = process.env }) {
+export function provisionUpstreamSkill({
+  plan,
+  runtime,
+  previousRuntimeRoots,
+  env = process.env
+}) {
   const destination = path.join(runtime.root, "skills", plan.name);
   if (fs.existsSync(destination) || fs.lstatSync(destination, { throwIfNoEntry: false })) {
     fail(`Staged runtime already contains upstream skill destination: ${destination}`);
   }
+
+  if (reusePinnedUpstreamSkill(plan, previousRuntimeRoots, destination)) return;
 
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-upstream-"));
   try {

@@ -38,10 +38,6 @@ const colors = {
   reset: "\x1b[0m"
 };
 
-function nowIso() {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
 function commandCandidates(command, env = process.env) {
   if (path.isAbsolute(command) || command.includes(path.sep)) return [command];
   const extensions = process.platform === "win32"
@@ -100,6 +96,12 @@ export const workflowWaypostMcpTools = [
   "waypost_status"
 ];
 
+const CODEX_OWNERSHIP_VERSION = 1;
+const CODEX_BLOCK_BEGIN = "# BEGIN Agentgear Waypost MCP approvals";
+const CODEX_BLOCK_END = "# END Agentgear Waypost MCP approvals";
+const CODEX_LEGACY_MARKER = "# Agentgear multi-agent-protocol Waypost MCP approvals";
+const CODEX_TOOL_NAME = /^[A-Za-z0-9_]+$/;
+
 function log(kind, message) {
   process.stdout.write(`${colors[kind]}[${kind.toUpperCase()}]${colors.reset} ${message}\n`);
 }
@@ -124,6 +126,7 @@ export function permissionPaths(scope, projectDir) {
     codexRules: path.join(codexRoot, "rules", "agentgear-workflow.rules"),
     codexLegacyRules: path.join(codexRoot, "rules", "agent-deck-workflow.rules"),
     codexConfig: path.join(codexRoot, "config.toml"),
+    codexOwnership: path.join(codexRoot, ".agentgear-workflow-permissions.json"),
     codexUserConfig: path.join(codexHome(), "config.toml"),
     geminiPolicy: path.join(configRoot, ".gemini", "policies", "agentgear-workflow.toml"),
     geminiLegacyPolicy: path.join(configRoot, ".gemini", "policies", "agent-deck-workflow.toml")
@@ -190,6 +193,62 @@ function writeAtomic(filePath, content) {
     fs.rmSync(temporary, { force: true });
     throw error;
   }
+}
+
+function permissionMutationPaths(paths) {
+  return [...new Set([
+    paths.claudeSettings,
+    ownershipManifestPath(paths.configRoot),
+    legacyOwnershipManifestPath(paths.configRoot),
+    paths.codexRules,
+    paths.codexLegacyRules,
+    paths.codexConfig,
+    paths.codexOwnership,
+    paths.geminiPolicy,
+    paths.geminiLegacyPolicy
+  ])];
+}
+
+function capturePermissionFiles(paths) {
+  return permissionMutationPaths(paths).map(filePath => {
+    const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
+    if (!info) return { filePath, present: false };
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new Error(`refusing symlinked or non-file permission path: ${filePath}`);
+    }
+    return {
+      filePath,
+      present: true,
+      content: fs.readFileSync(filePath),
+      mode: info.mode & 0o777
+    };
+  });
+}
+
+function removeRollbackFile(filePath) {
+  const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
+  if (!info) return;
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error(`refusing unexpected rollback path: ${filePath}`);
+  }
+  fs.rmSync(filePath);
+}
+
+function restorePermissionFiles(snapshots) {
+  const errors = [];
+  for (const snapshot of [...snapshots].reverse()) {
+    try {
+      if (!snapshot.present) {
+        removeRollbackFile(snapshot.filePath);
+        continue;
+      }
+      writeAtomic(snapshot.filePath, snapshot.content);
+      fs.chmodSync(snapshot.filePath, snapshot.mode);
+    } catch (error) {
+      errors.push(`${snapshot.filePath}: ${error.message}`);
+    }
+  }
+  if (errors.length > 0) throw new Error(errors.join("; "));
 }
 
 function jsonPermission(command) {
@@ -263,8 +322,6 @@ function configureClaude(configRoot, waypost) {
   let originalSettings = "";
   if (alreadyExists) {
     log("info", "Merging permissions into existing settings.json");
-    const backup = `${settingsFile}.backup.${nowIso().replace(/[-:TZ]/g, "")}`;
-    fs.copyFileSync(settingsFile, backup);
     try {
       originalSettings = fs.readFileSync(settingsFile, "utf8");
       settings = JSON.parse(originalSettings);
@@ -326,6 +383,150 @@ function codexWaypostToolSection(name) {
   return `[mcp_servers.waypost.tools.${name}]`;
 }
 
+function codexWaypostToolSource(name) {
+  return `${codexWaypostToolSection(name)}\napproval_mode = "approve"`;
+}
+
+function codexToolSectionMatches(line, name) {
+  const section = line.trim().replace(/\s+#.*$/, "");
+  return section === codexWaypostToolSection(name)
+    || section === `[mcp_servers.waypost.tools."${name}"]`
+    || section === `[mcp_servers.waypost.tools.'${name}']`;
+}
+
+function codexToolApprovalMode(source, name) {
+  const lines = source.split(/\r?\n/);
+  let inToolSection = false;
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      if (inToolSection) break;
+      inToolSection = codexToolSectionMatches(line, name);
+      continue;
+    }
+    if (!inToolSection) continue;
+    const match = /^\s*approval_mode\s*=\s*"([^"]+)"\s*(?:#.*)?$/.exec(line);
+    if (match) return match[1];
+  }
+  return inToolSection ? "missing" : null;
+}
+
+function stableCodexOwnedTools(tools) {
+  if (!Array.isArray(tools) || tools.length > 64) {
+    throw new Error("invalid Codex Waypost ownership tool set");
+  }
+  if (!tools.every(tool => typeof tool === "string" && CODEX_TOOL_NAME.test(tool))) {
+    throw new Error("invalid Codex Waypost ownership tool");
+  }
+  if (new Set(tools).size !== tools.length) {
+    throw new Error("Codex Waypost ownership tools are not unique");
+  }
+  return tools;
+}
+
+function codexOwnedBlock(tools) {
+  const stable = stableCodexOwnedTools(tools);
+  if (stable.length === 0) return "";
+  const sections = stable.map(codexWaypostToolSource).join("\n\n");
+  return `${CODEX_BLOCK_BEGIN}\n${sections}\n${CODEX_BLOCK_END}\n`;
+}
+
+function readCodexOwnership(paths) {
+  const info = fs.lstatSync(paths.codexOwnership, { throwIfNoEntry: false });
+  if (!info) return { present: false, tools: [] };
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error(`refusing invalid Codex permission ownership file: ${paths.codexOwnership}`);
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(paths.codexOwnership, "utf8"));
+  } catch {
+    throw new Error(`refusing malformed Codex permission ownership file: ${paths.codexOwnership}`);
+  }
+  if (!manifest || manifest.version !== CODEX_OWNERSHIP_VERSION) {
+    throw new Error(`refusing invalid Codex permission ownership file: ${paths.codexOwnership}`);
+  }
+  return { present: true, tools: stableCodexOwnedTools(manifest.tools) };
+}
+
+function writeCodexOwnership(paths, tools) {
+  const stable = stableCodexOwnedTools(tools);
+  if (stable.length === 0) {
+    const info = fs.lstatSync(paths.codexOwnership, { throwIfNoEntry: false });
+    if (!info) return;
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new Error(`refusing invalid Codex permission ownership file: ${paths.codexOwnership}`);
+    }
+    fs.rmSync(paths.codexOwnership);
+    return;
+  }
+  writeAtomic(paths.codexOwnership, `${JSON.stringify({
+    version: CODEX_OWNERSHIP_VERSION,
+    tools: stable
+  }, null, 2)}\n`);
+}
+
+function parseCodexToolSections(source) {
+  const lines = source.replaceAll("\r\n", "\n").split("\n");
+  const tools = [];
+  let index = 0;
+  while (index < lines.length) {
+    while (index < lines.length && lines[index] === "") index += 1;
+    if (index >= lines.length) break;
+    const match = /^\[mcp_servers\.waypost\.tools\.([A-Za-z0-9_]+)\]$/.exec(lines[index]);
+    if (!match || lines[index + 1] !== 'approval_mode = "approve"') {
+      throw new Error("refusing malformed Agentgear Codex Waypost approval block");
+    }
+    tools.push(match[1]);
+    index += 2;
+  }
+  return stableCodexOwnedTools(tools);
+}
+
+function stripCodexOwnedBlock(source, ownership) {
+  const beginToken = `${CODEX_BLOCK_BEGIN}\n`;
+  const begin = source.indexOf(beginToken);
+  if (begin !== -1) {
+    if (source.indexOf(beginToken, begin + beginToken.length) !== -1) {
+      throw new Error("refusing duplicate Agentgear Codex Waypost approval blocks");
+    }
+    const endToken = `${CODEX_BLOCK_END}\n`;
+    const end = source.indexOf(endToken, begin + beginToken.length);
+    if (end === -1) throw new Error("refusing unterminated Agentgear Codex Waypost approval block");
+    const body = source.slice(begin + beginToken.length, end);
+    const tools = parseCodexToolSections(body);
+    if (ownership.present && JSON.stringify(tools) !== JSON.stringify(ownership.tools)) {
+      throw new Error("refusing modified Agentgear-owned Codex Waypost approval block");
+    }
+    return {
+      source: source.slice(0, begin) + source.slice(end + endToken.length),
+      tools,
+      legacy: !ownership.present
+    };
+  }
+  if (ownership.present) {
+    throw new Error("Codex permission ownership exists without its generated approval block");
+  }
+
+  const legacyToken = `${CODEX_LEGACY_MARKER}\n`;
+  const legacy = source.indexOf(legacyToken);
+  if (legacy === -1) return { source, tools: [], legacy: false };
+  if (source.indexOf(legacyToken, legacy + legacyToken.length) !== -1) {
+    throw new Error("refusing duplicate legacy Agentgear Codex Waypost approval blocks");
+  }
+  const tools = parseCodexToolSections(source.slice(legacy + legacyToken.length));
+  if (tools.length === 0 || tools.some(tool => !workflowWaypostMcpTools.includes(tool))) {
+    throw new Error("refusing unrecognized legacy Agentgear Codex Waypost approval block");
+  }
+  return { source: source.slice(0, legacy), tools, legacy: true };
+}
+
+function appendCodexOwnedBlock(source, tools) {
+  const block = codexOwnedBlock(tools);
+  if (!block) return source;
+  const separator = source.length === 0 ? "" : (source.endsWith("\n") ? "\n" : "\n\n");
+  return `${source}${separator}${block}`;
+}
+
 function codexWaypostUsesInlineTools(source) {
   const lines = source.split(/\r?\n/);
   let inWaypostSection = false;
@@ -341,33 +542,53 @@ function codexWaypostUsesInlineTools(source) {
 }
 
 function configureCodexWaypostMcpPermissions(waypost, paths) {
-  if (!waypost.trusted) return;
   const configFile = paths.codexConfig;
   const info = fs.lstatSync(configFile, { throwIfNoEntry: false });
   if (info && !isSafeRegularFile(configFile)) {
     throw new Error(`refusing symlinked or non-file Codex config path: ${configFile}`);
   }
   const source = info ? fs.readFileSync(configFile, "utf8") : "";
+  const ownership = readCodexOwnership(paths);
+  const stripped = stripCodexOwnedBlock(source, ownership);
   const userSource = paths.codexUserConfig !== configFile
     && isSafeRegularFile(paths.codexUserConfig)
     ? fs.readFileSync(paths.codexUserConfig, "utf8")
     : "";
-  if (!codexWaypostServerIsConfigured(source) && !codexWaypostServerIsConfigured(userSource)) {
-    log("warn", `Skipping Codex Waypost MCP approvals: configure the Waypost MCP server first (${paths.codexUserConfig})`);
-    return;
+  const configured = codexWaypostServerIsConfigured(stripped.source)
+    || codexWaypostServerIsConfigured(userSource);
+  if (waypost.trusted && !configured) {
+    log("warn", `Removing Codex Waypost MCP approvals until the server is configured (${paths.codexUserConfig})`);
   }
-  const missing = workflowWaypostMcpTools.filter(name => !source.includes(codexWaypostToolSection(name)));
-  if (missing.length === 0) {
-    log("ok", "Codex Waypost MCP approvals are already configured");
-    return;
+  const desired = waypost.trusted && configured ? workflowWaypostMcpTools : [];
+  const conflicts = desired.filter(name => {
+    const mode = codexToolApprovalMode(stripped.source, name);
+    return mode !== null && mode !== "approve";
+  });
+  if (conflicts.length > 0) {
+    throw new Error(
+      `refusing to override user-managed Codex Waypost approval mode for: ${conflicts.join(", ")}`
+    );
   }
-  if (codexWaypostUsesInlineTools(source)) {
+  const owned = desired.filter(name => codexToolApprovalMode(stripped.source, name) === null);
+  if (owned.length > 0 && codexWaypostUsesInlineTools(stripped.source)) {
     throw new Error(`refusing to extend inline Waypost tools in ${configFile}; convert 'tools = {...}' to explicit TOML tables first`);
   }
-  const separator = source.endsWith("\n") ? "\n" : "\n\n";
-  const additions = missing.map(name => `${codexWaypostToolSection(name)}\napproval_mode = "approve"`).join("\n\n");
-  writeAtomic(configFile, `${source}${separator}# Agentgear multi-agent-protocol Waypost MCP approvals\n${additions}\n`);
-  log("ok", `Added ${missing.length} Codex Waypost MCP approval${missing.length === 1 ? "" : "s"}: ${configFile}`);
+  const nextSource = appendCodexOwnedBlock(stripped.source, owned);
+  if (nextSource !== source) {
+    if (nextSource.length === 0 && !info) {
+      // There is no config file to create when no approval is desired.
+    } else {
+      writeAtomic(configFile, nextSource);
+    }
+  }
+  writeCodexOwnership(paths, owned);
+  if (owned.length > 0) {
+    log("ok", `Configured ${owned.length} Agentgear-owned Codex Waypost MCP approval${owned.length === 1 ? "" : "s"}: ${configFile}`);
+  } else if (stripped.tools.length > 0) {
+    log("ok", `Removed ${stripped.tools.length} stale Agentgear-owned Codex Waypost MCP approval${stripped.tools.length === 1 ? "" : "s"}: ${configFile}`);
+  } else {
+    log("ok", "No Agentgear-owned Codex Waypost MCP approvals are required");
+  }
 }
 
 function codexRulesSource(waypost) {
@@ -481,18 +702,53 @@ function checkCodex(paths, waypost, issues) {
   if (fs.lstatSync(paths.codexLegacyRules, { throwIfNoEntry: false })) {
     issues.push(`Legacy Codex workflow rules remain: ${paths.codexLegacyRules}`);
   }
-  if (!waypost.trusted) return;
-  const source = readRegularText(paths.codexConfig, "Codex config", issues);
+  let ownership = { present: false, tools: [] };
+  try {
+    ownership = readCodexOwnership(paths);
+  } catch (error) {
+    issues.push(error.message);
+  }
+  const configInfo = fs.lstatSync(paths.codexConfig, { throwIfNoEntry: false });
+  let source = null;
+  let managedTools = [];
+  let baseSource = "";
+  if (configInfo) {
+    if (!configInfo.isFile() || configInfo.isSymbolicLink()) {
+      issues.push(`Codex config is not a safe regular file: ${paths.codexConfig}`);
+    } else {
+      source = fs.readFileSync(paths.codexConfig, "utf8");
+      try {
+        const stripped = stripCodexOwnedBlock(source, ownership);
+        managedTools = stripped.tools;
+        baseSource = stripped.source;
+        if (stripped.legacy) {
+          issues.push(`Codex Waypost approvals still use legacy ownership markers: ${paths.codexConfig}`);
+        }
+      } catch (error) {
+        issues.push(error.message);
+      }
+    }
+  } else if (ownership.present) {
+    issues.push(`Codex permission ownership exists without its config file: ${paths.codexOwnership}`);
+  }
+  if (!waypost.trusted) {
+    if (managedTools.length > 0 || ownership.present) {
+      issues.push(`Codex retains Agentgear-owned Waypost MCP approvals while Waypost is untrusted: ${paths.codexConfig}`);
+    }
+    return;
+  }
   const userSource = paths.codexUserConfig !== paths.codexConfig
     && isSafeRegularFile(paths.codexUserConfig)
     ? fs.readFileSync(paths.codexUserConfig, "utf8")
     : "";
-  if (!codexWaypostServerIsConfigured(source ?? "") && !codexWaypostServerIsConfigured(userSource)) {
+  if (!codexWaypostServerIsConfigured(baseSource) && !codexWaypostServerIsConfigured(userSource)) {
     issues.push(`Codex does not configure Waypost MCP in ${paths.codexConfig} or ${paths.codexUserConfig}`);
   }
   if (source !== null) {
-    const missing = workflowWaypostMcpTools.filter(name => !source.includes(codexWaypostToolSection(name)));
+    const missing = workflowWaypostMcpTools.filter(name => codexToolApprovalMode(source, name) !== "approve");
     if (missing.length > 0) issues.push(`Codex config is missing ${missing.length} Waypost MCP approval(s): ${paths.codexConfig}`);
+  } else {
+    issues.push(`Codex config is missing: ${paths.codexConfig}`);
   }
 }
 
@@ -525,9 +781,19 @@ export function initializePermissions({ scope = "user", project = process.cwd() 
   if (!resolveCommand("agent-deck") && !resolveCommand("thurbox-cli")) {
     log("warn", "No supported persistent-session host found on PATH (agent-deck or thurbox-cli)");
   }
-  configureClaude(paths.configRoot, waypost);
-  configureCodex(projectDir, waypost, paths);
-  configureGemini(waypost, paths);
+  const snapshots = capturePermissionFiles(paths);
+  try {
+    configureClaude(paths.configRoot, waypost);
+    configureCodex(projectDir, waypost, paths);
+    configureGemini(waypost, paths);
+  } catch (error) {
+    try {
+      restorePermissionFiles(snapshots);
+    } catch (rollbackError) {
+      error.message += `; additionally failed to restore permission files: ${rollbackError.message}`;
+    }
+    throw error;
+  }
   process.stdout.write("\n========================================\n  Configuration Complete\n========================================\n\n");
   log("ok", "Permissions configured for multi-agent-protocol");
   log("info", "Restart existing agent sessions so they reload the updated permission files.");

@@ -214,8 +214,10 @@ agentgear permissions check --scope project --project /path/to/project
 ```
 
 The initializer grants only the explicit Agentgear, Waypost, and session-host
-operations used by the workflow. Restart existing agent sessions after changing
-permissions so they reload their harness configuration.
+operations used by the workflow. Agentgear records the Codex MCP sections it
+adds and removes them when Waypost is no longer trusted; user-managed sections
+are never claimed. Restart existing agent sessions after changing permissions
+so they reload their harness configuration.
 
 The development-only command is `node ./bin/agentgear-link.mjs` from a source
 checkout. It accepts the same pack, skill, target, scope, destination,

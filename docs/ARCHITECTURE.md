@@ -6,8 +6,9 @@ This repository has three boundaries:
 2. `providers/` contains narrow host-specific adapters when they are needed.
 3. `dist/` is generated installation material and is never edited by hand.
 
-`catalog/skills.json` owns pack membership, external command requirements, and
-upstream dependencies. It is intentionally separate from `SKILL.md` metadata:
+`catalog/skills.json` owns pack membership, external command requirements,
+upstream dependencies, and the finite list of skill names retired during
+pre-release migrations. It is intentionally separate from `SKILL.md` metadata:
 frontmatter decides when an agent loads a skill; the catalog decides how a human
 installs and operates a collection.
 
@@ -23,8 +24,10 @@ unknown keys; normal workflow resolution does not perform that inspection.
 
 The workflow pack depends on Waypost plus one declared session host. When the
 Agent Deck executable is available, Agentgear stages its official skill from a
-catalog-pinned upstream revision into the installation snapshot; it does not
-fork or vendor that payload. Thurbox uses its `thurbox-cli` headless interface
+catalog-pinned upstream revision into the installation snapshot. Later runs
+reuse a validated copy from a recorded runtime only when repository, ref,
+commit, and skill path still match exactly; Agentgear does not fork or vendor
+that payload. Thurbox uses its `thurbox-cli` headless interface
 and currently publishes no corresponding general-purpose host skill.
 `catalog/skills.json` is a closed list of supported hosts for installation
 checks, not a runtime plugin registry; Waypost owns live host selection and

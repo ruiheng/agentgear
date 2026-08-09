@@ -21,6 +21,16 @@
       "description": "Persistent sessions managed by Thurbox."
     }
   },
+  "retiredSkills": [
+    "agent-deck-workflow",
+    "assess-design-spec",
+    "coordinate-design-spec",
+    "review-design-spec",
+    "tech-design-assessment",
+    "tech-design-review",
+    "tech-design-review-request",
+    "tech-design-review-workflow"
+  ],
   "packs": {
     "core": {
       "description": "Standalone skills with no multi-agent workflow dependency.",

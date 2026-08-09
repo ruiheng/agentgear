@@ -1147,6 +1147,7 @@ export function validateSharedRuntimeConsumers({
   installLauncher = false,
   installWorkflowHelpers = false,
   retireCommandDestinations = [],
+  retireSkillDestinations = [],
   plannedSkills = [],
   snapshotRoot = runtime?.root
 }) {
@@ -1155,6 +1156,7 @@ export function validateSharedRuntimeConsumers({
 
   const requirements = new Map();
   const commands = new Map();
+  const retiredSkills = new Set(retireSkillDestinations);
 
   // Exact active linked-skill records: the state record and the live link
   // artifact must agree before the staged snapshot is required to serve them.
@@ -1162,6 +1164,7 @@ export function validateSharedRuntimeConsumers({
     for (const [skill, record] of Object.entries(targetRecord?.skills ?? {})) {
       if (record?.mode !== "link") continue;
       const destination = path.join(targetRoot, skill);
+      if (retiredSkills.has(destination)) continue;
       if (!linkTargetsPath(destination, record.source)) continue;
       requiredRuntimeFile(requirements, path.join("skills", skill, "SKILL.md"), destination);
       requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, destination);

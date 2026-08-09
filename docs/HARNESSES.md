@@ -19,9 +19,12 @@ project --project DIR` writes trusted-project configuration. Verify the active
 scope with `agentgear permissions check`. Generated rules use the stable
 `agentgear run …` launcher rather than a checkout path. The initializer does
 not create an MCP server declaration; it adds scoped approvals only when the
-Waypost server is already configured. Thurbox users maintain their own resolver
-candidate keys in Agentgear's local tool-profile configuration and can verify
-them with `agentgear resolve-tool-command --check-config`.
+Waypost server is already configured. Codex approvals use a bounded generated
+block with an adjacent ownership record, so later initialization can revoke
+only Agentgear-owned sections when trust changes. Permission writes are rolled
+back together if any harness configuration fails. Thurbox users maintain their
+own resolver candidate keys in Agentgear's local tool-profile configuration and
+can verify them with `agentgear resolve-tool-command --check-config`.
 
 The permissions command authorizes only the workflow's `agentgear run
 multi-agent-protocol …` and `agentgear resolve-tool-command …` forms. It does

@@ -1,12 +1,12 @@
 # Open Review Findings
 
-Status: correctness findings 1-10, 12, and 14 resolved in the working tree; finding 13 rejected by contract; performance finding 11 remains open
+Status: findings 1-12 and 14 resolved in the working tree; finding 13 rejected by contract
 
 Recorded: 2026-08-09
 
 Scope: uncommitted session-host, permission-initialization, and workflow-closeout changes on `feature/thurbox-session-host`.
 
-The original review findings and severities are retained below for audit history. Findings 1-9 now have implementation and regression-test coverage; finding 11 is intentionally tracked separately.
+The original review findings and severities are retained below for audit history. Findings 1-9 have implementation and regression-test coverage; later follow-up findings record their disposition inline.
 
 ## Resolved P1 Review Findings
 
@@ -30,13 +30,11 @@ The original review findings and severities are retained below for audit history
 
 9. **Make the new workflow fixtures Windows-compatible.** The fake provider executables used by the new integration tests are extensionless POSIX scripts. They need Windows command companions or explicit platform scoping.
 
-## Open Performance Findings
-
-11. **Avoid recloning unchanged upstream skills on every development link.** A default `agentgear-link` selects the workflow pack, detects `agent-deck` on `PATH`, and creates a fresh temporary shallow clone of the pinned Agent Deck repository for every staged runtime. This makes ordinary checkout iteration network-bound and can take tens of seconds even when the upstream commit has not changed. The installer needs a bounded local cache or an explicit reuse path while retaining commit and tree validation.
-
 ## Resolved During Follow-up
 
 10. **Resolved: read Agent Deck runtime data through its XDG layout.** The cleanup script now selects one effective Agent Deck data root, preferring `$XDG_DATA_HOME/agent-deck` (or `~/.local/share/agent-deck`) and falling back to `~/.agent-deck` only when the XDG root is absent. State-database and hook lookups use that same root, so stale legacy metadata cannot be mixed with an active XDG installation. A regression test verifies that XDG provider IDs win even when a conflicting legacy hook exists.
+
+11. **Resolved: avoid recloning unchanged upstream skills on every development link.** A default `agentgear-link` now reuses the validated upstream skill from `current` or another recorded release only when that runtime's catalog has the exact same repository, ref, commit, and skill path. First installation and changed pins still use a fresh verified clone.
 
 12. **Resolved: preserve exact UUID lookup for inactive Thurbox sessions.** `session list` intentionally contains only active sessions. Cleanup now uses that inventory for title resolution, then falls back to `session get <uuid>` only for an exact UUID. A real `Session not found` remains an absent-session result; provider, database, and JSON failures stop cleanup instead of releasing ownership state.
 
