@@ -34,6 +34,11 @@ Use the protocol's Multi-Agent Mode Detection and Context Resolution Priority se
 
 Treat `waypost_*` names in this workflow as MCP tools, not shell commands; use CLI only for capabilities unavailable through MCP.
 
+## Waypost Host Permission Boundary
+
+Waypost state is host-scoped. Prefer MCP; run Waypost CLI or wrappers with host
+permission. If denied, escalate instead of retrying unchanged.
+
 ## Launch Resolution
 
 Before creating a new session, read `references/session-host.md` and

@@ -345,6 +345,20 @@ function build(catalog) {
   print("Built dist/ for " + Object.keys(catalog.targets.targets).length + " target(s).");
 }
 
+export function childProcessOutcome(result, label) {
+  if (result.error) throw result.error;
+  if (result.signal) {
+    return { exitCode: 1, diagnostic: `agentgear run: ${label} terminated by ${result.signal}` };
+  }
+  if (result.status === null || result.status === undefined) {
+    return { exitCode: 1, diagnostic: `agentgear run: ${label} ended without an exit status` };
+  }
+  if (result.status !== 0) {
+    return { exitCode: result.status, diagnostic: `agentgear run: ${label} exited with code ${result.status}` };
+  }
+  return { exitCode: 0, diagnostic: "" };
+}
+
 function run(argumentsList) {
   if (argumentsList.length < 2) fail("run requires <skill> <script>");
   const [skill, script, ...scriptArgs] = argumentsList;
@@ -364,8 +378,9 @@ function run(argumentsList) {
     cwd: process.cwd(),
     stdio: "inherit"
   });
-  if (result.error) throw result.error;
-  process.exitCode = result.status ?? 1;
+  const outcome = childProcessOutcome(result, `${skill}/${script}`);
+  if (outcome.diagnostic) process.stderr.write(`${outcome.diagnostic}\n`);
+  process.exitCode = outcome.exitCode;
 }
 
 function list(catalog, options) {

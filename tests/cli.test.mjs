@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { main } from "../cli/agentgear.mjs";
+import { childProcessOutcome, main } from "../cli/agentgear.mjs";
 import { main as linkMain } from "../cli/link.mjs";
 import { loadCatalog } from "../cli/lib/catalog.mjs";
 import { installSelection, resolveTargetRoots, selected } from "../cli/lib/installer.mjs";
@@ -13,6 +13,17 @@ import { parseOptions } from "../cli/lib/options.mjs";
 import { directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+test("agentgear run explains signal and nonzero child exits", () => {
+  assert.deepEqual(childProcessOutcome({ status: null, signal: "SIGTERM" }, "workflow/send.mjs"), {
+    exitCode: 1,
+    diagnostic: "agentgear run: workflow/send.mjs terminated by SIGTERM"
+  });
+  assert.deepEqual(childProcessOutcome({ status: 7, signal: null }, "workflow/send.mjs"), {
+    exitCode: 7,
+    diagnostic: "agentgear run: workflow/send.mjs exited with code 7"
+  });
+});
 
 function pathExists(filePath) {
   return fs.lstatSync(filePath, { throwIfNoEntry: false }) !== undefined;

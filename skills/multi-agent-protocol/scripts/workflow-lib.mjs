@@ -110,20 +110,23 @@ function spawnCommand(command, args, options = {}) {
   return childProcess.spawnSync(resolved, args, options);
 }
 
-export function run(command, args = [], { cwd, input, env, stdio = "pipe" } = {}) {
+export function run(command, args = [], { cwd, input, env, stdio = "pipe", timeoutMs = 0, killSignal = "SIGTERM" } = {}) {
   const result = spawnCommand(command, args, {
     cwd,
     env: env ? { ...process.env, ...env } : process.env,
     input,
     encoding: "utf8",
     stdio,
-    windowsHide: true
+    windowsHide: true,
+    ...(timeoutMs > 0 ? { timeout: timeoutMs, killSignal } : {})
   });
   return {
     status: result.status ?? (result.error ? 1 : 0),
     stdout: result.stdout || "",
     stderr: result.stderr || "",
-    error: result.error
+    error: result.error,
+    signal: result.signal || null,
+    timedOut: result.error?.code === "ETIMEDOUT"
   };
 }
 

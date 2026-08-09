@@ -235,8 +235,8 @@ function configureCodex(projectDir, waypost) {
     ...adwfForms().map(command => codexRule([command], "Workflow send+wakeup helper")),
     ...launcherForms().map(command => codexRule([command, "run", "multi-agent-protocol"], "Protocol scripts through the managed agentgear launcher")),
     ...launcherForms().map(command => codexRule([command, "resolve-tool-command"], "Workflow launch-candidate resolver through Agentgear")),
-    ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Read-only Waypost query")),
-    "# Note: file write permissions are controlled separately by the host.\n"
+    ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Waypost query; host permission required")),
+    "# Waypost reads and writes require host permission.\n"
   ].join("\n");
   writeAtomic(rulesFile, rules);
   log("ok", `Created ${rulesFile}`);
@@ -268,7 +268,7 @@ function configureGemini(projectDir, waypost) {
     ...launcherForms().map((command, index) => geminiRule(`allow_multi_agent_protocol_launcher_${index}`, [command, "run", "multi-agent-protocol"])),
     ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_resolve_tool_command_${index}`, [command, "resolve-tool-command"])),
     ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
-    "# Note: file write permissions are controlled separately by the host.\n"
+    "# Waypost reads and writes require host permission.\n"
   ].join("\n");
   writeAtomic(policyFile, policies);
   log("ok", `Created ${policyFile}`);

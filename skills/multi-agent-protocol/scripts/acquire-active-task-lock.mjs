@@ -29,7 +29,7 @@ Optional:
 
 function lockBlockReason(lock) {
   const state = stringField(lock, "state");
-  if (state === "send_interrupted_unknown") return `prior delegate send was interrupted during message send (state=${state} signal=${stringField(lock, "interrupted_by_signal") || "unknown"} interrupted_at=${stringField(lock, "interrupted_at") || "unknown"}); inspect Waypost delivery before deleting this lock`;
+  if (state === "send_interrupted_unknown") return `prior delegate send was interrupted during message send (state=${state} kind=${stringField(lock, "interruption_kind") || "unknown"} signal=${stringField(lock, "interrupted_by_signal") || "unknown"} interrupted_at=${stringField(lock, "interrupted_at") || "unknown"}); inspect Waypost delivery before deleting this lock`;
   if (state === "queued_receipt_unknown") return `prior delegate send succeeded but receipt could not be parsed (state=${state}); inspect Waypost delivery before deleting this lock`;
   return "inspect the prior task and remove this lock only after verifying it is finished";
 }

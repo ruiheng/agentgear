@@ -48,11 +48,19 @@ To: <role_or_receiver_label> <to_session_id>
 
 `Action:` is a stable token. The action skill owns its meaning and any extra fields.
 
+## Waypost Host Permission Boundary
+
+Waypost state is host-scoped. Prefer MCP; run Waypost CLI or wrappers with host
+permission. If denied, escalate instead of retrying unchanged.
+
 ## Delivery Contract
 
 1. Follow Target Lifecycle Gate.
 2. Queue the message with `waypost_send`.
 3. Follow Async sender rule.
+
+Only a returned delivery id is send success; empty output or a non-`sent` lock
+is unresolved.
 
 ## Async sender rule
 

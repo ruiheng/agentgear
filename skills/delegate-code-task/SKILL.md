@@ -170,6 +170,8 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
    ```
 
    Prefer stdin. If a body file is necessary, place it under the caller's `.agent-artifacts/message/`.
+   Run this wrapper with host permission. Report success only with a delivery
+   id and a `sent` lock.
 
 The wrapper owns active-task lock acquisition, send rollback, delivery, and wakeup. Do not split or duplicate those operations. If it reports an existing active task, surface that state instead of retrying another send path.
 

@@ -28,6 +28,7 @@ Optional:
   --artifact-root <path>          Artifact root (default: <workdir>/.agent-artifacts)
   --content-type <type>           Waypost Message content type (default: text/markdown)
   --schema-version <value>        Waypost Message schema version (default: 1)
+  --send-timeout-ms <ms>          Bound the local Waypost send (default: 20000)
   --json                          Emit JSON summary
   -h, --help                      Show help`;
 
@@ -83,11 +84,16 @@ function rollbackPendingLock(lockFile, lockDir, taskId) {
   }
 }
 
+function positiveInteger(value, label) {
+  if (!/^\d+$/.test(value || "") || Number(value) <= 0) fail(`${label} must be a positive integer`);
+  return Number(value);
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
-    values: ["--workdir", "--task-id", "--integration-branch", "--planner-session-id", "--coder-session-id", "--from-address", "--to-address", "--coder-session-ref", "--task-branch", "--subject", "--body-file", "--artifact-root", "--content-type", "--schema-version"],
+    values: ["--workdir", "--task-id", "--integration-branch", "--planner-session-id", "--coder-session-id", "--from-address", "--to-address", "--coder-session-ref", "--task-branch", "--subject", "--body-file", "--artifact-root", "--content-type", "--schema-version", "--send-timeout-ms"],
     flags: ["--json"],
-    defaults: { artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", json: false }
+    defaults: { artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", sendTimeoutMs: "20000", json: false }
   });
   if (options.help) {
     process.stdout.write(`${usage}\n`);
@@ -98,6 +104,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   requireCommand("waypost");
   if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) fail(`workdir does not exist: ${options.workdir}`);
+  options.sendTimeoutMs = positiveInteger(options.sendTimeoutMs, "--send-timeout-ms");
   options.workdir = fs.realpathSync(options.workdir);
   if (!options.artifactRoot) options.artifactRoot = path.join(options.workdir, ".agent-artifacts");
   const lockDir = path.join(options.artifactRoot.replace(/[\\/]+$/, ""), "active-task.lock");
@@ -114,6 +121,16 @@ export async function main(argv = process.argv.slice(2)) {
   if (lockResult.status !== 0) fail(`failed to acquire active-task lock: ${(lockResult.stderr || lockResult.stdout).trim()}`);
   let rollback = true;
   let completed = false;
+  const retainInterruptedLock = details => {
+    rollback = false;
+    mutateLock(lockFile, lock => {
+      lock.state = "send_interrupted_unknown";
+      lock.interruption_kind = details.kind;
+      lock.interrupted_by_signal = details.signal;
+      lock.interrupted_at = nowIso();
+      if (details.timeoutMs) lock.send_timeout_ms = details.timeoutMs;
+    });
+  };
   try {
     let body;
     if (options.bodyFile === "-") body = fs.readFileSync(0, "utf8");
@@ -125,7 +142,16 @@ export async function main(argv = process.argv.slice(2)) {
       .split("{{TO_SESSION_ID}}").join(options.coderSessionId)
       .split("{{TO_SESSION_REF}}").join(options.coderSessionRef);
     validateBody(body, options);
-    const send = run("waypost", ["send", "--to", options.toAddress, "--from", options.fromAddress, "--subject", options.subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-"], { input: body });
+    const send = run("waypost", ["send", "--to", options.toAddress, "--from", options.fromAddress, "--subject", options.subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-"], {
+      input: body,
+      timeoutMs: options.sendTimeoutMs
+    });
+    if (send.timedOut || send.signal) {
+      retainInterruptedLock({ kind: send.timedOut ? "timeout" : "signal", signal: send.signal || "SIGTERM", timeoutMs: options.sendTimeoutMs });
+      const reason = send.timedOut ? `timed out after ${options.sendTimeoutMs}ms` : `was terminated by ${send.signal}`;
+      fail(`waypost send ${reason}; delivery outcome is unknown and the active-task lock was retained for recovery`, 4, "SEND_INTERRUPTED");
+    }
+    if (send.error) fail(`waypost send failed to start: ${send.error.message}`, 3, "SEND_FAILED");
     if (send.status !== 0) fail(`waypost send failed: ${(send.stderr || send.stdout).trim() || `exit code ${send.status}`}`, 3, "SEND_FAILED");
     completed = true;
     rollback = false;
