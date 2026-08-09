@@ -604,20 +604,52 @@ function codexRulesSource(waypost) {
   ].join("\n");
 }
 
-function validateLegacyGeneratedFile(filePath, marker) {
+function planLegacyPermissionArchive(filePath) {
   const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
-  if (!info) return false;
+  if (!info) return null;
   if (!isSafeRegularFile(filePath)) throw new Error(`refusing symlinked or non-file legacy permission path: ${filePath}`);
-  const source = fs.readFileSync(filePath, "utf8");
-  if (!source.includes(marker)) throw new Error(`refusing to remove unrecognized legacy permission file: ${filePath}`);
-  return true;
+  let backupPath = `${filePath}.agentgear-backup`;
+  for (let suffix = 1; fs.lstatSync(backupPath, { throwIfNoEntry: false }); suffix += 1) {
+    backupPath = `${filePath}.agentgear-backup.${suffix}`;
+  }
+  return { filePath, backupPath };
+}
+
+function archiveLegacyPermissionFiles(plans) {
+  const archived = [];
+  try {
+    for (const plan of plans.filter(Boolean)) {
+      fs.copyFileSync(plan.filePath, plan.backupPath, fs.constants.COPYFILE_EXCL);
+      try {
+        fs.rmSync(plan.filePath);
+      } catch (error) {
+        fs.rmSync(plan.backupPath, { force: true });
+        throw error;
+      }
+      archived.push(plan);
+      log("warn", `Archived legacy permission file as ${plan.backupPath}; review the backup before removing it`);
+    }
+  } catch (error) {
+    const rollbackErrors = [];
+    for (const plan of [...archived].reverse()) {
+      try {
+        fs.copyFileSync(plan.backupPath, plan.filePath, fs.constants.COPYFILE_EXCL);
+        fs.rmSync(plan.backupPath);
+      } catch (rollbackError) {
+        rollbackErrors.push(`${plan.filePath}: ${rollbackError.message}`);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      error.message += `; additionally failed to restore archived legacy files: ${rollbackErrors.join("; ")}`;
+    }
+    throw error;
+  }
 }
 
 function configureCodex(projectDir, waypost, paths) {
   log("info", "Configuring Codex escalation rules...");
-  const retireLegacy = validateLegacyGeneratedFile(paths.codexLegacyRules, "# Multi-Agent Protocol - generated approval rules");
+  const legacyArchive = planLegacyPermissionArchive(paths.codexLegacyRules);
   writeAtomic(paths.codexRules, codexRulesSource(waypost));
-  if (retireLegacy) fs.rmSync(paths.codexLegacyRules);
   log("ok", `Created ${paths.codexRules}`);
   configureCodexWaypostMcpPermissions(waypost, paths);
 
@@ -630,6 +662,7 @@ function configureCodex(projectDir, waypost, paths) {
       if (!common.startsWith(`${projectDir}${path.sep}`)) log("info", `External git metadata detected: add ${common} to Codex writable_roots if the host asks for it.`);
     }
   }
+  return legacyArchive;
 }
 
 function geminiRule(name, commandPrefix, toolName = "run_shell_command") {
@@ -651,10 +684,10 @@ function geminiPolicySource(waypost) {
 
 function configureGemini(waypost, paths) {
   log("info", "Configuring Gemini CLI shell policies...");
-  const retireLegacy = validateLegacyGeneratedFile(paths.geminiLegacyPolicy, "# Multi-Agent Protocol - generated policy rules");
+  const legacyArchive = planLegacyPermissionArchive(paths.geminiLegacyPolicy);
   writeAtomic(paths.geminiPolicy, geminiPolicySource(waypost));
-  if (retireLegacy) fs.rmSync(paths.geminiLegacyPolicy);
   log("ok", `Created ${paths.geminiPolicy}`);
+  return legacyArchive;
 }
 
 function readRegularText(filePath, label, issues) {
@@ -784,8 +817,11 @@ export function initializePermissions({ scope = "user", project = process.cwd() 
   const snapshots = capturePermissionFiles(paths);
   try {
     configureClaude(paths.configRoot, waypost);
-    configureCodex(projectDir, waypost, paths);
-    configureGemini(waypost, paths);
+    const legacyArchives = [
+      configureCodex(projectDir, waypost, paths),
+      configureGemini(waypost, paths)
+    ];
+    archiveLegacyPermissionFiles(legacyArchives);
   } catch (error) {
     try {
       restorePermissionFiles(snapshots);

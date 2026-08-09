@@ -169,6 +169,82 @@ test("user-scoped permission init and check cover all harnesses", () => {
   }
 });
 
+test("user-scoped permission init retires the known config_files Codex rules", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-config-files-codex-migration-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    PATH: ""
+  };
+  const legacyRules = path.join(home, ".codex", "rules", "agent-deck-workflow.rules");
+  const currentRules = path.join(home, ".codex", "rules", "agentgear-workflow.rules");
+  const legacySource = `prefix_rule(
+    pattern=["agent-deck"],
+    decision="allow",
+)
+
+prefix_rule(
+    pattern=["~/.local/bin/adwf-send-and-wake"],
+    decision="allow",
+)
+`;
+  try {
+    fs.mkdirSync(path.dirname(legacyRules), { recursive: true });
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(legacyRules, legacySource);
+
+    withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
+
+    assert.equal(fs.existsSync(legacyRules), false);
+    assert.equal(fs.readFileSync(`${legacyRules}.agentgear-backup`, "utf8"), legacySource);
+    assert.match(fs.readFileSync(currentRules, "utf8"), /# Agentgear workflow - generated approval rules/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("permission init archives a modified config_files Codex rules file instead of deleting it", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-modified-config-files-codex-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    PATH: ""
+  };
+  const legacyRules = path.join(home, ".codex", "rules", "agent-deck-workflow.rules");
+  const currentRules = path.join(home, ".codex", "rules", "agentgear-workflow.rules");
+  const modifiedSource = `prefix_rule(
+    pattern=["agent-deck"],
+    decision="allow",
+)
+
+# User addition
+prefix_rule(
+    pattern=["custom-command"],
+    decision="allow",
+)
+`;
+  try {
+    fs.mkdirSync(path.dirname(legacyRules), { recursive: true });
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(legacyRules, modifiedSource);
+
+    withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
+
+    assert.equal(fs.existsSync(legacyRules), false);
+    assert.equal(fs.readFileSync(`${legacyRules}.agentgear-backup`, "utf8"), modifiedSource);
+    assert.match(fs.readFileSync(currentRules, "utf8"), /# Agentgear workflow - generated approval rules/);
+    assert.equal(fs.existsSync(path.join(home, ".claude", "settings.json")), true);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow permissions do not create Codex approvals without a configured Waypost MCP", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-mcp-missing-test-"));
   const home = path.join(temporary, "home");
