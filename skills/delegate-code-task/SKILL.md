@@ -166,10 +166,13 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
      --coder-session-ref <coder_session_ref> \
      --task-branch <task_branch> \
      --subject "delegate code: <task_id> -> coder" \
-     --body-file -
+     --body-file <message_file_or_->
    ```
 
-   Prefer stdin. If a body file is necessary, place it under the caller's `.agent-artifacts/message/`.
+   Use `-` only when the caller can provide a real non-TTY stdin pipe. From an
+   interactive or PTY-backed command tool, write the body under the caller's
+   `.agent-artifacts/message/` and pass that file path; do not open a TTY and
+   expect the wrapper to wait for later input.
    Run this wrapper with host permission. Report success only with a delivery
    id and a `sent` lock.
 

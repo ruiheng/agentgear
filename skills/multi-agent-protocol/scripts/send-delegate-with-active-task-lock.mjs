@@ -22,7 +22,7 @@ Required:
   --coder-session-ref <ref>       Coder session ref/title
   --task-branch <ref>             Task branch
   --subject <text>                Waypost Message subject
-  --body-file <path|->            Body source, or "-" for stdin
+  --body-file <path|->            Body source, or "-" for piped non-TTY stdin
 
 Optional:
   --artifact-root <path>          Artifact root (default: <workdir>/.agent-artifacts)
@@ -89,6 +89,25 @@ function positiveInteger(value, label) {
   return Number(value);
 }
 
+function stdinUnavailable(detail = "") {
+  const suffix = detail ? ` (${detail})` : "";
+  fail(`--body-file - requires piped non-TTY stdin${suffix}; use a message file under .agent-artifacts/message/ from an interactive command tool`, 2, "STDIN_UNAVAILABLE");
+}
+
+export function readDelegateBody(bodyFile, { stdinIsTTY = Boolean(process.stdin.isTTY), readFileSync = fs.readFileSync } = {}) {
+  if (bodyFile !== "-") {
+    if (!fs.statSync(bodyFile, { throwIfNoEntry: false })?.isFile()) fail(`body file not found: ${bodyFile}`);
+    return readFileSync(bodyFile, "utf8");
+  }
+  if (stdinIsTTY) stdinUnavailable("stdin is a TTY");
+  try {
+    return readFileSync(0, "utf8");
+  } catch (error) {
+    if (error?.code === "EAGAIN") stdinUnavailable("stdin returned EAGAIN");
+    throw error;
+  }
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
     values: ["--workdir", "--task-id", "--integration-branch", "--planner-session-id", "--coder-session-id", "--from-address", "--to-address", "--coder-session-ref", "--task-branch", "--subject", "--body-file", "--artifact-root", "--content-type", "--schema-version", "--send-timeout-ms"],
@@ -109,6 +128,12 @@ export async function main(argv = process.argv.slice(2)) {
   if (!options.artifactRoot) options.artifactRoot = path.join(options.workdir, ".agent-artifacts");
   const lockDir = path.join(options.artifactRoot.replace(/[\\/]+$/, ""), "active-task.lock");
   const lockFile = path.join(lockDir, "lock.json");
+
+  let body = readDelegateBody(options.bodyFile);
+  body = body.split("{{FROM_SESSION_ID}}").join(options.plannerSessionId)
+    .split("{{TO_SESSION_ID}}").join(options.coderSessionId)
+    .split("{{TO_SESSION_REF}}").join(options.coderSessionRef);
+  validateBody(body, options);
 
   const scriptDir = currentScriptDirectory(import.meta.url);
   const lockResult = invokeNodeScript(path.join(scriptDir, "acquire-active-task-lock.mjs"), [
@@ -132,16 +157,6 @@ export async function main(argv = process.argv.slice(2)) {
     });
   };
   try {
-    let body;
-    if (options.bodyFile === "-") body = fs.readFileSync(0, "utf8");
-    else {
-      if (!fs.statSync(options.bodyFile, { throwIfNoEntry: false })?.isFile()) fail(`body file not found: ${options.bodyFile}`);
-      body = fs.readFileSync(options.bodyFile, "utf8");
-    }
-    body = body.split("{{FROM_SESSION_ID}}").join(options.plannerSessionId)
-      .split("{{TO_SESSION_ID}}").join(options.coderSessionId)
-      .split("{{TO_SESSION_REF}}").join(options.coderSessionRef);
-    validateBody(body, options);
     const send = run("waypost", ["send", "--to", options.toAddress, "--from", options.fromAddress, "--subject", options.subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-"], {
       input: body,
       timeoutMs: options.sendTimeoutMs

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { main as sendDelegate } from "../skills/multi-agent-protocol/scripts/send-delegate-with-active-task-lock.mjs";
+import { main as sendDelegate, readDelegateBody } from "../skills/multi-agent-protocol/scripts/send-delegate-with-active-task-lock.mjs";
 
 function pathExists(filePath) {
   return fs.lstatSync(filePath, { throwIfNoEntry: false }) !== undefined;
@@ -64,7 +64,38 @@ async function withEnvironment(environment, action) {
   }
 }
 
-test("delegate send removes its pending lock when validation fails before Waypost send", async () => {
+test("delegate body rejects TTY stdin before reading", () => {
+  let readAttempted = false;
+  assert.throws(
+    () => readDelegateBody("-", {
+      stdinIsTTY: true,
+      readFileSync() {
+        readAttempted = true;
+        return "";
+      }
+    }),
+    error => error?.prefix === "STDIN_UNAVAILABLE" && /stdin is a TTY/.test(error.message)
+  );
+  assert.equal(readAttempted, false);
+});
+
+test("delegate body converts EAGAIN into an actionable stdin error", () => {
+  assert.throws(
+    () => readDelegateBody("-", {
+      stdinIsTTY: false,
+      readFileSync() {
+        const error = new Error("resource temporarily unavailable, read");
+        error.code = "EAGAIN";
+        throw error;
+      }
+    }),
+    error => error?.prefix === "STDIN_UNAVAILABLE"
+      && /stdin returned EAGAIN/.test(error.message)
+      && /.agent-artifacts\/message\//.test(error.message)
+  );
+});
+
+test("delegate send rejects an invalid body source before acquiring a task lock", async () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-send-delegate-test-"));
   const workdir = path.join(temporary, "workspace");
   const artifactRoot = path.join(workdir, ".agent-artifacts");
