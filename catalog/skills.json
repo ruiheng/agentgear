@@ -2,9 +2,11 @@
   "schemaVersion": 1,
   "upstreams": {
     "agent-deck": {
-      "repository": "https://github.com/asheshgoplani/agent-deck",
+      "repository": "https://github.com/asheshgoplani/agent-deck.git",
       "skillPath": "skills/agent-deck",
-      "reason": "Agent Deck remains an optional session-host integration. Its upstream skill is not copied into this repository."
+      "ref": "v1.11.0",
+      "commit": "2f586c5ca97d0e783bb16213d388bcce9e675e67",
+      "reason": "When Agent Deck is available, the workflow installer stages its official skill from this pinned upstream revision."
     }
   },
   "sessionHosts": {
@@ -27,7 +29,7 @@
         "explain-for-me",
         "explore-defects",
         "handoff",
-        "assess-design-spec"
+        "assess-tech-design"
       ]
     },
     "workflow": {
@@ -54,8 +56,8 @@
         "roundtable",
         "roundtable-participant",
         "simplify-review",
-        "coordinate-design-spec",
-        "review-design-spec"
+        "tech-design-workflow",
+        "review-tech-design"
       ]
     },
     "browser": {
@@ -75,13 +77,13 @@
     }
   },
   "skills": {
-    "assess-design-spec": {"tags": ["design", "standalone"]},
+    "assess-tech-design": {"tags": ["design", "standalone"]},
     "browser-test": {"tags": ["browser", "workflow"]},
     "browser-test-request": {"tags": ["browser", "workflow"]},
     "check-waypost-messages": {"tags": ["workflow", "receiver"]},
     "code-health-review": {"tags": ["review", "workflow"]},
     "commit-staged": {"tags": ["git", "standalone"]},
-    "coordinate-design-spec": {"tags": ["design", "workflow"]},
+    "tech-design-workflow": {"tags": ["design", "workflow"]},
     "delegate-code-task": {"tags": ["delegation", "workflow"]},
     "delegate-task": {"tags": ["delegation", "workflow"]},
     "dispatch-plan": {"tags": ["planning", "workflow"]},
@@ -100,6 +102,6 @@
     "roundtable": {"tags": ["discussion", "workflow"]},
     "roundtable-participant": {"tags": ["discussion", "workflow"]},
     "simplify-review": {"tags": ["review", "workflow"]},
-    "review-design-spec": {"tags": ["design", "workflow"]}
+    "review-tech-design": {"tags": ["design", "workflow"]}
   }
 }

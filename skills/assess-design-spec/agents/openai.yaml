@@ -1,6 +1,0 @@
-interface:
-  display_name: "Design Specification Assessment"
-  short_description: "Critically assess a completed design specification"
-  default_prompt: "Use $assess-design-spec to assess this completed design specification against its current accepted intent."
-policy:
-  allow_implicit_invocation: false

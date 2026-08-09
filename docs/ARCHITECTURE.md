@@ -21,9 +21,11 @@ Thurbox configuration. The resolver's explicit `--check-config` maintenance
 command may inspect the user's Thurbox `agents.toml` to warn about missing or
 unknown keys; normal workflow resolution does not perform that inspection.
 
-The workflow pack depends on Waypost plus one declared session host. Agent
-Deck remains an optional upstream skill/executable integration; Thurbox uses
-its `thurbox-cli` headless interface. Neither host is silently forked here.
+The workflow pack depends on Waypost plus one declared session host. When the
+Agent Deck executable is available, Agentgear stages its official skill from a
+catalog-pinned upstream revision into the installation snapshot; it does not
+fork or vendor that payload. Thurbox uses its `thurbox-cli` headless interface
+and currently publishes no corresponding general-purpose host skill.
 `catalog/skills.json` is a closed list of supported hosts for installation
 checks, not a runtime plugin registry; Waypost owns live host selection and
 dispatch.

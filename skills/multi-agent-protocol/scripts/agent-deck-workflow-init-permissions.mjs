@@ -68,7 +68,7 @@ function waypostContext(projectDir) {
 
 function launcherForms() {
   const absolute = path.join(getHome(), ".local", "bin", "agentgear");
-  return ["~/.local/bin/agentgear", absolute];
+  return ["agentgear", "~/.local/bin/agentgear", absolute];
 }
 
 function adwfForms() {
@@ -82,6 +82,7 @@ function generatedClaudePermissions(waypostRules) {
     "Bash(git diff)", "Bash(git diff *)", "Bash(git show)", "Bash(git show *)", "Bash(git status)", "Bash(git status *)", "Bash(git log)", "Bash(git log *)", "Bash(git rev-parse)", "Bash(git rev-parse *)",
     ...adwfForms().map(command => jsonPermission(`${command} *`)),
     ...launcherForms().map(command => jsonPermission(`${command} run multi-agent-protocol *`)),
+    ...launcherForms().map(command => jsonPermission(`${command} resolve-tool-command *`)),
     "Write(/.agent-artifacts/**)"
   ];
   permissions.push(...waypostRules.map(claudeWaypostPermission));
@@ -155,6 +156,7 @@ function configureCodex(projectDir, waypost) {
     codexRule(["printf"], "Shell formatting helper commands"),
     ...adwfForms().map(command => codexRule([command], "Workflow send+wakeup helper")),
     ...launcherForms().map(command => codexRule([command, "run", "multi-agent-protocol"], "Protocol scripts through the managed agentgear launcher")),
+    ...launcherForms().map(command => codexRule([command, "resolve-tool-command"], "Workflow launch-candidate resolver through Agentgear")),
     ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Read-only Waypost query")),
     "# Note: file write permissions are controlled separately by the host.\n"
   ].join("\n");
@@ -185,6 +187,7 @@ function configureGemini(projectDir, waypost) {
     ...(waypost.trusted ? [`[[rule]]\nname = "allow_waypost_mcp"\nenabled = true\ndecision = "allow"\ntoolName = "*"\nmcpName = "waypost"\npriority = 950\nmodes = ["default", "autoEdit", "yolo"]\n`] : []),
     ...adwfForms().map((command, index) => geminiRule(`allow_adwf_send_and_wake_${index}`, [command])),
     ...launcherForms().map((command, index) => geminiRule(`allow_multi_agent_protocol_launcher_${index}`, [command, "run", "multi-agent-protocol"])),
+    ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_resolve_tool_command_${index}`, [command, "resolve-tool-command"])),
     ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
     "# Note: file write permissions are controlled separately by the host.\n"
   ].join("\n");

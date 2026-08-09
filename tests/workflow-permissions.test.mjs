@@ -53,7 +53,7 @@ test("workflow permissions use the stable launcher and never an old source path"
     PATH: ""
   };
   try {
-    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "codex"]));
+    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "general"]));
     fs.mkdirSync(project, { recursive: true });
     withEnvironment(environment, () => configurePermissions([project]));
     const generated = [
@@ -68,7 +68,13 @@ test("workflow permissions use the stable launcher and never an old source path"
       assert.doesNotMatch(source, new RegExp(rootDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }
     const claude = JSON.parse(generated[0]);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear run multi-agent-protocol *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run multi-agent-protocol *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear resolve-tool-command *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear resolve-tool-command *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear install *)"), false);
+    assert.match(generated[1], /pattern = \["agentgear", "resolve-tool-command"\]/);
+    assert.match(generated[2], /commandPrefix = \["agentgear", "resolve-tool-command"\]/);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -91,7 +97,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
   const claudeSettings = path.join(project, ".claude", "settings.json");
 
   try {
-    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "codex"]));
+    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "general"]));
     fs.mkdirSync(project, { recursive: true });
     withEnvironment(environment, () => configurePermissions([project]));
 
@@ -145,7 +151,7 @@ test("workflow permissions reject project-local Waypost commands", () => {
   };
 
   try {
-    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "codex"]));
+    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "general"]));
     fs.mkdirSync(project, { recursive: true });
     withEnvironment(environment, () => configurePermissions([project]));
 
@@ -173,7 +179,7 @@ test("workflow permissions reject a relative Waypost state directory", () => {
   };
 
   try {
-    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "codex"]));
+    withEnvironment(environment, () => cliMain(["install", "--pack", "workflow", "--target", "general"]));
     fs.mkdirSync(project, { recursive: true });
     withEnvironment(environment, () => configurePermissions([project]));
 

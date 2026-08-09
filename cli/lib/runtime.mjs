@@ -785,7 +785,15 @@ export function checkCurrentForPublication(state, env = process.env, pendingRele
 export function stageRuntime({ sourceRoot, env = process.env }) {
   const paths = computePaths(env);
   const packageJson = readJsonIfExists(path.join(sourceRoot, "package.json"), { version: "dev" });
-  const releaseId = `${packageJson.version}-${Date.now()}-${crypto.randomUUID()}`;
+  // Keep physical release paths compact: launchers and skill loaders often
+  // resolve `current` and expose this basename in their context.
+  const now = new Date();
+  const releaseDate = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
+  ].join("");
+  const releaseId = `${packageJson.version}-${releaseDate}-${crypto.randomBytes(6).toString("base64url")}`;
   if (!isValidReleaseId(releaseId)) {
     throw new Error(
       `Unsafe package version ${JSON.stringify(packageJson.version)} cannot form a release ID`

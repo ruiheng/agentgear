@@ -2,6 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveSelection } from "./catalog.mjs";
 import {
+  provisionUpstreamSkill as defaultProvisionUpstreamSkill,
+  selectedUpstreamSkillNames,
+  selectedUpstreamSkillPlans
+} from "./upstreams.mjs";
+import {
   addReleaseToInventory,
   checkChannelGate,
   checkCommandCollisions,
@@ -29,6 +34,8 @@ import {
   validateStateGrammar
 } from "./runtime.mjs";
 
+export const DEFAULT_TARGETS = ["general", "claude"];
+
 function fail(message) {
   throw new Error(message);
 }
@@ -40,10 +47,19 @@ export function selected(catalog, options) {
   });
 }
 
+export function selectedInstallableSkills(catalog, selection) {
+  return [...new Set([
+    ...selection.skills,
+    ...selectedUpstreamSkillNames(catalog, selection)
+  ])];
+}
+
 export function resolveTargetRoots(catalog, options, env = process.env) {
-  const names = options.targets.length === 0 ? ["codex"] : options.targets;
+  const names = options.targets.length === 0
+    ? (options.destination ? ["general"] : DEFAULT_TARGETS)
+    : options.targets;
   if (options.destination && names.length !== 1) {
-    fail("--dest can be used with exactly one --target");
+    fail("--dest requires exactly one target");
   }
   return names.map(name => {
     const target = catalog.targets.targets[name];
@@ -63,12 +79,12 @@ function ensureSourceSkills(sourceRoot, selection) {
   }
 }
 
-function targetInstallPlan(state, targets, selection, options) {
+function targetInstallPlan(state, targets, skills, options) {
   const errors = [];
   const plan = [];
   for (const target of targets) {
     const recorded = state === null ? { skills: {} } : targetState(state, target.root);
-    for (const skill of selection.skills) {
+    for (const skill of skills) {
       const destination = path.join(target.root, skill);
       const record = recorded.skills[skill];
       const destinationExists = exists(destination);
@@ -90,7 +106,8 @@ export function installSelection({
   sourceRoot,
   development = false,
   env = process.env,
-  print
+  print,
+  provisionUpstreamSkill = defaultProvisionUpstreamSkill
 }) {
   const selection = selected(catalog, options);
   const targets = resolveTargetRoots(catalog, options, env);
@@ -103,9 +120,17 @@ export function installSelection({
   const requestedChannel = development ? "development" : "release";
   checkChannelGate(state, requestedChannel);
   checkStateCoherence(state, env);
+  const upstreamPlans = selectedUpstreamSkillPlans(catalog, selection, state, env);
+  const selectedUpstreamNames = new Set(
+    selectedUpstreamSkillNames(catalog, selection)
+  );
+  const installedSkills = [...selection.skills];
+  for (const plan of upstreamPlans) {
+    if (selectedUpstreamNames.has(plan.name)) installedSkills.push(plan.name);
+  }
   const installLauncher = !options.noLauncher;
   const installWorkflowHelpers = installLauncher && selection.skills.includes("multi-agent-protocol");
-  const plan = targetInstallPlan(state, targets, selection, options);
+  const plan = targetInstallPlan(state, targets, installedSkills, options);
   checkCommandCollisions(state, env, installLauncher, installWorkflowHelpers, options.force);
 
   let currentState = state;
@@ -116,6 +141,9 @@ export function installSelection({
 
   try {
     runtime = stageRuntime({ sourceRoot, env });
+    for (const upstreamPlan of upstreamPlans) {
+      provisionUpstreamSkill({ plan: upstreamPlan, runtime, env });
+    }
     const mode = chooseDeploymentMode({ runtime, targets, development, state, env, print });
     const consumerErrors = validateSharedRuntimeConsumers({
       runtime,
@@ -125,7 +153,7 @@ export function installSelection({
       development,
       installLauncher,
       installWorkflowHelpers,
-      plannedSkills: selection.skills
+      plannedSkills: installedSkills
     });
     if (consumerErrors.length > 0) fail(consumerErrors.join("\n"));
 
@@ -201,7 +229,7 @@ export function installSelection({
     const channel = development
       ? (shared ? "shared development link" : "development copy fallback")
       : "release snapshot";
-    print("Installed " + selection.skills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
+    print("Installed " + installedSkills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
     if (copiedSkillTargets > 0) {
       print("Copied " + copiedSkillTargets + " skill(s) because links are unavailable at their destination.");
     }

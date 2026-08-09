@@ -9,6 +9,22 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function upstreamSkillName(upstream) {
+  return path.posix.basename(upstream.skillPath);
+}
+
+function isSafeRelativeSkillPath(value) {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  const segments = value.split("/");
+  return !value.startsWith("/")
+    && !value.includes("\\")
+    && segments.every(segment => segment && segment !== "." && segment !== "..");
+}
+
 export function loadCatalog(rootDir) {
   return {
     skills: readJson(path.join(rootDir, "catalog", "skills.json")),
@@ -48,7 +64,10 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
     }
   }
 
-  for (const pack of packs.length === 0 ? ["core"] : packs) addPack(pack);
+  // An omitted selection means the complete distribution. An explicit skill is
+  // a focused selection, rather than an implicit request for a default pack.
+  const requestedPacks = packs.length === 0 && skills.length === 0 ? ["all"] : packs;
+  for (const pack of requestedPacks) addPack(pack);
   for (const skill of skills) {
     if (!catalog.skills.skills[skill]) throw new Error(`Unknown skill: ${skill}`);
     selectedSkills.push(skill);
@@ -65,6 +84,28 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
   };
 }
 
+export function upstreamSkillPlans(catalog, sessionHosts) {
+  const plans = [];
+  const names = new Set();
+  for (const hostName of sessionHosts) {
+    const host = catalog.skills.sessionHosts?.[hostName];
+    if (!host?.upstream) continue;
+    const source = catalog.skills.upstreams?.[host.upstream];
+    if (!source?.skillPath) continue;
+    const name = upstreamSkillName(source);
+    if (names.has(name)) continue;
+    names.add(name);
+    plans.push({
+      host: hostName,
+      command: host.command,
+      upstream: host.upstream,
+      name,
+      source
+    });
+  }
+  return plans;
+}
+
 export function validateCatalog(rootDir, catalog) {
   const errors = [];
   const sourceRoot = path.join(rootDir, "skills");
@@ -74,6 +115,25 @@ export function validateCatalog(rootDir, catalog) {
     .map(entry => entry.name)
     .sort();
   const catalogNames = Object.keys(catalog.skills.skills).sort();
+
+  for (const [name, upstream] of Object.entries(catalog.skills.upstreams ?? {})) {
+    if (!isPlainObject(upstream)) {
+      errors.push(`upstream ${name} must be an object`);
+      continue;
+    }
+    if (typeof upstream.repository !== "string" || upstream.repository.trim() === "") {
+      errors.push(`upstream ${name} is missing repository`);
+    }
+    if (!isSafeRelativeSkillPath(upstream.skillPath)) {
+      errors.push(`upstream ${name} has unsafe skillPath`);
+    }
+    if (typeof upstream.ref !== "string" || upstream.ref.trim() === "") {
+      errors.push(`upstream ${name} is missing ref`);
+    }
+    if (!/^[0-9a-f]{40}$/i.test(upstream.commit ?? "")) {
+      errors.push(`upstream ${name} is missing a full commit`);
+    }
+  }
 
   for (const name of directoryNames) {
     if (!catalog.skills.skills[name]) errors.push(`skills/${name} is missing from catalog/skills.json`);

@@ -23,8 +23,15 @@ import {
   updateTargetState,
   validateStateGrammar
 } from "./lib/runtime.mjs";
-import { installSelection, resolveTargetRoots, selected } from "./lib/installer.mjs";
+import {
+  DEFAULT_TARGETS,
+  installSelection,
+  resolveTargetRoots,
+  selected,
+  selectedInstallableSkills
+} from "./lib/installer.mjs";
 import { parseOptions } from "./lib/options.mjs";
+import { isCommandAvailable } from "./lib/upstreams.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
@@ -39,6 +46,7 @@ function fail(message) {
 }
 
 function usage() {
+  const catalog = loadCatalog(rootDir);
   return [
     "Usage: agentgear <command> [options]",
     "",
@@ -55,7 +63,21 @@ function usage() {
     "  resolve-tool-command [resolver options]",
     "  run <skill> <script> [args...]",
     "",
-    "install/update copy a release snapshot into targets. The default pack is core."
+    "Install/update defaults:",
+    "  --pack all (when --skill is also omitted)",
+    "  --skill alone selects only the named skills",
+    `  --target ${DEFAULT_TARGETS.join(",")}`,
+    "  --scope global; --project current directory; --dest none",
+    "  --force false; --no-launcher false (skip the global command and workflow helpers)",
+    "",
+    "With --dest and no --target, Agentgear uses the general target only.",
+    "",
+    "Available packs:",
+    ...listPacks(catalog).map(pack => `  ${pack.name.padEnd(10)} ${pack.description}`),
+    "",
+    "Available targets:",
+    ...Object.entries(catalog.targets.targets).map(([name, target]) =>
+      `  ${name.padEnd(10)} ${target.description}`)
   ].join("\n");
 }
 
@@ -99,6 +121,7 @@ function uninstall(catalog, options) {
   }
   const selection = selected(catalog, options);
   const targets = resolveTargetRoots(catalog, options);
+  const skills = selectedInstallableSkills(catalog, selection);
   const state = readInstallState();
   const grammar = validateStateGrammar(state);
   if (!grammar.valid) {
@@ -114,7 +137,7 @@ function uninstall(catalog, options) {
   const removals = [];
   for (const target of targets) {
     const record = targetState(state, target.root);
-    for (const skill of selection.skills) {
+    for (const skill of skills) {
       const item = record.skills[skill];
       if (!item) {
         print("Not managed by agentgear: " + path.join(target.root, skill));
@@ -231,24 +254,11 @@ function purge(catalog, options) {
   }
 }
 
-function commandOnPath(command) {
-  for (const directory of (process.env.PATH || "").split(path.delimiter)) {
-    const candidate = path.join(directory, command);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return true;
-    } catch {
-      // Continue searching.
-    }
-  }
-  return false;
-}
-
 function sessionHostReady(catalog, hostName, targets) {
   const host = catalog.skills.sessionHosts?.[hostName];
   if (!host) return false;
 
-  let ready = commandOnPath(host.command);
+  let ready = isCommandAvailable(host.command);
   print((ready ? "ok      " : "unavailable ") + `session host ${hostName} (${host.command})`);
 
   if (host.upstream) {
@@ -273,7 +283,7 @@ function doctor(catalog, options) {
   const targets = resolveTargetRoots(catalog, options);
   let missing = 0;
   for (const command of selection.requirements.commands) {
-    const found = commandOnPath(command);
+    const found = isCommandAvailable(command);
     print((found ? "ok      " : "missing ") + command);
     if (!found) missing += 1;
   }

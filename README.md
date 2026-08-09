@@ -8,9 +8,21 @@ small installer and explicit runtime dependencies.
 After the first public package release, install the latest stable release:
 
 ~~~bash
-npx @ruiheng/agentgear install --pack core --target codex
-npx --yes @ruiheng/agentgear@latest update --pack core --target codex
+npx @ruiheng/agentgear install
+npx --yes @ruiheng/agentgear@latest update
 ~~~
+
+With neither `--pack` nor `--skill`, Agentgear installs the `all` pack. Use
+`--pack core` or another named pack to narrow that selection; `--skill NAME`
+without `--pack` installs only the named skills.
+
+The default targets are `general,claude`. `general` uses the shared Agent Skills locations
+`~/.agents/skills` and `.agents/skills`; it is discovered by Codex, Gemini
+CLI, OpenCode, and Antigravity. Agentgear installs that shared payload once,
+instead of creating duplicate host-specific copies. `claude` adds Claude Code's
+separate `.claude/skills` location. Use `--target general` or `--target claude`
+to narrow an installation; add `kiro` only when Kiro's separate skill directory
+is needed.
 
 `update` resolves the newest published version, stages it under the user's XDG
 data directory, then publishes it only after the target checks and installation
@@ -22,7 +34,7 @@ active. Later edits in any local checkout do not affect that release.
 ~~~bash
 git clone git@github.com:ruiheng/agentgear.git
 cd agentgear
-node ./bin/agentgear-link.mjs --pack all --target codex,claude
+node ./bin/agentgear-link.mjs
 ~~~
 
 `agentgear-link` is a developer-only command: run it from a source checkout,
@@ -33,7 +45,7 @@ the `agentgear` launcher at its stable `current` path. After editing the
 checkout, rerun the same command to refresh that runtime:
 
 ~~~bash
-node ./bin/agentgear-link.mjs --pack all --target codex,claude
+node ./bin/agentgear-link.mjs
 ~~~
 
 When directory links or Windows junctions are unavailable, a fresh
@@ -52,7 +64,7 @@ links to independent release copies, purge first and then install:
 
 ~~~bash
 agentgear uninstall --purge
-npx --yes @ruiheng/agentgear@latest install --pack all --target codex,claude
+npx --yes @ruiheng/agentgear@latest install
 ~~~
 
 Agentgear records ownership of its launcher and workflow helpers. If the stable
@@ -74,7 +86,7 @@ session-host prerequisites.
 
 ~~~bash
 node ./bin/agentgear.mjs doctor --pack workflow
-node ./bin/agentgear.mjs install --pack workflow --target codex,claude --scope project
+node ./bin/agentgear.mjs install --pack workflow --scope project
 ~~~
 
 Use `agentgear-link` from a development checkout, and rerun it after local
@@ -87,15 +99,19 @@ from one to the other requires `agentgear uninstall --purge` first.
 The workflow pack needs one supported persistent-session host:
 
 - [Agent Deck](https://github.com/asheshgoplani/agent-deck): install its
-  executable and upstream `agent-deck` skill in each target harness. The
-  installed `agent-deck-workflow-init-permissions` helper is an optional
-  Agent Deck permission integration.
+  executable. When it is on `PATH`, Agentgear fetches its official
+  `agent-deck` skill from the catalog-pinned upstream revision and installs it
+  into each selected target as part of the workflow transaction. The installed
+  `agent-deck-workflow-init-permissions` helper is an optional Agent Deck
+  permission integration.
 - [Thurbox](https://thurbox.thurbeen.eu/docs/features.html#headless-cli):
-  install `thurbox-cli`.
+  install `thurbox-cli`. Thurbox currently publishes no general-purpose host
+  skill, so Agentgear does not invent or install a substitute.
 
 `agentgear doctor --pack workflow` succeeds when Waypost, Git, Node.js, and at
-least one of those session hosts are ready. Agentgear does not copy either
-host's upstream implementation.
+least one of those session hosts are ready. The Agent Deck executable and
+Thurbox executable remain external dependencies; only Agent Deck's declared
+skill payload is fetched during installation.
 
 ### Resolve session launch values
 
@@ -130,8 +146,8 @@ agentgear resolve-tool-command --check-config --format text
 Remove a selected pack or skill from a target:
 
 ~~~bash
-agentgear uninstall --pack core --target codex
-agentgear uninstall --skill handoff --target codex
+agentgear uninstall --pack core --target general
+agentgear uninstall --skill handoff --target general
 ~~~
 
 The installer refuses to remove locally modified copied skills; `--force`
@@ -178,6 +194,10 @@ checkout. It accepts the same pack, skill, target, scope, destination,
 `--force`, and `--no-launcher` selection options as `agentgear install`; it is
 intentionally not an `agentgear` subcommand and is not published in the npm
 package.
+
+`--no-launcher` still installs the selected skills. It leaves the global
+`agentgear` command and workflow helpers unchanged, so use it only when those
+commands are already managed separately or are intentionally unwanted.
 
 ## Development
 

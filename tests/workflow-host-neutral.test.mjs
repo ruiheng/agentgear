@@ -17,7 +17,7 @@ const creationSkills = [
   "review-request",
   "refactor-review-request",
   "browser-test-request",
-  "coordinate-design-spec",
+  "tech-design-workflow",
   "roundtable",
 ];
 

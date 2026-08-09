@@ -1,18 +1,18 @@
 ---
-name: assess-design-spec
-description: Independently assess a completed design specification against its current accepted intent, starting from the original problem. Use only when explicitly asked for a final assessment, not for drafting, workflow routing, or acceptance closeout.
+name: assess-tech-design
+description: Independently assess a completed technical design specification against its current accepted intent, starting from the original problem. Use only when explicitly asked for a final assessment, not for drafting, workflow routing, or acceptance closeout.
 disable-model-invocation: true
 ---
 
-# Assess Design Specification
+# Assess Technical Design
 
-Start from the original problem; assess the current design specification against the latest accepted goals, constraints, and decisions—not the drafting history.
+Start from the original problem; assess the current technical design specification against the latest accepted goals, constraints, and decisions—not the drafting history.
 
 ## Scope
 
 Require:
 
-- exact readable target set: every document or asset needed to judge the design specification
+- exact readable target set: every document or asset needed to judge the technical design specification
 - current accepted intent: original problem + latest accepted goals, constraints, and decisions
 - exact snapshot/commit when version can change the conclusion
 
@@ -39,7 +39,7 @@ Use `None` for no relevant impact or concern; use `Missing information` when evi
 Keep the report compact. Focus on material issues, tradeoffs, and decisions; do not restate the design specification.
 
 ~~~markdown
-# Design Specification Assessment
+# Technical Design Assessment
 
 ## Targets And Intent
 - Targets:

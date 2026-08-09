@@ -40,7 +40,7 @@ reference to them.
 
 Use explicit-only invocation for opt-in features whose primary result is a
 distinct deliverable rather than a normal chat reply (currently
-`explain-for-me`, `handoff`, `explore-defects`, and `assess-design-spec`). Set both:
+`explain-for-me`, `handoff`, `explore-defects`, and `assess-tech-design`). Set both:
 
 - Claude Code `SKILL.md`: `disable-model-invocation: true`
 - Codex `agents/openai.yaml`: `policy.allow_implicit_invocation: false`
@@ -56,7 +56,7 @@ currently rejects the Claude-only field; retain it as a cross-harness exception.
 - Persistent-session Worker: a named host session for a bounded outcome when history must survive restarts, explicit control, later coordination, or user-visible/intervenable progress matters
 - Agent 2, **Coder** (implementation): executes tasks and applies code changes
 - Agent 3, **Reviewer** (`review-code`): review agent, produces the full review report directly in message body
-- Agent 4, **Architect** (`review-design-spec`): per-topic reviewer for an exact immutable design-specification artifact or committed specification snapshot
+- Agent 4, **Architect** (`review-tech-design`): per-topic reviewer for an exact immutable technical-design artifact or committed specification snapshot
 - Agent 5, **Browser Tester** (`browser-test`): usually a reusable long-lived runtime validation agent, keeps browser state warm when available, checks behavior with `agent-browser`, and reports evidence back to the requester session
 - Refactor Reviewer (`refactor-review`): advisory reviewer that inspects existing code for duplication and simplification opportunities without making changes
 - Roundtable Moderator (`roundtable`): user-facing discussion controller; creates Waypost group, selects participants, drains group updates, and presents synthesis
@@ -162,8 +162,8 @@ flowchart TD
 ## Operational Notes
 
 - `review-code` remains the authoritative full review output
-- `review-design-spec` is a separate advisory lane for immutable draft artifacts or committed design specifications; it does not replace code review
-- `coordinate-design-spec` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
+- `review-tech-design` is a separate advisory lane for immutable draft artifacts or committed technical design specifications; it does not replace code review
+- `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
 - in the two-architect lane, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and the reviewer is read-only
 - the author sends only the accepted artifact pointer and review decision; the original requester archives that artifact to the formal docs path and commits it
 - draft-review does not transfer workspace ownership, switch branches, or commit intermediate rounds
@@ -216,9 +216,9 @@ Use skills:
 - Plan dispatch: `dispatch-plan`
 - Plan execution: `execute-plan`
 - Plan report: `plan-report`
-- Design Specification coordination: `coordinate-design-spec`
-- Architect review: `review-design-spec`
-- Design Specification assessment: `assess-design-spec`
+- Technical design workflow: `tech-design-workflow`
+- Technical design review: `review-tech-design`
+- Technical design assessment: `assess-tech-design`
 - Browser check request: `browser-test-request`
 - Browser tester: `browser-test`
 - Audience-adapted HTML explainer: `explain-for-me`

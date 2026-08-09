@@ -1,9 +1,9 @@
 ---
-name: coordinate-design-spec
-description: Coordinate multi-agent drafting, review, revision, and delivery of a coder-facing design specification. Use when starting, continuing, or routing this workflow.
+name: tech-design-workflow
+description: Create, review, revise, and deliver a coder-facing technical design specification through a multi-agent workflow. Use when starting, continuing, or routing this workflow.
 ---
 
-# Coordinate Design Specification
+# Technical Design Workflow
 
 Use multi-agent-protocol for shared transport and session protocol.
 

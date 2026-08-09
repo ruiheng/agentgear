@@ -1,9 +1,9 @@
 ---
-name: review-design-spec
-description: Review a design specification.
+name: review-tech-design
+description: Review a technical design specification.
 ---
 
-# Review Design Specification
+# Review Technical Design
 
 Use multi-agent-protocol for shared transport protocol.
 
