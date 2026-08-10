@@ -159,11 +159,12 @@ export function installSelection({
   sourceRoot,
   development = false,
   env = process.env,
-  print,
+  print = () => {},
   provisionUpstreamSkill = defaultProvisionUpstreamSkill
 }) {
   const selection = selected(catalog, options);
   const targets = resolveTargetRoots(catalog, options, env);
+  print("Checking installation state...");
   ensureSourceSkills(sourceRoot, selection);
   const state = readInstallState(env);
   const grammar = validateStateGrammar(state, env);
@@ -203,6 +204,7 @@ export function installSelection({
   let committed = false;
 
   try {
+    print("Staging runtime snapshot...");
     runtime = stageRuntime({ sourceRoot, env });
     const paths = computePaths(env);
     const previousRuntimeRoots = [
@@ -214,10 +216,13 @@ export function installSelection({
         plan: upstreamPlan,
         runtime,
         previousRuntimeRoots,
-        env
+        env,
+        print
       });
     }
+    print("Checking deployment mode...");
     const mode = chooseDeploymentMode({ runtime, targets, development, state, env, print });
+    print("Validating staged runtime...");
     const consumerErrors = validateSharedRuntimeConsumers({
       runtime,
       state,
@@ -244,6 +249,10 @@ export function installSelection({
     const shared = development && mode === "shared";
     const skillSourceRoot = shared ? computePaths(env).currentPath : runtime.root;
     let copiedSkillTargets = 0;
+    print(
+      `Installing ${installedSkills.length} skill(s) to `
+      + `${targets.map(target => target.name).join(", ")}...`
+    );
 
     for (const item of retiredSkills) {
       if (item.owned) {
@@ -313,8 +322,10 @@ export function installSelection({
     addReleaseToInventory(currentState, runtime.id);
     if (currentState.channel === null) currentState.channel = requestedChannel;
     if (mode === "shared") {
+      print("Publishing shared runtime...");
       publication = publishRuntime(runtime, currentState, env);
     }
+    print("Saving installation state...");
     saveInstallState(currentState, env);
     transaction.commit();
     committed = true;

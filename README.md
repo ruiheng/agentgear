@@ -102,7 +102,9 @@ The workflow pack needs one supported persistent-session host:
   executable. When it is on `PATH`, Agentgear fetches its official
   `agent-deck` skill from the catalog-pinned upstream revision, verifies its
   catalog-anchored content digest, and installs it into each selected target as
-  part of the workflow transaction.
+  part of the workflow transaction. The first fetch is filtered and shallow,
+  materializes only `skills/agent-deck`, reports each installation stage, and
+  streams Git transfer progress.
 - [Thurbox](https://thurbox.thurbeen.eu/docs/features.html#headless-cli):
   install `thurbox-cli`. Thurbox currently publishes no general-purpose host
   skill, so Agentgear does not invent or install a substitute.

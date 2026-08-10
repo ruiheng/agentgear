@@ -40,21 +40,19 @@ export function isCommandAvailable(command, env = process.env) {
   return false;
 }
 
-function runGit(argumentsList, env) {
+function runGit(argumentsList, env, { streamProgress = false } = {}) {
   const result = childProcess.spawnSync("git", argumentsList, {
     encoding: "utf8",
     env,
-    stdio: "pipe",
+    stdio: streamProgress ? ["ignore", "pipe", "inherit"] : "pipe",
     windowsHide: true
   });
+  if (result.status === 0) return String(result.stdout || "").trim();
   if (result.error) {
     fail(`Could not run git while installing an upstream skill: ${result.error.message}`);
   }
-  if (result.status !== 0) {
-    const detail = String(result.stderr || result.stdout || "git failed").trim();
-    fail(`Could not install upstream skill with git: ${detail}`);
-  }
-  return String(result.stdout || "").trim();
+  const detail = String(result.stderr || result.stdout || "git failed").trim();
+  fail(`Could not install upstream skill with git: ${detail}`);
 }
 
 function validateRegularTree(rootDir) {
@@ -176,23 +174,49 @@ export function provisionUpstreamSkill({
   plan,
   runtime,
   previousRuntimeRoots,
-  env = process.env
+  env = process.env,
+  print = () => {},
+  runGitCommand = runGit
 }) {
   const destination = path.join(runtime.root, "skills", plan.name);
   if (fs.existsSync(destination) || fs.lstatSync(destination, { throwIfNoEntry: false })) {
     fail(`Staged runtime already contains upstream skill destination: ${destination}`);
   }
 
-  if (reusePinnedUpstreamSkill(plan, previousRuntimeRoots, destination)) return;
+  print(`Upstream skill ${plan.name}: checking verified cache...`);
+  if (reusePinnedUpstreamSkill(plan, previousRuntimeRoots, destination)) {
+    print(`Upstream skill ${plan.name}: reused cached copy.`);
+    return;
+  }
 
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-upstream-"));
   try {
     const checkout = path.join(temporaryRoot, "checkout");
-    runGit(
-      ["clone", "--depth", "1", "--branch", plan.source.ref, plan.source.repository, checkout],
+    const source = resolveSkillPath(checkout, plan.source.skillPath);
+    fs.mkdirSync(checkout);
+
+    print(
+      `Upstream skill ${plan.name}: fetching ${plan.source.ref} `
+      + "with a filtered, shallow Git fetch..."
+    );
+    runGitCommand(["-C", checkout, "init", "--quiet"], env);
+    runGitCommand(["-C", checkout, "remote", "add", "origin", plan.source.repository], env);
+    runGitCommand(["-C", checkout, "config", "remote.origin.promisor", "true"], env);
+    runGitCommand(
+      ["-C", checkout, "config", "remote.origin.partialclonefilter", "blob:none"],
       env
     );
-    const commit = runGit(["-C", checkout, "rev-parse", "HEAD"], env);
+    runGitCommand(
+      [
+        "-C", checkout,
+        "-c", "protocol.version=2",
+        "fetch", "--progress", "--depth", "1", "--no-tags", "--filter=blob:none",
+        "--", "origin", plan.source.ref
+      ],
+      env,
+      { streamProgress: true }
+    );
+    const commit = runGitCommand(["-C", checkout, "rev-parse", "FETCH_HEAD^{commit}"], env);
     if (commit !== plan.source.commit) {
       fail(
         `Upstream ${plan.upstream} ref ${plan.source.ref} resolved to ${commit}, `
@@ -200,7 +224,21 @@ export function provisionUpstreamSkill({
       );
     }
 
-    const source = resolveSkillPath(checkout, plan.source.skillPath);
+    print(`Upstream skill ${plan.name}: materializing ${plan.source.skillPath} only...`);
+    runGitCommand(["-C", checkout, "update-ref", "HEAD", commit], env);
+    runGitCommand(["-C", checkout, "sparse-checkout", "init", "--cone"], env);
+    runGitCommand(
+      ["-C", checkout, "sparse-checkout", "set", plan.source.skillPath],
+      env,
+      { streamProgress: true }
+    );
+    runGitCommand(
+      ["-C", checkout, "reset", "--hard", "--quiet", commit],
+      env,
+      { streamProgress: true }
+    );
+
+    print(`Upstream skill ${plan.name}: verifying pinned content...`);
     if (!pinnedUpstreamSkillIsValid(source, plan.source.contentDigest)) {
       fail(
         `Upstream ${plan.upstream} content does not match catalog digest `
@@ -208,6 +246,7 @@ export function provisionUpstreamSkill({
       );
     }
     fs.cpSync(source, destination, { recursive: true, preserveTimestamps: true });
+    print(`Upstream skill ${plan.name}: ready.`);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }

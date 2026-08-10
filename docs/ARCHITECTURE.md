@@ -25,7 +25,9 @@ unknown keys; normal workflow resolution does not perform that inspection.
 The workflow pack depends on Waypost plus one declared session host. When the
 Agent Deck executable is available, Agentgear stages its official skill from a
 catalog-pinned upstream revision into the installation snapshot. The catalog's
-platform-neutral content digest is verified after clone and before any reuse.
+platform-neutral content digest is verified after a filtered, shallow fetch
+and sparse materialization of only the declared skill path, and before any
+reuse.
 Later runs reuse a recorded copy only when repository, ref, commit, skill path,
 and content digest all match; Agentgear does not fork or vendor that payload.
 Doctor treats a missing but declared Agent Deck skill as install-time

@@ -883,6 +883,7 @@ test("workflow installation stages the declared Agent Deck upstream skill", () =
   const fixture = environmentFixture();
   const bin = path.join(fixture.temporary, "bin");
   const installed = [];
+  const messages = [];
   try {
     fs.mkdirSync(bin, { recursive: true });
     writeExecutable(bin, "agent-deck");
@@ -894,7 +895,7 @@ test("workflow installation stages the declared Agent Deck upstream skill", () =
       options,
       sourceRoot: rootDir,
       env: fixture.environment,
-      print: () => {},
+      print: message => messages.push(message),
       provisionUpstreamSkill: ({ plan, runtime }) => {
         installed.push(plan);
         const skillDir = path.join(runtime.root, "skills", plan.name);
@@ -910,11 +911,90 @@ test("workflow installation stages the declared Agent Deck upstream skill", () =
       readState(fixture).targets[path.join(fixture.home, ".agents", "skills")].skills["agent-deck"].mode,
       "copy"
     );
+    for (const message of [
+      "Checking installation state...",
+      "Staging runtime snapshot...",
+      "Checking deployment mode...",
+      "Validating staged runtime...",
+      "Saving installation state..."
+    ]) {
+      assert.equal(messages.includes(message), true, `missing progress message: ${message}`);
+    }
+    assert.equal(
+      messages.some(message => /^Installing \d+ skill\(s\) to general\.\.\.$/.test(message)),
+      true,
+      "missing skill installation progress message"
+    );
 
     run(["uninstall", "--pack", "workflow", "--target", "general"], fixture.environment);
     assert.equal(fs.existsSync(skill), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("upstream provisioning uses a filtered sparse fetch instead of cloning the repository", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-upstream-fetch-test-"));
+  const runtime = { root: path.join(temporary, "runtime") };
+  const expected = path.join(temporary, "expected");
+  const commands = [];
+  const messages = [];
+  const source = {
+    repository: "https://example.invalid/agent-deck.git",
+    skillPath: "skills/agent-deck",
+    ref: "v1.0.0",
+    commit: "0123456789abcdef0123456789abcdef01234567",
+    contentDigest: ""
+  };
+  const plan = { upstream: "agent-deck", name: "agent-deck", source };
+  try {
+    fs.mkdirSync(path.join(runtime.root, "skills"), { recursive: true });
+    fs.mkdirSync(expected, { recursive: true });
+    fs.writeFileSync(path.join(expected, "SKILL.md"), "# Agent Deck\n");
+    source.contentDigest = upstreamSkillDigest(expected);
+
+    provisionPinnedUpstreamSkill({
+      plan,
+      runtime,
+      previousRuntimeRoots: [],
+      print: message => messages.push(message),
+      runGitCommand: (argumentsList, _env, options = {}) => {
+        commands.push({ argumentsList, options });
+        if (argumentsList.includes("rev-parse")) return source.commit;
+        if (argumentsList.includes("reset")) {
+          const checkout = argumentsList[1];
+          const skill = path.join(checkout, "skills", "agent-deck");
+          fs.mkdirSync(skill, { recursive: true });
+          fs.writeFileSync(path.join(skill, "SKILL.md"), "# Agent Deck\n");
+        }
+        return "";
+      }
+    });
+
+    assert.equal(commands.some(command => command.argumentsList.includes("clone")), false);
+    const fetch = commands.find(command => command.argumentsList.includes("fetch"));
+    assert.ok(fetch);
+    assert.equal(fetch.argumentsList.includes("--filter=blob:none"), true);
+    assert.equal(fetch.argumentsList.includes("--depth"), true);
+    assert.equal(fetch.argumentsList.includes("--progress"), true);
+    assert.equal(fetch.options.streamProgress, true);
+    assert.equal(
+      commands.some(command => command.argumentsList.join("\0").includes("sparse-checkout\0set\0skills/agent-deck")),
+      true
+    );
+    assert.equal(
+      fs.readFileSync(path.join(runtime.root, "skills", "agent-deck", "SKILL.md"), "utf8"),
+      "# Agent Deck\n"
+    );
+    assert.deepEqual(messages, [
+      "Upstream skill agent-deck: checking verified cache...",
+      "Upstream skill agent-deck: fetching v1.0.0 with a filtered, shallow Git fetch...",
+      "Upstream skill agent-deck: materializing skills/agent-deck only...",
+      "Upstream skill agent-deck: verifying pinned content...",
+      "Upstream skill agent-deck: ready."
+    ]);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
 
@@ -930,6 +1010,7 @@ test("upstream provisioning reuses the current runtime when the pin is unchanged
     contentDigest: ""
   };
   const plan = { upstream: "agent-deck", name: "agent-deck", source };
+  const messages = [];
   try {
     fs.mkdirSync(path.join(previousRuntimeRoot, "catalog"), { recursive: true });
     fs.mkdirSync(path.join(previousRuntimeRoot, "skills", "agent-deck"), { recursive: true });
@@ -946,13 +1027,18 @@ test("upstream provisioning reuses the current runtime when the pin is unchanged
       plan,
       runtime,
       previousRuntimeRoots: [previousRuntimeRoot],
-      env: { PATH: "" }
+      env: { PATH: "" },
+      print: message => messages.push(message)
     });
 
     assert.equal(
       fs.readFileSync(path.join(runtime.root, "skills", "agent-deck", "SKILL.md"), "utf8"),
       "# Agent Deck\n"
     );
+    assert.deepEqual(messages, [
+      "Upstream skill agent-deck: checking verified cache...",
+      "Upstream skill agent-deck: reused cached copy."
+    ]);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
