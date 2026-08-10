@@ -26,7 +26,9 @@ import {
 import {
   DEFAULT_TARGETS,
   installSelection,
+  printPermissionMigrationRequirement,
   resolveTargetRoots,
+  retiredPermissionMigrationScopes,
   selected,
   selectedInstallableSkills
 } from "./lib/installer.mjs";
@@ -73,7 +75,7 @@ function usage() {
     "  --skill alone selects only the named skills",
     `  --target ${DEFAULT_TARGETS.join(",")}`,
     "  --scope global; --project current directory; --dest none",
-    "  --force false; --no-launcher false (skip the global command and workflow helpers)",
+    "  --force false; --no-launcher false (skip the global command)",
     "",
     "With --dest and no --target, Agentgear uses the general target only.",
     "",
@@ -201,6 +203,12 @@ function purge(catalog, options) {
     fail("--purge cannot be combined with --pack or --skill");
   }
 
+  const detectedPermissionScopes = retiredPermissionMigrationScopes(options);
+  const notifyPermissionMigration = commandRetired => printPermissionMigrationRequirement({
+    print,
+    commandRetired,
+    detectedScopes: detectedPermissionScopes
+  });
   const state = readInstallState();
   const grammar = validateStateGrammar(state);
   if (!grammar.valid) {
@@ -208,8 +216,11 @@ function purge(catalog, options) {
   }
   if (state === null) {
     print("No agentgear installation state recorded; nothing to purge.");
+    notifyPermissionMigration(false);
     return;
   }
+  const retiredPermissionCommand = computePaths().retiredCommands["adwf-send-and-wake"];
+  const retiresPermissionCommand = Boolean(state.commands[retiredPermissionCommand]);
   const targets = purgeTargetRoots(catalog, options, state);
   const { plan, preserved } = purgePlan(state, targets);
   for (const destination of preserved) {
@@ -229,6 +240,7 @@ function purge(catalog, options) {
     if (!preflight.ok) {
       print("Purge incomplete: runtime ambiguity; manual cleanup required.");
       process.exitCode = 1;
+      notifyPermissionMigration(false);
       return;
     }
   }
@@ -248,13 +260,16 @@ function purge(catalog, options) {
     saveInstallState(state);
     print("Shared runtime retained because other managed skills remain.");
     print("Purge complete.");
+    notifyPermissionMigration(false);
   } else {
     const tornDown = purgeManagedRuntime({ state, env: process.env, print });
     if (tornDown) {
       removeInstallStateFile({ print });
       print("Purge complete.");
+      notifyPermissionMigration(retiresPermissionCommand);
     } else {
       process.exitCode = 1;
+      notifyPermissionMigration(false);
     }
   }
 }

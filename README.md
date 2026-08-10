@@ -67,9 +67,9 @@ agentgear uninstall --purge
 npx --yes @ruiheng/agentgear@latest install
 ~~~
 
-Agentgear records ownership of its launcher and workflow helpers. If the stable
-`current` link is removed accidentally, rerun `agentgear-link` from the
-checkout to restore it and the recorded command links. It still refuses an
+Agentgear records ownership of its launcher. If the stable `current` link is
+removed accidentally, rerun `agentgear-link` from the checkout to restore it
+and the recorded launcher link. It still refuses an
 unrecorded command link, even when that link happens to target the same path,
 and it cannot recover a `current` link dangling because its inventoried release
 was deleted (full purge can remove that link).
@@ -156,8 +156,8 @@ never authorizes deleting an artifact that does not agree with its state
 record. Removing a development target removes only the Agentgear-managed link
 or copy, never the checkout it came from.
 
-To remove every installer-managed skill, launcher, workflow helper, recorded
-release snapshot, and install-state file, run a full purge:
+To remove every installer-managed skill, launcher, recorded release snapshot,
+and install-state file, run a full purge:
 
 ~~~bash
 agentgear uninstall --purge
@@ -222,6 +222,18 @@ adds and removes them when Waypost is no longer trusted; user-managed sections
 are never claimed. Restart existing agent sessions after changing permissions
 so they reload their harness configuration.
 
+When an update retires a workflow command that older permission files may still
+approve, Agentgear prints a `permission_migration_required` security action.
+Install, update, and purge also inspect known user-scope permission files even
+when no installation state remains; an explicitly selected project scope is
+inspected as well.
+Run `agentgear permissions init` for user scope. For every project where
+workflow permissions were previously initialized, rerun it as
+`agentgear permissions init --scope project --project <path>`. The installer
+cannot safely discover arbitrary historical project scopes, so the migration is
+not complete until each of those scopes has been updated and existing agent
+sessions have been restarted.
+
 The development-only command is `node ./bin/agentgear-link.mjs` from a source
 checkout. It accepts the same pack, skill, target, scope, destination,
 `--force`, and `--no-launcher` selection options as `agentgear install`; it is
@@ -229,8 +241,8 @@ intentionally not an `agentgear` subcommand and is not published in the npm
 package.
 
 `--no-launcher` still installs the selected skills. It leaves the global
-`agentgear` command and workflow helpers unchanged, so use it only when those
-commands are already managed separately or are intentionally unwanted.
+`agentgear` command unchanged, so use it only when that command is already
+managed separately or is intentionally unwanted.
 
 ## Development
 

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { main as cliMain } from "../cli/agentgear.mjs";
 import {
   checkPermissions,
+  findRetiredPermissionApprovals,
   initializePermissions,
   permissionPaths,
   workflowWaypostMcpTools
@@ -80,6 +81,81 @@ test("workflow permissions use the stable launcher and never an old source path"
     assert.equal(claude.permissions.allow.includes("Bash(agentgear install *)"), false);
     assert.match(generated[1], /pattern = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "resolve-tool-command"\]/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("workflow permissions revoke retired Claude send-and-wake grants", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-retired-claude-permissions-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    PATH: ""
+  };
+  const settingsFile = path.join(project, ".claude", "settings.json");
+  const retiredPermissions = [
+    "Bash(~/.local/bin/adwf-send-and-wake *)",
+    `Bash(${path.join(home, ".local", "bin", "adwf-send-and-wake")} *)`
+  ];
+  const userPermission = "Bash(/opt/user-owned-tool *)";
+  try {
+    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+    fs.writeFileSync(settingsFile, `${JSON.stringify({ permissions: { allow: [...retiredPermissions, userPermission] } }, null, 2)}\n`);
+
+    const stale = withEnvironment(environment, () => checkPermissions({ scope: "project", project }));
+    assert.equal(stale.issues.some(issue => /retain 2 retired Agentgear permission/.test(issue)), true);
+
+    withEnvironment(environment, () => initializePermissions({ scope: "project", project }));
+
+    const updated = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+    for (const permission of retiredPermissions) {
+      assert.equal(updated.permissions.allow.includes(permission), false);
+    }
+    assert.equal(updated.permissions.allow.includes(userPermission), true);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("retired permission detection only treats Claude allow entries as approvals", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-retired-permission-detection-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    PATH: ""
+  };
+  const settingsFile = path.join(home, ".claude", "settings.json");
+  try {
+    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+    fs.writeFileSync(settingsFile, `${JSON.stringify({
+      note: "adwf-send-and-wake was retired",
+      permissions: { allow: ["Bash(/opt/user-owned-tool *)"] }
+    }, null, 2)}\n`);
+
+    const clean = findRetiredPermissionApprovals({
+      scope: "user",
+      project,
+      env: environment
+    });
+    assert.equal(clean.required, false, clean.issues.join("\n"));
+
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+    settings.permissions.allow.push("Bash(~/.local/bin/adwf-send-and-wake *)");
+    fs.writeFileSync(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+    const stale = findRetiredPermissionApprovals({
+      scope: "user",
+      project,
+      env: environment
+    });
+    assert.equal(stale.required, true);
+    assert.equal(stale.issues.some(issue => /Claude settings retain an approval/.test(issue)), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -201,6 +277,7 @@ prefix_rule(
     assert.equal(fs.existsSync(legacyRules), false);
     assert.equal(fs.readFileSync(`${legacyRules}.agentgear-backup`, "utf8"), legacySource);
     assert.match(fs.readFileSync(currentRules, "utf8"), /# Agentgear workflow - generated approval rules/);
+    assert.doesNotMatch(fs.readFileSync(currentRules, "utf8"), /adwf-send-and-wake/);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

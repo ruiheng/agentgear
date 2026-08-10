@@ -2,7 +2,7 @@
 import process from "node:process";
 import { execute, isMain, parseArgs, resolveCommand, run } from "./workflow-lib.mjs";
 
-export const usage = `Best-effort desktop notifications for agent-deck workflow events.
+export const usage = `Best-effort desktop notifications for Agentgear multi-agent workflow events.
 
 Usage:
   notify-workflow-event.mjs [options]

@@ -12,10 +12,9 @@ const FINGERPRINT_PATTERN = /^sha256-v1:[0-9a-f]{64}$/;
 const SKILL_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const LINK_UNAVAILABLE_CODES = new Set(["EACCES", "EINVAL", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM"]);
 let temporarySequence = 0;
-const WORKFLOW_HELPERS = {
-  "adwf-send-and-wake": "adwf-send-and-wake.mjs"
-};
-const LEGACY_WORKFLOW_HELPERS = {
+// Exact historical command names retained only so managed artifacts can be removed safely.
+const RETIRED_COMMANDS = {
+  "adwf-send-and-wake": "adwf-send-and-wake.mjs",
   "agent-deck-workflow-init-permissions": "agent-deck-workflow-init-permissions.mjs"
 };
 
@@ -37,10 +36,8 @@ export function computePaths(env = process.env) {
   const dataRoot = path.join(env.XDG_DATA_HOME || path.join(home, ".local", "share"), "agentgear");
   const stateHome = env.XDG_STATE_HOME || path.join(home, ".local", "state");
   const localBin = path.join(home, ".local", "bin");
-  const workflowHelpers = {};
-  for (const name of Object.keys(WORKFLOW_HELPERS)) workflowHelpers[name] = path.join(localBin, name);
-  const legacyWorkflowHelpers = {};
-  for (const name of Object.keys(LEGACY_WORKFLOW_HELPERS)) legacyWorkflowHelpers[name] = path.join(localBin, name);
+  const retiredCommands = {};
+  for (const name of Object.keys(RETIRED_COMMANDS)) retiredCommands[name] = path.join(localBin, name);
   return {
     home,
     dataRoot,
@@ -49,8 +46,7 @@ export function computePaths(env = process.env) {
     stateFile: path.join(stateHome, "agentgear", "installs.json"),
     localBin,
     launcher: path.join(localBin, "agentgear"),
-    workflowHelpers,
-    legacyWorkflowHelpers
+    retiredCommands
   };
 }
 
@@ -426,29 +422,20 @@ function writeCommandWrapper(destination, command, modulePath) {
 
 export function commandEntries(env = process.env) {
   const paths = computePaths(env);
-  const entries = [{
+  return [{
     command: "agentgear",
     kind: "launcher",
     destination: paths.launcher,
     relativeModule: path.join("bin", "agentgear.mjs")
   }];
-  for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
-    entries.push({
-      command: name,
-      kind: "workflow-helper",
-      destination: paths.workflowHelpers[name],
-      relativeModule: path.join("skills", "multi-agent-protocol", "scripts", script)
-    });
-  }
-  return entries;
 }
 
-export function legacyCommandEntries(env = process.env) {
+export function retiredCommandEntries(env = process.env) {
   const paths = computePaths(env);
-  return Object.entries(LEGACY_WORKFLOW_HELPERS).map(([name, script]) => ({
+  return Object.entries(RETIRED_COMMANDS).map(([name, script]) => ({
     command: name,
     kind: "workflow-helper",
-    destination: paths.legacyWorkflowHelpers[name],
+    destination: paths.retiredCommands[name],
     relativeModule: path.join("skills", "multi-agent-protocol", "scripts", script)
   }));
 }
@@ -487,9 +474,8 @@ function commandArtifactState(destination, record) {
   return commandArtifactOwned(destination, record) ? "owned" : "unowned";
 }
 
-export function checkCommandCollisions(state, env, installLauncher, installWorkflowHelpers, force) {
-  const entries = commandEntries(env).filter(entry =>
-    entry.kind === "launcher" ? installLauncher : installWorkflowHelpers);
+export function checkCommandCollisions(state, env, installLauncher, force) {
+  const entries = installLauncher ? commandEntries(env) : [];
   for (const entry of entries) {
     const record = state?.commands?.[entry.destination];
     if (commandArtifactState(entry.destination, record) === "unowned" && !force) {
@@ -652,14 +638,11 @@ export function validateStateGrammar(state, env = process.env) {
 
   const expectedKinds = new Map();
   expectedKinds.set(paths.launcher, "launcher");
-  for (const [name, destination] of Object.entries(paths.workflowHelpers)) {
-    expectedKinds.set(destination, "workflow-helper");
-  }
-  for (const destination of Object.values(paths.legacyWorkflowHelpers)) {
+  for (const destination of Object.values(paths.retiredCommands)) {
     expectedKinds.set(destination, "workflow-helper");
   }
   const commandModules = new Map();
-  for (const entry of [...commandEntries(env), ...legacyCommandEntries(env)]) {
+  for (const entry of [...commandEntries(env), ...retiredCommandEntries(env)]) {
     commandModules.set(entry.destination, entry.relativeModule);
   }
   for (const [destination, record] of Object.entries(state.commands)) {
@@ -1145,7 +1128,6 @@ export function validateSharedRuntimeConsumers({
   mode = "fallback",
   development = false,
   installLauncher = false,
-  installWorkflowHelpers = false,
   retireCommandDestinations = [],
   retireSkillDestinations = [],
   plannedSkills = [],
@@ -1195,15 +1177,6 @@ export function validateSharedRuntimeConsumers({
 
   if (installLauncher) {
     requiredRuntimeCommand(commands, path.join("bin", "agentgear.mjs"), `planned launcher: ${paths.launcher}`);
-  }
-  if (installWorkflowHelpers) {
-    for (const [name, script] of Object.entries(WORKFLOW_HELPERS)) {
-      requiredRuntimeCommand(
-        commands,
-        path.join("skills", "multi-agent-protocol", "scripts", script),
-        `planned workflow helper: ${paths.workflowHelpers[name]}`
-      );
-    }
   }
 
   const errors = [];

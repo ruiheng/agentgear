@@ -106,20 +106,20 @@ function log(kind, message) {
   process.stdout.write(`${colors[kind]}[${kind.toUpperCase()}]${colors.reset} ${message}\n`);
 }
 
-function getHome() {
-  return process.env.HOME || os.homedir();
+function getHome(env = process.env) {
+  return env.HOME || os.homedir();
 }
 
-function codexHome() {
-  return process.env.CODEX_HOME
-    ? path.resolve(process.env.CODEX_HOME)
-    : path.join(getHome(), ".codex");
+function codexHome(env = process.env) {
+  return env.CODEX_HOME
+    ? path.resolve(env.CODEX_HOME)
+    : path.join(getHome(env), ".codex");
 }
 
-export function permissionPaths(scope, projectDir) {
+export function permissionPaths(scope, projectDir, env = process.env) {
   const user = scope === "user";
-  const configRoot = user ? path.resolve(getHome()) : projectDir;
-  const codexRoot = user ? codexHome() : path.join(projectDir, ".codex");
+  const configRoot = user ? path.resolve(getHome(env)) : projectDir;
+  const codexRoot = user ? codexHome(env) : path.join(projectDir, ".codex");
   return {
     configRoot,
     claudeSettings: path.join(configRoot, ".claude", "settings.json"),
@@ -127,7 +127,7 @@ export function permissionPaths(scope, projectDir) {
     codexLegacyRules: path.join(codexRoot, "rules", "agent-deck-workflow.rules"),
     codexConfig: path.join(codexRoot, "config.toml"),
     codexOwnership: path.join(codexRoot, ".agentgear-workflow-permissions.json"),
-    codexUserConfig: path.join(codexHome(), "config.toml"),
+    codexUserConfig: path.join(codexHome(env), "config.toml"),
     geminiPolicy: path.join(configRoot, ".gemini", "policies", "agentgear-workflow.toml"),
     geminiLegacyPolicy: path.join(configRoot, ".gemini", "policies", "agent-deck-workflow.toml")
   };
@@ -268,16 +268,94 @@ function launcherForms() {
   return ["agentgear", "~/.local/bin/agentgear", absolute];
 }
 
-function adwfForms() {
-  const absolute = path.join(getHome(), ".local", "bin", "adwf-send-and-wake");
-  return ["~/.local/bin/adwf-send-and-wake", absolute];
+function retiredClaudePermissions(env = process.env) {
+  const absolute = path.join(getHome(env), ".local", "bin", "adwf-send-and-wake");
+  return [
+    "Bash(~/.local/bin/adwf-send-and-wake *)",
+    `Bash(${absolute} *)`
+  ];
+}
+
+function readRetiredPermissionFile(filePath, label) {
+  try {
+    const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
+    if (!info) return { source: null, issue: null };
+    if (!info.isFile() || info.isSymbolicLink()) {
+      return {
+        source: null,
+        issue: `${label} cannot be safely inspected for retired Agentgear permissions: ${filePath}`
+      };
+    }
+    return { source: fs.readFileSync(filePath, "utf8"), issue: null };
+  } catch (error) {
+    return {
+      source: null,
+      issue: `${label} could not be inspected for retired Agentgear permissions (${error.code ?? "read error"}): ${filePath}`
+    };
+  }
+}
+
+function retiredClaudePermissionIssue(filePath, env) {
+  const inspected = readRetiredPermissionFile(filePath, "Claude settings");
+  if (inspected.issue || inspected.source === null) return inspected.issue;
+  let settings;
+  try {
+    settings = JSON.parse(inspected.source);
+  } catch {
+    return inspected.source.includes("adwf-send-and-wake")
+      ? `Claude settings mention retired command adwf-send-and-wake but are not valid JSON: ${filePath}`
+      : null;
+  }
+  const allowed = Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : [];
+  const retired = new Set(retiredClaudePermissions(env));
+  return allowed.some(permission => retired.has(permission))
+    ? `Claude settings retain an approval for retired command adwf-send-and-wake: ${filePath}`
+    : null;
+}
+
+function retiredGeneratedPermissionIssue(filePath, label) {
+  const inspected = readRetiredPermissionFile(filePath, label);
+  if (inspected.issue || inspected.source === null) return inspected.issue;
+  return inspected.source.includes("adwf-send-and-wake")
+    ? `${label} retains an approval for retired command adwf-send-and-wake: ${filePath}`
+    : null;
+}
+
+export function findRetiredPermissionApprovals({
+  scope = "user",
+  project = process.cwd(),
+  env = process.env
+} = {}) {
+  if (!["user", "project"].includes(scope)) {
+    throw new Error(`Invalid permissions scope: ${scope}. Use user or project.`);
+  }
+  const projectDir = path.resolve(project);
+  const paths = permissionPaths(scope, projectDir, env);
+  const issues = [];
+  const claudeIssue = retiredClaudePermissionIssue(paths.claudeSettings, env);
+  if (claudeIssue) issues.push(claudeIssue);
+  for (const [filePath, label] of [
+    [paths.codexRules, "Codex rules"],
+    [paths.codexLegacyRules, "Legacy Codex rules"],
+    [paths.geminiPolicy, "Gemini policy"],
+    [paths.geminiLegacyPolicy, "Legacy Gemini policy"]
+  ]) {
+    const issue = retiredGeneratedPermissionIssue(filePath, label);
+    if (issue) issues.push(issue);
+  }
+  return {
+    required: issues.length > 0,
+    scope,
+    project: projectDir,
+    issues,
+    paths
+  };
 }
 
 function generatedClaudePermissions(waypost) {
   const permissions = [
     jsonPermission("agent-deck"), jsonPermission("agent-deck *"),
     "Bash(git diff)", "Bash(git diff *)", "Bash(git show)", "Bash(git show *)", "Bash(git status)", "Bash(git status *)", "Bash(git log)", "Bash(git log *)", "Bash(git rev-parse)", "Bash(git rev-parse *)",
-    ...adwfForms().map(command => jsonPermission(`${command} *`)),
     ...launcherForms().map(command => jsonPermission(`${command} run multi-agent-protocol *`)),
     ...launcherForms().map(command => jsonPermission(`${command} resolve-tool-command *`)),
     "Write(/.agent-artifacts/**)"
@@ -334,8 +412,9 @@ function configureClaude(configRoot, waypost) {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) settings = {};
   if (!settings.permissions || typeof settings.permissions !== "object" || Array.isArray(settings.permissions)) settings.permissions = {};
   const prior = Array.isArray(settings.permissions.allow) ? settings.permissions.allow : [];
+  const retiredPermissions = new Set(retiredClaudePermissions());
   settings.permissions.allow = [...new Set([
-    ...prior.filter(item => !ownedWaypostPermissions.has(item) && (ownership.present || !isLegacyBroadWaypostPermission(item))),
+    ...prior.filter(item => !retiredPermissions.has(item) && !ownedWaypostPermissions.has(item) && (ownership.present || !isLegacyBroadWaypostPermission(item))),
     ...generatedClaudePermissions(waypost)
   ])];
   writeAtomic(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
@@ -618,9 +697,8 @@ function configureCodexWaypostMcpPermissions(waypost, paths) {
 function codexRulesSource(waypost) {
   return [
     "# Agentgear workflow - generated approval rules\n",
-    codexRule(["agent-deck"], "Agent Deck workflow commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck workflow dispatch",\n    ]'),
+    codexRule(["agent-deck"], "Agent Deck session-host commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck workflow dispatch",\n    ]'),
     codexRule(["printf"], "Shell formatting helper commands"),
-    ...adwfForms().map(command => codexRule([command], "Workflow send+wakeup helper")),
     ...launcherForms().map(command => codexRule([command, "run", "multi-agent-protocol"], "Protocol scripts through the managed agentgear launcher")),
     ...launcherForms().map(command => codexRule([command, "resolve-tool-command"], "Workflow launch-candidate resolver through Agentgear")),
     ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Waypost query; host permission required")),
@@ -698,7 +776,6 @@ function geminiPolicySource(waypost) {
     "# Agentgear workflow - generated policy rules\n",
     geminiRule("allow_agent_deck_cli", ["agent-deck"]),
     ...(waypost.trusted ? [`[[rule]]\nname = "allow_waypost_mcp"\nenabled = true\ndecision = "allow"\ntoolName = "*"\nmcpName = "waypost"\npriority = 950\nmodes = ["default", "autoEdit", "yolo"]\n`] : []),
-    ...adwfForms().map((command, index) => geminiRule(`allow_adwf_send_and_wake_${index}`, [command])),
     ...launcherForms().map((command, index) => geminiRule(`allow_multi_agent_protocol_launcher_${index}`, [command, "run", "multi-agent-protocol"])),
     ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_resolve_tool_command_${index}`, [command, "resolve-tool-command"])),
     ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
@@ -740,6 +817,8 @@ function checkClaude(paths, waypost, issues) {
   const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
   const missing = generatedClaudePermissions(waypost).filter(permission => !allowed.has(permission));
   if (missing.length > 0) issues.push(`Claude settings are missing ${missing.length} Agentgear permission(s)`);
+  const retired = retiredClaudePermissions().filter(permission => allowed.has(permission));
+  if (retired.length > 0) issues.push(`Claude settings retain ${retired.length} retired Agentgear permission(s)`);
   if (waypost.trusted) {
     try {
       const ownership = readWaypostOwnershipManifest(paths.configRoot);

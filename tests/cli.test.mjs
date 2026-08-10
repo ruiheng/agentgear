@@ -407,7 +407,7 @@ test("agentgear-link help states every option default", () => {
       /--project DIR\s+Project root for --scope project \(default: current directory\)/,
       /--dest DIR\s+Override one destination directory \(default: none; defaults to general\)/,
       /--force\s+Replace selected conflicting artifacts \(default: false\)/,
-      /--no-launcher\s+Skip the global agentgear command and workflow helpers \(default: false\)/,
+      /--no-launcher\s+Skip the global agentgear command \(default: false\)/,
       /-h, --help\s+Show this help \(default: false\)/,
       /Available packs:/,
       /core\s+Standalone skills with no multi-agent workflow dependency/,
@@ -651,22 +651,20 @@ test("release install copies skills, records schema-v2 state, and ordinary unins
   }
 });
 
-test("workflow installation provisions its explicit helper command", t => {
+test("workflow installation provisions only the Agentgear launcher", () => {
   const fixture = environmentFixture();
   try {
-    run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
+    const result = spawnAgentgear(
+      ["install", "--pack", "workflow", "--target", "general"],
+      fixture,
+      fixture.environment
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /permission_migration_required/);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol", "SKILL.md")), true);
     const state = readState(fixture);
-    for (const helper of ["adwf-send-and-wake"]) {
-      const helperPath = path.join(fixture.localBin, helper);
-      if (!fs.lstatSync(helperPath).isSymbolicLink()) {
-        t.skip("file links are unavailable on this filesystem");
-        return;
-      }
-      assert.match(fs.readlinkSync(helperPath), /agentgear[\\/]current[\\/]skills[\\/]multi-agent-protocol/);
-      assert.equal(state.commands[helperPath].kind, "workflow-helper");
-      assert.equal(state.commands[helperPath].mode, "link");
-    }
+    assert.deepEqual(Object.keys(state.commands), [path.join(fixture.localBin, "agentgear")]);
+    assert.equal(pathExists(path.join(fixture.localBin, "adwf-send-and-wake")), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -695,7 +693,7 @@ test("workflow update removes the retired Agent Deck permission helper", t => {
     fs.writeFileSync(legacyCommand, "user-owned replacement\n");
     assert.throws(
       () => run(["update", "--pack", "workflow", "--target", "general"], fixture.environment),
-      /Refusing to retire locally changed legacy workflow helper/
+      /Refusing to retire locally changed command/
     );
     assert.equal(fs.realpathSync(current), previousRuntime);
     assert.equal(readState(fixture).commands[legacyCommand].target, legacyTarget);
@@ -707,6 +705,112 @@ test("workflow update removes the retired Agent Deck permission helper", t => {
 
     assert.equal(pathExists(legacyCommand), false);
     assert.equal(readState(fixture).commands[legacyCommand], undefined);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("workflow update with --no-launcher retires send-and-wake and requires permission migration", t => {
+  if (process.platform === "win32") {
+    t.skip("retired link migration fixture is POSIX-specific");
+    return;
+  }
+  const fixture = environmentFixture();
+  const retiredCommand = path.join(fixture.localBin, "adwf-send-and-wake");
+  const launcher = path.join(fixture.localBin, "agentgear");
+  const current = path.join(fixture.dataRoot, "current");
+  const retiredTarget = path.join(current, "skills", "multi-agent-protocol", "scripts", "adwf-send-and-wake.mjs");
+  const claudeSettings = path.join(fixture.home, ".claude", "settings.json");
+  const codexRules = path.join(fixture.home, ".codex", "rules", "agentgear-workflow.rules");
+  const geminiPolicy = path.join(fixture.home, ".gemini", "policies", "agentgear-workflow.toml");
+  try {
+    run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
+    const physicalTarget = path.join(fs.realpathSync(current), "skills", "multi-agent-protocol", "scripts", "adwf-send-and-wake.mjs");
+    fs.writeFileSync(physicalTarget, "#!/usr/bin/env node\n");
+    fs.symlinkSync(retiredTarget, retiredCommand);
+    const state = readState(fixture);
+    state.commands[retiredCommand] = { kind: "workflow-helper", mode: "link", target: retiredTarget };
+    craftState(fixture, state);
+    const launcherTarget = fs.readlinkSync(launcher);
+
+    fs.mkdirSync(path.dirname(claudeSettings), { recursive: true });
+    fs.writeFileSync(claudeSettings, `${JSON.stringify({
+      permissions: { allow: ["Bash(~/.local/bin/adwf-send-and-wake *)"] }
+    }, null, 2)}\n`);
+    fs.mkdirSync(path.dirname(codexRules), { recursive: true });
+    fs.writeFileSync(codexRules, 'prefix_rule(\n    pattern = ["~/.local/bin/adwf-send-and-wake"],\n    decision = "allow",\n)\n');
+    fs.mkdirSync(path.dirname(geminiPolicy), { recursive: true });
+    fs.writeFileSync(geminiPolicy, '[[rule]]\ndecision = "allow"\ncommandPrefix = ["~/.local/bin/adwf-send-and-wake"]\n');
+
+    const result = spawnAgentgear(
+      ["update", "--no-launcher", "--pack", "workflow", "--target", "general"],
+      fixture,
+      fixture.environment
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /SECURITY ACTION REQUIRED: permission_migration_required command=adwf-send-and-wake/);
+    assert.match(result.stdout, /Run: agentgear permissions init/);
+    assert.match(result.stdout, /agentgear permissions init --scope project --project <path>/);
+    assert.match(result.stdout, /Restart existing agent sessions/);
+    assert.equal(pathExists(retiredCommand), false);
+    assert.equal(readState(fixture).commands[retiredCommand], undefined);
+    assert.equal(fs.readlinkSync(launcher), launcherTarget);
+    // Arbitrary historical scopes cannot be discovered safely; the update must
+    // require explicit migration instead of claiming these files were changed.
+    assert.match(fs.readFileSync(claudeSettings, "utf8"), /adwf-send-and-wake/);
+    assert.match(fs.readFileSync(codexRules, "utf8"), /adwf-send-and-wake/);
+    assert.match(fs.readFileSync(geminiPolicy, "utf8"), /adwf-send-and-wake/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("purge and later install report retired approvals after installation state is gone", t => {
+  if (process.platform === "win32") {
+    t.skip("retired link migration fixture is POSIX-specific");
+    return;
+  }
+  const fixture = environmentFixture();
+  const retiredCommand = path.join(fixture.localBin, "adwf-send-and-wake");
+  const current = path.join(fixture.dataRoot, "current");
+  const retiredTarget = path.join(current, "skills", "multi-agent-protocol", "scripts", "adwf-send-and-wake.mjs");
+  const claudeSettings = path.join(fixture.home, ".claude", "settings.json");
+  const codexRules = path.join(fixture.home, ".codex", "rules", "agentgear-workflow.rules");
+  const geminiPolicy = path.join(fixture.home, ".gemini", "policies", "agentgear-workflow.toml");
+  try {
+    run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
+    const physicalTarget = path.join(fs.realpathSync(current), "skills", "multi-agent-protocol", "scripts", "adwf-send-and-wake.mjs");
+    fs.writeFileSync(physicalTarget, "#!/usr/bin/env node\n");
+    fs.symlinkSync(retiredTarget, retiredCommand);
+    const state = readState(fixture);
+    state.commands[retiredCommand] = { kind: "workflow-helper", mode: "link", target: retiredTarget };
+    craftState(fixture, state);
+
+    fs.mkdirSync(path.dirname(claudeSettings), { recursive: true });
+    fs.writeFileSync(claudeSettings, `${JSON.stringify({
+      permissions: { allow: ["Bash(~/.local/bin/adwf-send-and-wake *)"] }
+    }, null, 2)}\n`);
+    fs.mkdirSync(path.dirname(codexRules), { recursive: true });
+    fs.writeFileSync(codexRules, 'prefix_rule(\n    pattern = ["~/.local/bin/adwf-send-and-wake"],\n    decision = "allow",\n)\n');
+    fs.mkdirSync(path.dirname(geminiPolicy), { recursive: true });
+    fs.writeFileSync(geminiPolicy, '[[rule]]\ndecision = "allow"\ncommandPrefix = ["~/.local/bin/adwf-send-and-wake"]\n');
+
+    const purge = spawnAgentgear(["uninstall", "--purge"], fixture, fixture.environment);
+    assert.equal(purge.status, 0, purge.stderr);
+    assert.match(purge.stdout, /permission_migration_required command=adwf-send-and-wake/);
+    assert.match(purge.stdout, /Detected retired permission approvals in scope\(s\): user/);
+    assert.equal(pathExists(retiredCommand), false);
+    assert.equal(pathExists(fixture.stateFile), false);
+
+    const install = spawnAgentgear(
+      ["install", "--pack", "workflow", "--target", "general"],
+      fixture,
+      fixture.environment
+    );
+    assert.equal(install.status, 0, install.stderr);
+    assert.match(install.stdout, /permission_migration_required command=adwf-send-and-wake/);
+    assert.match(install.stdout, /Detected retired permission approvals in scope\(s\): user/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -985,7 +1089,7 @@ test("release and development channels cannot silently switch", () => {
   }
 });
 
-test("link restores a removed current link and its recorded command links", async t => {
+test("link restores a removed current link and its recorded launcher link", async t => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -997,10 +1101,7 @@ test("link restores a removed current link and its recorded command links", asyn
     runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
-    const commands = [
-      [path.join(fixture.localBin, "agentgear"), "launcher"],
-      [path.join(fixture.localBin, "adwf-send-and-wake"), "workflow-helper"]
-    ];
+    const commands = [[path.join(fixture.localBin, "agentgear"), "launcher"]];
     if (commands.some(([command]) => !fs.lstatSync(command).isSymbolicLink())) {
       t.skip("file links are unavailable on this filesystem");
       return;
@@ -1090,11 +1191,11 @@ test("full purge removes managed skills and runtime artifacts but preserves unow
 
     const purge = spawnAgentgear(["uninstall", "--purge"], fixture, fixture.environment);
     assert.equal(purge.status, 0, purge.stderr);
+    assert.doesNotMatch(purge.stdout, /permission_migration_required/);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol")), false);
     assert.equal(fs.existsSync(unmanagedSkill), true);
     assert.equal(pathExists(path.join(fixture.localBin, "agentgear")), false);
     assert.equal(pathExists(path.join(fixture.localBin, "agent-deck-workflow-init-permissions")), false);
-    assert.equal(pathExists(path.join(fixture.localBin, "adwf-send-and-wake")), false);
     assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
     assert.equal(fs.existsSync(path.join(fixture.dataRoot, "releases")), false);
     assert.equal(fs.existsSync(path.join(fixture.dataRoot, "user-note.txt")), true);
@@ -1803,60 +1904,6 @@ test("link validates documented scripts required by active shared skills", async
       fs.realpathSync(path.join(fixture.home, ".agents", "skills", "execute-plan")),
       path.join(previousRuntime, "skills", "execute-plan")
     );
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("link validates transitive dependencies of active workflow helpers", async () => {
-  const fixture = environmentFixture();
-  const checkout = path.join(fixture.temporary, "checkout");
-  try {
-    fs.cpSync(rootDir, checkout, {
-      recursive: true,
-      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
-    });
-    const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]);
-
-    const current = path.join(fixture.dataRoot, "current");
-    const helper = path.join(fixture.localBin, "adwf-send-and-wake");
-    const previousRuntime = fs.realpathSync(current);
-    const previousHelper = fs.realpathSync(helper);
-    fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "workflow-lib.mjs"));
-
-    assert.throws(
-      () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
-      /workflow-lib\.mjs is missing or is not a file/
-    );
-
-    assert.equal(fs.realpathSync(current), previousRuntime);
-    assert.equal(fs.realpathSync(helper), previousHelper);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("link validates planned workflow helpers before their first publication", async () => {
-  const fixture = environmentFixture();
-  const checkout = path.join(fixture.temporary, "checkout");
-  try {
-    fs.cpSync(rootDir, checkout, {
-      recursive: true,
-      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
-    });
-    fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "workflow-lib.mjs"));
-    const runCheckout = await checkoutRunner(checkout, fixture.environment);
-
-    assert.throws(
-      () => runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]),
-      /workflow-lib\.mjs is missing or is not a file/
-    );
-
-    assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
-    assert.equal(pathExists(path.join(fixture.localBin, "agentgear")), false);
-    assert.equal(pathExists(path.join(fixture.localBin, "adwf-send-and-wake")), false);
-    assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol")), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

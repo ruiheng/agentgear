@@ -10,7 +10,7 @@ The original review findings and severities are retained below for audit history
 
 ## Resolved P1 Review Findings
 
-1. **Revoke stale Claude MCP grants.** Waypost MCP permissions added by `agent-deck-workflow-init-permissions.mjs` are not recorded as initializer-owned permissions. If Waypost later becomes unavailable or untrusted, or the managed tool list shrinks, previously added `mcp__waypost__*` grants remain auto-approved instead of being reconciled.
+1. **Revoke stale Claude MCP grants.** Waypost MCP permissions added by `workflow-permissions.mjs` (then named `agent-deck-workflow-init-permissions.mjs`) are not recorded as initializer-owned permissions. If Waypost later becomes unavailable or untrusted, or the managed tool list shrinks, previously added `mcp__waypost__*` grants remain auto-approved instead of being reconciled.
 
 2. **Preserve the existing Codex configuration mode.** Replacing a `config.toml` originally created with mode `0600` through a default-umask temporary file can change it to `0644`, potentially exposing MCP environment variables or other local secrets.
 

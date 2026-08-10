@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { findRetiredPermissionApprovals } from "../../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
 import { resolveSelection } from "./catalog.mjs";
 import {
   provisionUpstreamSkill as defaultProvisionUpstreamSkill,
@@ -24,9 +25,9 @@ import {
   exists,
   expandHome,
   installRuntimeCommand,
-  legacyCommandEntries,
   publishRuntime,
   readInstallState,
+  retiredCommandEntries,
   resolvedLinkTarget,
   rollbackRuntimePublication,
   saveInstallState,
@@ -39,8 +40,36 @@ import {
 
 export const DEFAULT_TARGETS = ["general", "claude"];
 
+const PERMISSION_MIGRATION_COMMANDS = new Set(["adwf-send-and-wake"]);
+
 function fail(message) {
   throw new Error(message);
+}
+
+export function retiredPermissionMigrationScopes(options, env = process.env) {
+  const candidates = [{ scope: "user", project: options.project }];
+  if (options.scope === "project") {
+    candidates.push({ scope: "project", project: options.project });
+  }
+  return candidates
+    .map(candidate => findRetiredPermissionApprovals({ ...candidate, env }))
+    .filter(result => result.required);
+}
+
+export function printPermissionMigrationRequirement({
+  print,
+  commandRetired = false,
+  detectedScopes = []
+}) {
+  if (!commandRetired && detectedScopes.length === 0) return;
+  const scopes = [...new Set(detectedScopes.map(result => result.scope))];
+  print("SECURITY ACTION REQUIRED: permission_migration_required command=adwf-send-and-wake");
+  if (scopes.length > 0) {
+    print(`Detected retired permission approvals in scope(s): ${scopes.join(",")}`);
+  }
+  print("Run: agentgear permissions init");
+  print("For every project where workflow permissions were initialized, run: agentgear permissions init --scope project --project <path>");
+  print("Restart existing agent sessions after updating permissions.");
 }
 
 export function selected(catalog, options) {
@@ -153,20 +182,19 @@ export function installSelection({
     if (selectedUpstreamNames.has(plan.name)) installedSkills.push(plan.name);
   }
   const installLauncher = !options.noLauncher;
-  const installWorkflowHelpers = installLauncher && selection.skills.includes("multi-agent-protocol");
   const retiredSkills = retiredSkillPlan(catalog, state);
-  const retiredCommands = installLauncher
-    ? legacyCommandEntries(env).filter(entry => state?.commands?.[entry.destination])
-    : [];
+  const retiredCommands = retiredCommandEntries(env)
+    .filter(entry => state?.commands?.[entry.destination]);
+  const detectedPermissionScopes = retiredPermissionMigrationScopes(options, env);
   for (const entry of retiredCommands) {
     const record = state.commands[entry.destination];
     const artifactExists = commandArtifactPaths(entry.destination).some(candidate => exists(candidate));
     if (artifactExists && !commandArtifactOwned(entry.destination, record)) {
-      fail(`Refusing to retire locally changed legacy workflow helper: ${entry.destination}`);
+      fail(`Refusing to retire locally changed command: ${entry.destination}`);
     }
   }
   const plan = targetInstallPlan(state, targets, installedSkills, options);
-  checkCommandCollisions(state, env, installLauncher, installWorkflowHelpers, options.force);
+  checkCommandCollisions(state, env, installLauncher, options.force);
 
   let currentState = state;
   let runtime;
@@ -197,7 +225,6 @@ export function installSelection({
       mode,
       development,
       installLauncher,
-      installWorkflowHelpers,
       retireCommandDestinations: retiredCommands.map(entry => entry.destination),
       retireSkillDestinations: retiredSkills.map(entry => entry.destination),
       plannedSkills: installedSkills
@@ -263,13 +290,12 @@ export function installSelection({
       const record = currentState.commands[entry.destination];
       if (!record) continue;
       transaction.replace(commandArtifactPaths(entry.destination), () => undefined);
-      print(`removed legacy workflow helper: ${entry.destination}`);
+      print(`removed retired command: ${entry.destination}`);
       delete currentState.commands[entry.destination];
     }
 
     if (installLauncher) {
       for (const entry of commandEntries(env)) {
-        if (entry.kind === "workflow-helper" && !installWorkflowHelpers) continue;
         currentState.commands[entry.destination] = installRuntimeCommand({
           command: entry.command,
           kind: entry.kind,
@@ -303,6 +329,11 @@ export function installSelection({
     if (selection.requirements.commands.length > 0) {
       print("Run: agentgear doctor --pack " + selection.packs.at(-1));
     }
+    printPermissionMigrationRequirement({
+      print,
+      commandRetired: retiredCommands.some(entry => PERMISSION_MIGRATION_COMMANDS.has(entry.command)),
+      detectedScopes: detectedPermissionScopes
+    });
   } catch (error) {
     let rollbackSucceeded = true;
     if (!committed && publication?.published) {
