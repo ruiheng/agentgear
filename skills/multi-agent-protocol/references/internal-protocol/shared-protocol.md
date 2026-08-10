@@ -53,6 +53,11 @@ To: <role_or_receiver_label> <to_session_id>
 Waypost state is host-scoped. Prefer MCP; run Waypost CLI or wrappers with host
 permission. If denied, escalate instead of retrying unchanged.
 
+## Collaborator Privacy Boundary
+
+Never inspect another agent's input or output without explicit user
+authorization.
+
 ## Delivery Contract
 
 1. Follow Target Lifecycle Gate.
