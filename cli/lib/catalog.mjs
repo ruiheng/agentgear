@@ -155,6 +155,9 @@ export function validateCatalog(rootDir, catalog) {
     if (!/^[0-9a-f]{40}$/i.test(upstream.commit ?? "")) {
       errors.push(`upstream ${name} is missing a full commit`);
     }
+    if (!/^sha256-v1:[0-9a-f]{64}$/.test(upstream.contentDigest ?? "")) {
+      errors.push(`upstream ${name} is missing a canonical content digest`);
+    }
   }
 
   for (const name of directoryNames) {

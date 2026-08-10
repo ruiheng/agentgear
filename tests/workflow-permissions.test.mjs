@@ -277,6 +277,39 @@ test("workflow permissions do not create Codex approvals without a configured Wa
   }
 });
 
+test("workflow permissions recognize the trusted absolute Waypost command in Codex config", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-absolute-waypost-mcp-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const bin = path.join(temporary, "bin");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
+    PATH: bin
+  };
+  try {
+    const waypost = writeWaypostExecutable(bin);
+    fs.mkdirSync(project, { recursive: true });
+    const paths = withEnvironment(environment, () => permissionPaths("user", project));
+    fs.mkdirSync(path.dirname(paths.codexConfig), { recursive: true });
+    fs.writeFileSync(
+      paths.codexConfig,
+      `[mcp_servers.waypost]\ncommand = ${JSON.stringify(waypost)}\nargs = ["mcp"]\n`
+    );
+
+    withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
+
+    const codex = fs.readFileSync(paths.codexConfig, "utf8");
+    for (const tool of workflowWaypostMcpTools) {
+      assert.match(codex, new RegExp(`mcp_servers\\.waypost\\.tools\\.${tool}`));
+    }
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow permissions revoke Agentgear-owned Codex approvals when Waypost loses trust", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-codex-revoke-test-"));
   const home = path.join(temporary, "home");

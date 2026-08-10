@@ -6,6 +6,7 @@
       "skillPath": "skills/agent-deck",
       "ref": "v1.11.0",
       "commit": "2f586c5ca97d0e783bb16213d388bcce9e675e67",
+      "contentDigest": "sha256-v1:27d8d28f213c859fa5c3872e660b9b5faef5a5589f164566eac017979e6cd85b",
       "reason": "When Agent Deck is available, the workflow installer stages its official skill from this pinned upstream revision."
     }
   },

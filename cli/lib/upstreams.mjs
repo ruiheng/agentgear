@@ -1,8 +1,12 @@
 import childProcess from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { upstreamSkillPlans } from "./catalog.mjs";
+
+const UPSTREAM_DIGEST_PREFIX = "sha256-v1:";
+const UPSTREAM_DIGEST_HEADER = "agentgear-upstream-content-v1\0";
 
 function fail(message) {
   throw new Error(message);
@@ -71,6 +75,47 @@ function validateRegularTree(rootDir) {
   }
 }
 
+export function upstreamSkillDigest(rootDir) {
+  validateRegularTree(rootDir);
+  const hash = crypto.createHash("sha256");
+  hash.update(UPSTREAM_DIGEST_HEADER);
+
+  const visit = (directory, relative = "") => {
+    const entries = fs.readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)));
+    for (const entry of entries) {
+      const entryRelative = relative ? path.join(relative, entry.name) : entry.name;
+      const portableRelative = entryRelative.split(path.sep).join("/");
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        hash.update(`directory\0${portableRelative}\0`);
+        visit(entryPath, entryRelative);
+      } else {
+        hash.update(`file\0${portableRelative}\0`);
+        hash.update(fs.readFileSync(entryPath));
+        hash.update("\0");
+      }
+    }
+  };
+
+  visit(rootDir);
+  return `${UPSTREAM_DIGEST_PREFIX}${hash.digest("hex")}`;
+}
+
+function pinnedUpstreamSkillIsValid(source, expectedDigest) {
+  try {
+    const skillFile = path.join(source, "SKILL.md");
+    const skillInfo = fs.lstatSync(skillFile, { throwIfNoEntry: false });
+    return Boolean(
+      skillInfo?.isFile()
+      && !skillInfo.isSymbolicLink()
+      && upstreamSkillDigest(source) === expectedDigest
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveSkillPath(checkout, skillPath) {
   const source = path.resolve(checkout, ...skillPath.split("/"));
   if (!pathInside(checkout, source)) {
@@ -80,7 +125,7 @@ function resolveSkillPath(checkout, skillPath) {
 }
 
 function samePinnedSource(left, right) {
-  return ["repository", "skillPath", "ref", "commit"]
+  return ["repository", "skillPath", "ref", "commit", "contentDigest"]
     .every(key => left?.[key] === right?.[key]);
 }
 
@@ -98,14 +143,7 @@ function reusePinnedUpstreamSkill(plan, previousRuntimeRoots, destination) {
     }
     if (!samePinnedSource(previousCatalog.upstreams?.[plan.upstream], plan.source)) continue;
     const source = path.join(previousRuntimeRoot, "skills", plan.name);
-    try {
-      validateRegularTree(source);
-      const skillFile = path.join(source, "SKILL.md");
-      const skillInfo = fs.lstatSync(skillFile, { throwIfNoEntry: false });
-      if (!skillInfo?.isFile() || skillInfo.isSymbolicLink()) continue;
-    } catch {
-      continue;
-    }
+    if (!pinnedUpstreamSkillIsValid(source, plan.source.contentDigest)) continue;
     fs.cpSync(source, destination, { recursive: true, preserveTimestamps: true });
     return true;
   }
@@ -163,11 +201,11 @@ export function provisionUpstreamSkill({
     }
 
     const source = resolveSkillPath(checkout, plan.source.skillPath);
-    validateRegularTree(source);
-    const skillFile = path.join(source, "SKILL.md");
-    const skillInfo = fs.lstatSync(skillFile, { throwIfNoEntry: false });
-    if (!skillInfo?.isFile() || skillInfo.isSymbolicLink()) {
-      fail(`Upstream skill requires a regular SKILL.md: ${skillFile}`);
+    if (!pinnedUpstreamSkillIsValid(source, plan.source.contentDigest)) {
+      fail(
+        `Upstream ${plan.upstream} content does not match catalog digest `
+        + `${plan.source.contentDigest}`
+      );
     }
     fs.cpSync(source, destination, { recursive: true, preserveTimestamps: true });
   } finally {

@@ -361,7 +361,28 @@ function codexRule(pattern, justification, extra = "") {
   return `prefix_rule(\n    pattern = [${pattern.map(tomlString).join(", ")}],\n    decision = "allow",\n    justification = ${tomlString(justification)},${extra}\n)\n`;
 }
 
-function codexWaypostServerIsConfigured(source) {
+function codexCommandValue(line) {
+  const match = /^\s*command\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$/.exec(line);
+  if (!match) return null;
+  if (match[1].startsWith("'")) return match[1].slice(1, -1);
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function codexWaypostCommandIsTrusted(configuredCommand, trustedCommand) {
+  if (configuredCommand === "waypost") return true;
+  if (!trustedCommand || !path.isAbsolute(configuredCommand)) return false;
+  try {
+    return fs.realpathSync(configuredCommand) === fs.realpathSync(trustedCommand);
+  } catch {
+    return false;
+  }
+}
+
+function codexWaypostServerIsConfigured(source, trustedCommand) {
   const lines = source.split(/\r?\n/);
   let inWaypostSection = false;
   let command = false;
@@ -373,7 +394,10 @@ function codexWaypostServerIsConfigured(source) {
       continue;
     }
     if (!inWaypostSection) continue;
-    if (/^\s*command\s*=\s*"waypost"\s*(?:#.*)?$/.test(line)) command = true;
+    const configuredCommand = codexCommandValue(line);
+    if (configuredCommand !== null) {
+      command = codexWaypostCommandIsTrusted(configuredCommand, trustedCommand);
+    }
     if (/^\s*args\s*=\s*\[\s*"mcp"(?:\s*,[^\]]*)?\]\s*(?:#.*)?$/.test(line)) args = true;
   }
   return inWaypostSection && command && args;
@@ -554,8 +578,8 @@ function configureCodexWaypostMcpPermissions(waypost, paths) {
     && isSafeRegularFile(paths.codexUserConfig)
     ? fs.readFileSync(paths.codexUserConfig, "utf8")
     : "";
-  const configured = codexWaypostServerIsConfigured(stripped.source)
-    || codexWaypostServerIsConfigured(userSource);
+  const configured = codexWaypostServerIsConfigured(stripped.source, waypost.command)
+    || codexWaypostServerIsConfigured(userSource, waypost.command);
   if (waypost.trusted && !configured) {
     log("warn", `Removing Codex Waypost MCP approvals until the server is configured (${paths.codexUserConfig})`);
   }
@@ -774,7 +798,8 @@ function checkCodex(paths, waypost, issues) {
     && isSafeRegularFile(paths.codexUserConfig)
     ? fs.readFileSync(paths.codexUserConfig, "utf8")
     : "";
-  if (!codexWaypostServerIsConfigured(baseSource) && !codexWaypostServerIsConfigured(userSource)) {
+  if (!codexWaypostServerIsConfigured(baseSource, waypost.command)
+    && !codexWaypostServerIsConfigured(userSource, waypost.command)) {
     issues.push(`Codex does not configure Waypost MCP in ${paths.codexConfig} or ${paths.codexUserConfig}`);
   }
   if (source !== null) {

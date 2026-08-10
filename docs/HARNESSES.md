@@ -25,7 +25,9 @@ only Agentgear-owned sections when trust changes. Permission writes are rolled
 back together if any harness configuration fails. Legacy Codex and Gemini rule
 files are moved to an adjacent `.agentgear-backup` file after successful setup,
 rather than deleted; unrecognized contents produce a warning but remain fully
-recoverable. Thurbox users maintain their own resolver candidate keys in
+recoverable. A Codex Waypost MCP declaration may use the bare `waypost` command
+or an absolute command resolving to the already validated Waypost executable.
+Thurbox users maintain their own resolver candidate keys in
 Agentgear's local tool-profile configuration and can verify them with
 `agentgear resolve-tool-command --check-config`.
 

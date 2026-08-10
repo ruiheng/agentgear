@@ -273,8 +273,7 @@ function sessionHostReady(catalog, hostName, targets) {
       for (const target of targets) {
         const skillFile = path.join(target.root, skillName, "SKILL.md");
         const found = fs.existsSync(skillFile);
-        print((found ? "ok      " : "unavailable ") + "upstream skill " + host.upstream + " for " + target.name);
-        if (!found) ready = false;
+        print((found ? "ok      " : "provision ") + "upstream skill " + host.upstream + " for " + target.name);
       }
     }
     if (source?.repository) print("upstream " + host.upstream + ": " + source.repository);

@@ -1,6 +1,7 @@
 import childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { sessionDeletionSpec } from "../../providers/session-hosts.mjs";
 import process from "node:process";
 
 const usage = `Usage: agentgear session delete [options]
@@ -51,27 +52,6 @@ function parseDeleteOptions(argumentsList) {
     }
   }
   return options;
-}
-
-function providerCommand(options) {
-  if (options.host === "agent-deck") {
-    return {
-      command: "agent-deck",
-      args: [...(options.profile ? ["-p", options.profile] : []), "remove", options.sessionId],
-      deleteMode: "remove",
-      recoverable: false
-    };
-  }
-  if (options.host === "thurbox") {
-    if (options.profile) fail("--profile is only valid with --host agent-deck");
-    return {
-      command: "thurbox-cli",
-      args: ["session", "delete", options.sessionId, "--json"],
-      deleteMode: "soft-delete",
-      recoverable: true
-    };
-  }
-  fail("Unsupported session host: " + options.host + ". Use agent-deck or thurbox.");
 }
 
 function providerError(result) {
@@ -128,7 +108,7 @@ function invokeProvider(command, args, { spawnSync, env = process.env, platform 
 export function deleteSession(options, { spawnSync = childProcess.spawnSync, env = process.env, platform = process.platform } = {}) {
   if (!options.host) fail("--host is required");
   if (!options.sessionId) fail("--session-id is required");
-  const provider = providerCommand(options);
+  const provider = sessionDeletionSpec(options);
   const result = invokeProvider(provider.command, provider.args, { spawnSync, env, platform });
   const payload = {
     schema_version: 1,

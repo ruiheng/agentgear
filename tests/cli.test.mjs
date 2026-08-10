@@ -12,7 +12,10 @@ import { installSelection, resolveTargetRoots, selected } from "../cli/lib/insta
 import { parseOptions } from "../cli/lib/options.mjs";
 import { directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
-import { provisionUpstreamSkill as provisionPinnedUpstreamSkill } from "../cli/lib/upstreams.mjs";
+import {
+  provisionUpstreamSkill as provisionPinnedUpstreamSkill,
+  upstreamSkillDigest
+} from "../cli/lib/upstreams.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -580,6 +583,13 @@ test("workflow doctor accepts either declared session host", () => {
     assert.match(thurboxReady.stdout, /Supported session host: thurbox\./);
 
     fs.rmSync(path.join(bin, "thurbox-cli"));
+    writeExecutable(bin, "agent-deck");
+    const agentDeckReady = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+    assert.equal(agentDeckReady.status, 0, agentDeckReady.stderr);
+    assert.match(agentDeckReady.stdout, /provision\s+upstream skill agent-deck for general/);
+    assert.match(agentDeckReady.stdout, /Supported session host: agent-deck\./);
+
+    fs.rmSync(path.join(bin, "agent-deck"));
     const noHost = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
     assert.equal(noHost.status, 1);
     assert.match(noHost.stdout, /Missing one supported session host: agent-deck or thurbox\./);
@@ -812,18 +822,21 @@ test("upstream provisioning reuses the current runtime when the pin is unchanged
     repository: "https://example.invalid/agent-deck.git",
     skillPath: "skills/agent-deck",
     ref: "v1.0.0",
-    commit: "0123456789abcdef0123456789abcdef01234567"
+    commit: "0123456789abcdef0123456789abcdef01234567",
+    contentDigest: ""
   };
   const plan = { upstream: "agent-deck", name: "agent-deck", source };
   try {
     fs.mkdirSync(path.join(previousRuntimeRoot, "catalog"), { recursive: true });
     fs.mkdirSync(path.join(previousRuntimeRoot, "skills", "agent-deck"), { recursive: true });
     fs.mkdirSync(path.join(runtime.root, "skills"), { recursive: true });
+    const cachedSkill = path.join(previousRuntimeRoot, "skills", "agent-deck");
+    fs.writeFileSync(path.join(cachedSkill, "SKILL.md"), "# Agent Deck\n");
+    source.contentDigest = upstreamSkillDigest(cachedSkill);
     fs.writeFileSync(
       path.join(previousRuntimeRoot, "catalog", "skills.json"),
       `${JSON.stringify({ upstreams: { "agent-deck": source } })}\n`
     );
-    fs.writeFileSync(path.join(previousRuntimeRoot, "skills", "agent-deck", "SKILL.md"), "# Agent Deck\n");
 
     provisionPinnedUpstreamSkill({
       plan,
@@ -836,6 +849,46 @@ test("upstream provisioning reuses the current runtime when the pin is unchanged
       fs.readFileSync(path.join(runtime.root, "skills", "agent-deck", "SKILL.md"), "utf8"),
       "# Agent Deck\n"
     );
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("upstream provisioning rejects modified cached content", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-upstream-integrity-test-"));
+  const previousRuntimeRoot = path.join(temporary, "previous");
+  const runtime = { root: path.join(temporary, "next") };
+  const cachedSkill = path.join(previousRuntimeRoot, "skills", "agent-deck");
+  const source = {
+    repository: "https://example.invalid/agent-deck.git",
+    skillPath: "skills/agent-deck",
+    ref: "v1.0.0",
+    commit: "0123456789abcdef0123456789abcdef01234567",
+    contentDigest: ""
+  };
+  const plan = { upstream: "agent-deck", name: "agent-deck", source };
+  try {
+    fs.mkdirSync(path.join(previousRuntimeRoot, "catalog"), { recursive: true });
+    fs.mkdirSync(cachedSkill, { recursive: true });
+    fs.mkdirSync(path.join(runtime.root, "skills"), { recursive: true });
+    fs.writeFileSync(path.join(cachedSkill, "SKILL.md"), "# Agent Deck\n");
+    source.contentDigest = upstreamSkillDigest(cachedSkill);
+    fs.writeFileSync(
+      path.join(previousRuntimeRoot, "catalog", "skills.json"),
+      `${JSON.stringify({ upstreams: { "agent-deck": source } })}\n`
+    );
+    fs.appendFileSync(path.join(cachedSkill, "SKILL.md"), "modified\n");
+
+    assert.throws(
+      () => provisionPinnedUpstreamSkill({
+        plan,
+        runtime,
+        previousRuntimeRoots: [previousRuntimeRoot],
+        env: { PATH: "" }
+      }),
+      /Could not run git/
+    );
+    assert.equal(fs.existsSync(path.join(runtime.root, "skills", "agent-deck")), false);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

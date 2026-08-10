@@ -100,8 +100,9 @@ The workflow pack needs one supported persistent-session host:
 
 - [Agent Deck](https://github.com/asheshgoplani/agent-deck): install its
   executable. When it is on `PATH`, Agentgear fetches its official
-  `agent-deck` skill from the catalog-pinned upstream revision and installs it
-  into each selected target as part of the workflow transaction.
+  `agent-deck` skill from the catalog-pinned upstream revision, verifies its
+  catalog-anchored content digest, and installs it into each selected target as
+  part of the workflow transaction.
 - [Thurbox](https://thurbox.thurbeen.eu/docs/features.html#headless-cli):
   install `thurbox-cli`. Thurbox currently publishes no general-purpose host
   skill, so Agentgear does not invent or install a substitute.
@@ -109,7 +110,9 @@ The workflow pack needs one supported persistent-session host:
 `agentgear doctor --pack workflow` succeeds when Waypost, Git, Node.js, and at
 least one of those session hosts are ready. The Agent Deck executable and
 Thurbox executable remain external dependencies; only Agent Deck's declared
-skill payload is fetched during installation.
+skill payload is fetched during installation. Before that first install,
+doctor reports the missing Agent Deck skill as provisionable rather than as a
+missing external prerequisite.
 
 ### Resolve session launch values
 
