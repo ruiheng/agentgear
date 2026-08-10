@@ -1,6 +1,6 @@
 ---
 name: fix-strategy
-description: Critically validate multiple problem leads from reviews, feedback, or failures, then recommend a coordinated fix strategy without executing it. Assess scope, relationships, complexity, order, optional refactors, and the next route. For defect discovery from one seed, use explore-defects.
+description: Critically validate multiple problem leads from reviews, feedback, or failures, decide what is worth fixing, then recommend a coordinated strategy without executing it. Assess scope, relationships, complexity, order, optional refactors, and the next route. For defect discovery from one seed, use explore-defects.
 disable-model-invocation: true
 ---
 
@@ -41,6 +41,20 @@ Analyze the collection, not isolated items:
 
 Do not infer a global fix from similarity alone. Require evidence of a shared mechanism, boundary, or ownership failure. Avoid time estimates unless requested.
 
+## Decide Whether To Fix
+
+For every `confirmed` or `supported` problem, weigh demonstrated impact, likelihood, reach, user value, recurrence, and proof benefit against change risk, complexity, migration/compatibility cost, maintenance burden, and opportunity cost. A real problem may still be unworthy of change now.
+
+Choose one:
+
+- `must-fix`: violates accepted behavior, security, safety, or data integrity; or causes material likely harm
+- `worth-fixing`: evidence-backed benefit justifies the change
+- `optional`: real but marginal; schedule pressure may reasonably win
+- `defer`: real, but current value, certainty, or timing is insufficient; give a reconsider trigger
+- `no-fix`: not material, an accepted tradeoff, or the correction would be worse than the problem
+
+Prefer the simplest behavior adequate for demonstrated needs. Do not count hypothetical reuse, unsupported compatibility, theoretical edge cases, or generic “robustness” as benefits without credible demand. Be skeptical of abstractions, guards, retries, fallbacks, and extra validation that add states or hide invariant violations. Complexity alone does not justify design work; low-value complex changes may be deferred or rejected.
+
 ## Form The Strategy
 
 - Give concrete changes and checks for simple, well-bounded groups.
@@ -48,13 +62,15 @@ Do not infer a global fix from similarity alone. Require evidence of a shared me
 - Prefer one structural correction when evidence shows a problem family; otherwise choose the smallest reliable local correction.
 - Group changes that share cause, ownership, contract, or verification. Split independent or risk-amplifying changes.
 - Order prerequisites before dependents; establish invariants or proof before broad propagation. Mark safe parallel work and an evidence gate for each stage.
-- Separate required remediation from optional refactoring.
+- Build the active strategy from `must-fix` and `worth-fixing` items. Keep `optional` and `defer` work outside it unless the user selects them; give no remediation for `no-fix`.
+- Separate chosen remediation from optional refactoring.
 
 Recommend, but never invoke, the next execution surface:
 
 - direct work: particularly trivial change; obvious implementation and cheap proof
 - `delegate-code-task`: solution and acceptance criteria are clear; no material design decision
 - `tech-design-workflow`: architecture, ownership, data, compatibility, rollout, or product tradeoffs need resolution
+- no action / monitor: the correct decision is `defer` or `no-fix`
 
 Different remediation groups may use different routes. Still name one immediate next action for the user to approve or correct.
 
@@ -89,6 +105,10 @@ Keep it compact and evidence-linked. Cite concrete files, tests, artifacts, and 
 | Problem or family | Status | Reach | Relation / mechanism | Evidence | Complexity |
 | --- | --- | --- | --- | --- | --- |
 
+## Fix Decisions
+| Problem or group | Decision | Expected benefit | Change cost / risk | Rationale and reconsider trigger |
+| --- | --- | --- | --- | --- |
+
 ## Remediation Strategy
 - Direction: [required correction and why]
 - Local vs global: [scope decision and evidence]
@@ -107,7 +127,7 @@ Keep it compact and evidence-linked. Cite concrete files, tests, artifacts, and 
 
 ## Recommended Next Action
 - Action: [first action only]
-- Route: [direct work / delegate-code-task / tech-design-workflow]
+- Route: [no action / monitor / direct work / delegate-code-task / tech-design-workflow]
 - User decisions or corrections: [decision points or None]
 
 ## Unknowns
@@ -118,5 +138,6 @@ Keep it compact and evidence-linked. Cite concrete files, tests, artifacts, and 
 
 - Every input lead has a status; unverified claims are not presented as facts.
 - Collection-level conclusions have current or historical evidence.
+- Every confirmed or supported problem has an explicit fix-value decision.
 - Required fixes, optional refactors, grouping, ordering, and immediate route are explicit.
 - No implementation or workflow action was taken.
