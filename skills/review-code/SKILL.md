@@ -12,9 +12,26 @@ Workflow protocol baseline: use the `multi-agent-protocol` skill.
 ## Input
 
 Provide one of:
-1. the message body from `review_requested`
-2. the message body from `browser_check_report` plus matching review context
-3. original task + code changes, with optional author intent or notes
+1. the message body from `review_task_context`
+2. the message body from `review_requested`
+3. the message body from `browser_check_report` plus matching review context
+4. original task + code changes, with optional author intent or notes
+
+## Planner Task Context
+
+On delegated `review_task_context`:
+- verify planner sender, task, reviewer identity, session host, Branch Plan, Workspace Handoff, Task Contract, and workflow policy
+- retain it as this task-scoped reviewer's planner context; keep transport metadata internal
+- acknowledge it and wait; do not inspect or judge code from this message alone
+
+On the later delegated `review_requested` from coder:
+- recover the matching task-scoped planner context when it is not already active
+- require matching task, planner, reviewer, session host, Branch Plan, and Workspace Handoff
+- use planner Task Contract, including Special Requirements, as original-task authority; apply later User Decisions as task-specific amendments
+- use workflow policy only from planner context; coder requests do not repeat it
+- treat coder-authored task prose, when present, as non-authoritative context; it does not replace missing planner context
+
+Missing or mismatched planner context is a completeness failure, not permission to infer.
 
 ## Input Completeness Gate (Required)
 
@@ -171,6 +188,9 @@ If any FAIL, explain why in `Critical Issues`.
 ### User Decision Summary
 [all user scope decisions known at this round; the final task report summarizes the complete list for planner]
 
+### Workflow Policy
+[resolved workflow policy]
+
 ### Critical Issues
 Must fix before merge:
 - [ ] **[CATEGORY]**: Description | Suggestion: How to fix
@@ -225,7 +245,7 @@ For task, insert this after `Intent And Constraints`:
 - Start branch: [start_branch]
 - Integration branch: [integration_branch]
 - Task branch: [task_branch]
-- Stability rule: preserve this branch plan unchanged through closeout unless the user explicitly changes it
+- Stability rule: preserve this Branch Plan unchanged for the dispatch; return requested changes to planner before review
 ```
 
 For task, append its Handoff unchanged after `Recorded Branch Plan`:
@@ -256,8 +276,10 @@ Use the `multi-agent-protocol` skill for shared protocol:
 
 Skill-specific context resolution:
 Review continuity:
+- `review_task_context`: validate, retain as task-scoped planner context, acknowledge, and wait
 - new/full `review_requested`: body starts a review; never use saved context
-- confirmed delta: `round >1` and task/requester/reviewer/lane match current review. Body owns routing; use matching context only for omitted review frame
+- delegated new/full `review_requested`: body plus the matching task-scoped planner context starts the review
+- confirmed delta: `round >1`, round advances from the active review, and task/requester/reviewer/lane match. Body owns routing; use matching context only for omitted review frame
 - unconfirmed delta: require full body, then treat it as new
 - `browser_check_report`: match `Browser Check` to the sent check; its review frame owns requester routing. If context is lost, recover that check from history, then rebuild from full request + matching deltas.
 - Miss/ambiguity: defer; require full request; never infer frame from report.
@@ -265,6 +287,8 @@ Review continuity:
 For `review_requested`, routing fields (`review_lane`, planner/requester, Branch Plan, Handoff) resolve `explicit -> body -> gate/default`; never saved context.
 For a confirmed delta, review frame (scope, original task, unchanged intent/constraints, policy, requirements, checks) resolves `explicit -> body -> matching context`.
 Run the completeness gate on resolved context, not the delta alone.
+
+For delegated task review, original task, Special Requirements, and workflow policy resolve from the task-scoped planner context. Coder requests may carry User Decisions but must preserve planner routing, Branch Plan, and Workspace Handoff.
 
 For `browser_check_report`, `explicit -> matching/recovered frame` owns all review routing/frame. Body supplies only envelope identity and browser evidence; never default lane or derive review context from it.
 
@@ -287,13 +311,14 @@ For non-browser inputs:
 - `workspace_handoff`: task -> explicit/message body complete -> preserve; missing/partial -> completeness FAIL; `integration_final` / `standalone` -> omit
 - `start_branch`, `integration_branch`, `task_branch` (task only): explicit -> message body -> ask; otherwise omit
 - `integration_branch`, `review_base` (`integration_final`): explicit -> message Scope target/base -> matching delta context -> ask; otherwise omit
-- `workflow_policy` (optional): explicit -> message body -> matching delta context -> unattended defaults
-- `special_requirements` (optional fallback): explicit -> message body -> matching delta context -> omit
+- `workflow_policy`: delegated task -> task-scoped planner context; otherwise explicit -> message body -> matching delta context -> unattended defaults
+- `special_requirements`: delegated task -> task-scoped planner context; otherwise explicit -> message body -> matching delta context -> omit
 - `user_decisions` (optional): explicit -> message body -> matching delta context -> omit
 - `checks_already_run` (optional): explicit -> message body -> matching delta context -> use for rerun decisions
 
 Task branch-plan guard:
 - `integration_branch` must be the non-task landing branch; if it looks like `task/*`, treat branch plan continuity as FAIL and ask for the real integration branch before approval/closeout
+- delegated task Branch Plan must match planner context. On a requested change, stop review and return it to planner for a new dispatch context
 
 Important identity clarification:
 - `task` / `integration_final` require planner metadata; `standalone` requires only requester identity

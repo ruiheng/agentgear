@@ -89,10 +89,10 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 ## End-to-End Loop
 
 1. User asks Planner to prepare work.
-2. After `delegate-task` Selection-Only Use selects a Waypost worker for a code task, Planner runs `delegate-code-task` and sends one code delegate workflow message.
+2. After `delegate-task` selects a persistent code worker, Planner runs `delegate-code-task`. Required review publishes the original task contract to Reviewer before dispatching Coder.
 3. Planner or Coder may start two-architect drafting for an unresolved goal, or request direct review of mature committed design specifications.
 4. Coder implements changes and commits a delivery snapshot. In delegated coder flow, that commit is already workflow-authorized and overrides generic default commit-approval rules.
-5. Task-level review is planner-controlled: when required, coder runs `review-request`; it creates or reuses a reviewer with the recorded planner parent, which `session_create` verifies. A `standalone` review has no planner or closeout; its reviewer uses the requester parent the same way.
+5. Task-level review is planner-controlled. Delegated Coder reuses the Reviewer and planner context created at dispatch; planner-owned and standalone review may create Reviewer on demand.
 6. Reviewer runs `review-code` and sends either:
    - `rework_required` back to Coder, or
    - `browser_check_requested` to Browser Tester, or
@@ -135,7 +135,8 @@ flowchart TD
     Q[Requester / User] -->|direct startup| W[Persistent-session Worker]
     Q -->|message: execute_delegated_task| W
     W -->|message: delegated_task_result| Q
-    P[Planner] -->|message: execute_delegate_task| C[Coder]
+    P[Planner] -->|message: review_task_context| R[Reviewer]
+    P -->|message: execute_delegate_task| C[Coder]
     X[Original Requester] -->|vague goal: design_spec_draft_requested| DA[Architect Author]
     DA -->|message: design_spec_review_requested| A[Architect Reviewer]
     A -->|message: design_spec_review_report| DA
@@ -145,7 +146,6 @@ flowchart TD
     C -->|mature committed design: design_spec_review_requested| A
     A -->|message: design_spec_review_report| P
     A -->|message: design_spec_review_report| C
-    C -. creates/reuses planner-scoped reviewer .-> R[Reviewer]
     C -->|message: review_requested| R
     R -->|message: browser_check_requested| B[Browser Tester]
     B -->|message: browser_check_report| R
@@ -198,7 +198,7 @@ flowchart TD
 Current recommended operating mode:
 
 1. Keep `planner` as a long-lived session.
-2. Create `coder-<task_id>` as needed. For unresolved design, create or reuse `architect-author-<task_id>` and `architect-reviewer-<task_id>`; for mature committed design, use `architect-<task_id>`. Create or reuse `reviewer-<task_id>` on demand from `review-request`: planner parent for task/integration, requester parent for standalone. Prefer reusing `browser-tester` as a long-lived session, but let `browser-test-request` create it on demand when missing.
+2. Create `coder-<task_id>` as needed. Required delegated review creates `reviewer-<task_id>` before Coder dispatch; planner-owned, integration, and standalone review may create Reviewer on demand. For unresolved design, create or reuse `architect-author-<task_id>` and `architect-reviewer-<task_id>`; for mature committed design, use `architect-<task_id>`. Prefer reusing `browser-tester`, but let `browser-test-request` create it when missing.
 3. Queue message first. Best-effort nudges may wake non-local targets; correctness comes from receiver-side message pickup.
    Newly created or restarted targets should use the same message recv-first pickup path as any other target.
    Keep nudge text deliberately non-assertive (`NOTICE: There might be new message in waypost.`). Harnesses can replay a nudge after the corresponding delivery was already claimed (observed with Codex; possible elsewhere). Do not replace it with a definite delivery claim: an empty receive after a nudge alone is not a transport fault and should not trigger diagnostics.

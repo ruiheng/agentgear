@@ -47,8 +47,8 @@ Use the shared context priority. Resolve before dispatch:
 - `session_host`: returned by `session_require` / `session_create`; preserve it through terminal closeout
 - reviewer routing:
   - `reviewer_session_ref`: explicit -> workflow context -> `reviewer-<task_id>`
-  - `reviewer_session_id`: explicit actual id -> workflow context -> omit
-  - tool selection: explicit full command or profile -> workflow context -> omit; do not resolve a default here
+  - `reviewer_session_id`: explicit actual id -> workflow context -> create before coder dispatch when review is required
+  - tool selection: explicit full command or profile -> workflow context -> shared role `reviewer` only when creating
 - review policy: `per_task_review = required`, `final_review = skip` unless explicitly changed
 - workflow policy: unattended with automatic acceptance when no must-fix finding; use a human gate only when explicitly requested
 - `special_requirements`: explicit -> delegated context; preserve verbatim; omit when absent
@@ -56,31 +56,17 @@ Use the shared context priority. Resolve before dispatch:
 Resolve a launch candidate only when creating a session:
 
 - coder: explicit full command -> intended current-tool continuity -> shared role `coder`
+- reviewer when review is required: explicit full command -> shared role `reviewer`
 - preserve existing session launch metadata
-- do not create the reviewer during delegate dispatch; preserve explicit reviewer routing in the body. `review-request` resolves or reuses it on demand.
+- create or require the task reviewer before coder dispatch, under the same planner parent, workspace, and session host
 
-## Message Body
+## Canonical Task Brief
 
-Use this structure. Keep required fields exact. Omit empty optional sections and lines rather than filling them with `None`.
+Write one canonical brief under `.agent-artifacts/message/`. The wrapper embeds it unchanged as the Task Contract in both reviewer and coder messages. Omit empty optional sections and lines rather than filling them with `None`; keep transport and role instructions outside the brief.
 
 ```markdown
-Task: <task_id>
-Action: execute_delegate_task
-From: planner <planner_session_id>
-To: coder {{TO_SESSION_ID}}
-Planner: <planner_session_id>
-Session host: <session_host>
-Planner workspace: <planner_workspace>
-Worker workspace: <worker_workspace>
-Task dir: <task_dir>
-Workspace lifecycle: <shared; cleanup=none | temporary; cleanup=planner>
-Round: 1
-
 ## Task
 [One sentence]
-
-## Session Contract
-- Why persistent session: <session_reason>
 
 ## Context
 - Parent goal: [only if it affects local choices]
@@ -89,35 +75,12 @@ Round: 1
 - Read first: [required repository paths]
 - Optional references: [useful supporting paths]
 
-## Branch Plan
-- Start branch: <start_branch>
-- Integration branch: <integration_branch>
-- Task branch: <task_branch>
-
 ## Boundaries
 - [fixed decision or hard constraint]
 - Watch for: [material risk]
 
-## Execution Guardrails
-- Work on the recorded task branch; create or attach it from the integration branch if needed. Never commit detached HEAD.
-- Own investigation, local decomposition, implementation choices, and validation within this scope
-- Make the smallest complete change; keep unrelated work out
-- Keep the recorded branch plan
-- If work would materially change the objective, a boundary, acceptance criteria, external behavior/contract, or add unrelated scope, ask the user before applying or committing it
-- Keep every user scope decision for this task. Include the accumulated decisions in the next message to reviewer or coder under `## User Decisions`
-
 ## Acceptance Criteria
 - [testable outcome]
-
-## Review & Handoff
-- Per-task review: [required | skip]
-- Coder git writes and the delivery commit are pre-authorized
-- If required: after commit and validation, run `review-request` with `review_lane = task`; preserve any User Decisions, the recorded Branch Plan, and Workspace Handoff
-- If skipped: after commit and validation, send `code_delivery_complete` to planner
-- On a blocker before an accepted task review: send `code_delivery_complete` to planner under either policy
-- After any successful review request or terminal handoff above, end this turn. Do nothing until the next instruction.
-- Reviewer routing: ref=<reviewer_session_ref>; id=<reviewer_session_id> [required only; omit absent values]
-- Workflow policy: [only when non-default]
 
 ## Special Requirements
 [verbatim; only when present]
@@ -131,15 +94,15 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 
    ```bash
    agentgear run multi-agent-protocol prepare-workspaces.mjs \
-     --worker-workspace <worker_workspace> \
-     --planner-workspace <planner_workspace> \
-     --integration-branch <integration_branch> \
-     --planner-session-id <planner_session_id>
+     --worker-workspace "<worker_workspace>" \
+     --planner-workspace "<planner_workspace>" \
+     --integration-branch "<integration_branch>" \
+     --planner-session-id "<planner_session_id>"
    ```
 
    Stop on workspace or integration-branch mismatch. Use `--override-workspaces` only after explicit user confirmation.
 
-2. Resolve the coder id/ref through the shared session-host contract:
+2. Resolve the coder id/ref through the shared session-host contract. When review is required, also resolve or create the reviewer before coder dispatch with the same planner parent, workspace, and session host.
 
    - reuse a found coder with `session_require` and its returned host, real id,
      path, and address;
@@ -148,35 +111,47 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
      `session_create` verifies that parent; do not preflight it with
      `session_require`.
 
-   Record the returned host, real id, and sole address. Put the returned host
-   in the delegate body. Do not create the
-   reviewer; `review-request` resolves or reuses it on demand.
+   Record each returned host, real id, and sole address. Required review must
+   have a real reviewer id and address before the wrapper runs.
 
-3. Fill `{{TO_SESSION_ID}}`, then send through the lock-owning wrapper:
+3. Send the canonical brief through the lock-owning wrapper. It publishes the planner task contract to reviewer first, then dispatches coder only after reviewer delivery returns an id:
 
    ```bash
    agentgear run multi-agent-protocol send-delegate-with-active-task-lock.mjs \
-     --workdir <worker_workspace> \
-     --task-id <task_id> \
-     --integration-branch <integration_branch> \
-     --planner-session-id <planner_session_id> \
-     --coder-session-id <coder_session_id> \
-     --from-address <waypost_status.default_sender> \
-     --to-address <coder returned address> \
-     --coder-session-ref <coder_session_ref> \
-     --task-branch <task_branch> \
+     --workdir "<worker_workspace>" \
+     --task-id "<task_id>" \
+     --start-branch "<start_branch>" \
+     --integration-branch "<integration_branch>" \
+     --task-branch "<task_branch>" \
+     --planner-session-id "<planner_session_id>" \
+     --coder-session-id "<coder_session_id>" \
+     --coder-session-ref "<coder_session_ref>" \
+     --session-host "<session_host>" \
+     --planner-workspace "<planner_workspace>" \
+     --worker-workspace "<worker_workspace>" \
+     --task-dir "<task_dir>" \
+     --workspace-lifecycle "<workspace_lifecycle>" \
+     --session-reason "<session_reason>" \
+     --from-address "<waypost_status.default_sender>" \
+     --to-address "<coder returned address>" \
      --subject "delegate code: <task_id> -> coder" \
-     --body-file <message_file_or_->
+     --brief-file "<brief_file>" \
+     --review-context "required" \
+     --workflow-policy "<resolved_policy>" \
+     --reviewer-session-id "<reviewer_session_id>" \
+     --reviewer-session-ref "<reviewer_session_ref>" \
+     --reviewer-to-address "<reviewer returned address>" \
+     --reviewer-subject "task context: <task_id> -> reviewer"
    ```
 
-   Use `-` only when the caller can provide a real non-TTY stdin pipe. From an
-   interactive or PTY-backed command tool, write the body under the caller's
-   `.agent-artifacts/message/` and pass that file path; do not open a TTY and
-   expect the wrapper to wait for later input.
-   Run this wrapper with host permission. Report success only with a delivery
-   id and a `sent` lock.
+   For skipped review, set `--review-context "skip"` and omit the four
+   `--reviewer-*` options.
 
-The wrapper owns active-task lock acquisition, send rollback, delivery, and wakeup. Do not split or duplicate those operations. If it reports an existing active task, surface that state instead of retrying another send path.
+   Run this wrapper with host permission. Report success only with a delivery
+   id and a `sent` lock. Required review succeeds only with reviewer-context
+   and coder delivery ids.
+
+The wrapper owns active-task lock acquisition, reviewer-first ordering, and both sends. Do not split or duplicate those operations. If reviewer delivery succeeds but coder delivery fails, or either delivery is unknown, it retains the lock with the partial result. Surface that state; do not retry automatically.
 
 After dispatch:
 
@@ -190,11 +165,14 @@ After dispatch:
 
 On `Action: execute_delegate_task`, treat the body as the code-task contract. Own the recorded branch, implementation, validation, and commit; keep the session legible for user steering.
 
-The contract must include `Worker workspace`, `Task dir`, and `Workspace lifecycle`; if any is missing, report a blocker instead of inferring it.
+The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`, workflow policy, and complete Branch Plan. Required review also requires the reviewer id. If any required field is missing, report a blocker instead of inferring it.
 
+- Attach the recorded task branch before editing or committing; create it from the recorded integration branch only when absent. Never commit detached HEAD.
+- Coder git writes and the delivery commit are pre-authorized for this delegated task.
 - If a material scope change or uncertainty appears, ask the user immediately and wait before applying or committing it. A user instruction that resolves it is the decision.
+- Keep the recorded Branch Plan fixed for this dispatch. If the user requests a branch-plan change, do not send a review request; report it to planner for a new dispatch context.
 - Keep all such decisions and copy the accumulated list into the next review request or terminal handoff under `## User Decisions`; omit the section when no decision exists.
-- After a delivery commit, run `review-request` when per-task review is required.
+- Follow workflow policy. After a delivery commit, run `review-request` when per-task review is required and reuse the recorded reviewer. The coder request does not need task background, goals, constraints, workflow policy, or other task-content description; reviewer gets them from planner context.
 - Send this terminal handoff after commit and validation when review is skipped, or on a blocker before an accepted task review:
 
 ```markdown
@@ -238,6 +216,7 @@ Return only:
 - persistent-session reason
 - task and integration branches
 - coder session id
+- reviewer session id when review is required
 - temporary workspace and cleanup status, when applicable
 - any blocker or send failure
 

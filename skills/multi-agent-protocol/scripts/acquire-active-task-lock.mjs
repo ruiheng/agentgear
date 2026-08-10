@@ -29,8 +29,10 @@ Optional:
 
 function lockBlockReason(lock) {
   const state = stringField(lock, "state");
-  if (state === "send_interrupted_unknown") return `prior delegate send was interrupted during message send (state=${state} kind=${stringField(lock, "interruption_kind") || "unknown"} signal=${stringField(lock, "interrupted_by_signal") || "unknown"} interrupted_at=${stringField(lock, "interrupted_at") || "unknown"}); inspect Waypost delivery before deleting this lock`;
-  if (state === "queued_receipt_unknown") return `prior delegate send succeeded but receipt could not be parsed (state=${state}); inspect Waypost delivery before deleting this lock`;
+  const stage = stringField(lock, "send_stage") || "delegate";
+  if (state === "send_interrupted_unknown") return `prior ${stage} send was interrupted with unknown delivery (state=${state}); inspect Waypost before deleting this lock`;
+  if (state === "queued_receipt_unknown") return `prior ${stage} send succeeded but its receipt was not parsed (state=${state}); inspect Waypost before deleting this lock`;
+  if (state === "coder_send_failed") return `reviewer context was delivered but coder send failed (state=${state} review_context_delivery_id=${stringField(lock, "review_context_delivery_id") || "unknown"}); inspect the partial dispatch before deleting this lock`;
   return "inspect the prior task and remove this lock only after verifying it is finished";
 }
 

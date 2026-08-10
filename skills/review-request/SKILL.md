@@ -24,7 +24,8 @@ Workflow continuity rule:
 
 For a task review with a complete Workspace Handoff:
 - preserve recorded `start_branch`, `integration_branch`, and `task_branch` from delegated task context
-- treat that branch plan as immutable task context unless the user explicitly changes it
+- keep that Branch Plan fixed for the dispatch
+- if the user requests a Branch Plan change, stop before review and return it to planner for a new dispatch context
 
 ## Inputs
 
@@ -55,11 +56,16 @@ For a task review with a complete Workspace Handoff:
   - `task_branch`
   - complete `Workspace Handoff`: `worker_workspace`, `task_dir`, `workspace_lifecycle`
 
-## Original Task Source (Required)
+## Task Authority (Required)
 
-Populate `## Original Task` by priority:
+For a delegated task requested by coder:
+- require the pre-created reviewer real id
+- reviewer obtains original task, Special Requirements, and workflow policy from its planner-supplied task context
+- `review_requested` does not need task background, goals, constraints, workflow policy, or other task-content description
+
+For planner-owned task, `integration_final`, or `standalone`, populate `## Original Task` by priority:
 1. explicit `original_task`
-2. active delegated-task context in current session
+2. current requester task context
 3. ask one short clarification question
 
 ## Data Collection (Read-Only)
@@ -94,7 +100,7 @@ Rules:
 
 ## Review Independence
 
-Provide task intent, scope, constraints, and verification evidence, not a pre-review.
+For delegated coder review, provide implementation scope, verification evidence, User Decisions, and routing continuity; task intent and constraints come from the planner context. For other lanes, provide task intent, scope, constraints, and verification evidence. Do not pre-review the change.
 - Treat `Author Intent`, `Optional Review Focus`, and `Author-Noted Issues or Limitations` as non-authoritative and non-exhaustive context.
 - Let the reviewer inspect the full scope and choose risk angles independently.
 - Omit optional focus and author notes when the original task plus git target are enough.
@@ -110,11 +116,11 @@ Skill-specific context resolution:
 - `planner_workspace`: `task` / `integration_final` -> explicit -> delegated context -> current workspace when requester is planner -> ask; `standalone` -> omit
 - `requester_role`: explicit -> delegated context -> current workflow role -> default `coder`
 - `requester_session_id`: explicit -> current session id -> delegated context -> ask
-- `reviewer_session_ref`: explicit -> delegated context -> `reviewer-<review_lane>-<owner_session_id>-<task_id>`; owner is planner for `task` / `integration_final`, requester for `standalone`
-- `reviewer_session_id`: explicit actual id -> delegated context actual id -> created on demand when missing
+- `reviewer_session_ref`: delegated task from coder -> recorded task reviewer ref; otherwise explicit -> context -> `reviewer-<review_lane>-<owner_session_id>-<task_id>`; owner is planner for `task` / `integration_final`, requester for `standalone`
+- `reviewer_session_id`: delegated task from coder -> require recorded real id; otherwise explicit actual id -> context actual id -> created on demand when missing
 - `session_host`: task -> explicit -> delegated task context -> returned requester host; other lanes -> omit
-- `workflow_policy` (optional): explicit -> delegated context -> default unattended policy
-- `special_requirements` (optional fallback): explicit -> delegated context -> omit
+- `workflow_policy`: delegated task from coder -> omit from request; reviewer uses planner context. Other lanes: explicit -> context -> default unattended policy
+- `special_requirements`: delegated task from coder -> planner context; do not include in coder request; other lanes -> explicit -> context -> omit
 - `user_decisions` (optional): explicit -> delegated context -> omit
 - `coder_tool_profile`: explicit -> delegated context -> omit when `coder_tool` is already a full command -> default current-tool continuity or resolver role default `coder`
 - `coder_tool_cmd`: explicit full command -> delegated context resolved command -> current AI tool when continuity is intended -> shared tool-resolution contract for role `coder`
@@ -140,9 +146,10 @@ Review-request continuity rule:
 - if the reviewer session changed or reviewer continuity is unknown, fall back to the full review-request body
 - a task review remains `task` through every round
 - task repeats its complete Handoff and Branch Plan every round; a full request includes all User Decisions and a delta includes decisions made since the prior review
+- delegated coder requests omit task content, Special Requirements, and workflow policy; reviewer already has planner context
 - every delta retains `Task`, `Action`, `From`, `To`, `Round`, and Lane; task / `integration_final` also retain Planner fields
 - delta-only means terse:
-  - do not repeat the original task, file list, or unchanged verification; task always repeats Branch Plan and Handoff
+  - task-content description, file list, and unchanged verification do not need to be included; task always carries Branch Plan and Handoff
   - summarize only changed scope, responses to prior findings, and new verification evidence; let the reviewer decide what to re-check
   - one-line body applies only to delta content; task retains its required fields
 
@@ -151,15 +158,15 @@ Identity rules:
 - use the bound Waypost sender context for sender validation
 
 Reviewer continuity:
-- treat a known real `reviewer_session_id` as authoritative and reuse it with `session_require`
-- otherwise resolve `reviewer_session_ref`; create a reviewer only when no real id resolves
+- delegated task from coder: require the recorded reviewer identity in the recorded workspace and host; stop on missing or mismatch; never create a replacement reviewer
+- other lanes: treat a known real `reviewer_session_id` as authoritative and reuse it with `session_require`; otherwise resolve `reviewer_session_ref` and create only when no real id resolves
 
 Commit reference rule:
 - in message content, use a short commit ref, not a full 40-char hash
 
 ## Output Template
 
-Round `1` or new reviewer session: use the full body below.
+Round `1` or new reviewer session: use the full body below. Delegated task review from coder omits `## Original Task`, `## Workflow Policy`, and `## Special Requirements`.
 Omit `## User Decisions` when no temporary scope decision exists.
 
 Use this structure as the message body. Omit task Branch Plan and Handoff for `integration_final` / `standalone`; task includes both. `standalone` also omits planner headers. Keep tool routing internal.
@@ -180,7 +187,7 @@ Round: <round>
 - Base (branch): [base ref or N/A]
 
 ## Original Task
-[Original task text from explicit input or active session context. Use `Not provided` only after explicit clarification that no task text is available.]
+[Non-delegated review only: original task text from explicit input or requester context. Use `Not provided` only after explicit clarification that no task text is available.]
 
 ## User Decisions
 [all user scope decisions known for this task; only when present]
@@ -229,14 +236,14 @@ For `task`, also insert after `Planner`:
 Session host: <session_host>
 ```
 
-For task, insert after `Original Task`:
+For task, insert after `Original Task`, or after `Review Context` when delegated task omits Original Task:
 
 ```markdown
 ## Branch Plan
 - Start branch: [start_branch]
 - Integration branch: [integration_branch]
 - Task branch: [task_branch]
-- Stability rule: treat this recorded branch plan as immutable task context unless the user explicitly changes it
+- Stability rule: keep this recorded Branch Plan fixed for the dispatch; return requested changes to planner before review
 
 ## Workspace Handoff
 - Worker workspace: [worker_workspace]
@@ -300,7 +307,6 @@ For task, insert after `Delta Since Last Review`:
 - Start branch: [start_branch]
 - Integration branch: [integration_branch]
 - Task branch: [task_branch]
-- Change status: [unchanged | explicitly updated this round]
 
 ## Workspace Handoff
 - Worker workspace: [worker_workspace]
@@ -318,11 +324,12 @@ Preferred path: use the `waypost` MCP tools.
 Workflow send sequence:
 1. use `waypost`
 2. compose the body with `{{TO_SESSION_ID}}` where the real reviewer session id must appear
-3. choose candidate: known `reviewer_session_id`, otherwise resolve `reviewer_session_ref` with `session_resolve`
-4. if a candidate resolves, call `session_require` with its returned host, real id, and `workdir = <current workspace>`
-5. otherwise resolve role `reviewer` through the shared tool-resolution contract, then call `session_create` for `<reviewer_session_ref>` with the selected opaque launch candidate and the recorded parent: `<planner_session_id>` for `task` / `integration_final` or `<requester_session_id>` for `standalone`. It verifies that parent; do not preflight it with `session_require`.
-6. record the returned host, real id, and sole address as the authoritative reviewer route; for a task lane, require that host to match the recorded task session host
-7. fill the final body and call `waypost_send` with:
+3. delegated task from coder: require the recorded reviewer real id in the recorded workspace and host; stop on missing or mismatch
+4. other lanes: choose candidate from known `reviewer_session_id`, otherwise resolve `reviewer_session_ref` with `session_resolve`
+5. for other lanes, if a candidate resolves, call `session_require` with its returned host, real id, and `workdir = <current workspace>`
+6. for other lanes with no candidate, resolve role `reviewer` through the shared tool-resolution contract, then call `session_create` for `<reviewer_session_ref>` with the selected opaque launch candidate and the recorded parent: `<planner_session_id>` for planner-owned task / `integration_final` or `<requester_session_id>` for `standalone`. It verifies that parent; do not preflight it with `session_require`.
+7. record the returned host, real id, and sole address as the authoritative reviewer route; for a task lane, require that host to match the recorded task session host
+8. fill the final body and call `waypost_send` with:
    - `from_address = waypost_status.default_sender`
    - `to_address = <reviewer returned address>`
    - `subject = "review request: <task_id> r<round>"`
@@ -336,7 +343,7 @@ Rules:
 - for each recorded check, include enough command/result detail to show scope and outcome
 - keep tool/model routing internal; use shared tool-resolution policy
 - do not duplicate `Checks Already Run` in a separate verification section; record coverage gaps inside `Checks Already Run`
-- create reviewers only from `review-request`: parent task/integration to planner; parent standalone to requester
+- delegated task reviewer is created by planner dispatch before coder work; create reviewers here only for other lanes
 - `waypost_send` may trigger a best-effort non-local reviewer nudge; correctness relies on Waypost message delivery
 - follow the shared Async sender rule for the review reply
 
@@ -348,6 +355,6 @@ Rules:
 4. Prefer facts over speculation
 5. Keep raw message JSON internal unless user asks
 6. Always include `Checks Already Run`; include `Optional Review Focus` only when the requester explicitly provides useful emphasis
-7. Preserve `workflow_policy` unchanged when present
-8. Preserve `special_requirements` unchanged when present
+7. Delegated coder requests omit `workflow_policy`; other lanes preserve it unchanged when present
+8. For delegated coder review, reviewer gets `special_requirements` from planner context; other lanes preserve them unchanged when present
 9. Preserve User Decisions unchanged when present
