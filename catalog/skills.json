@@ -39,6 +39,7 @@
         "commit-staged",
         "explain-for-me",
         "explore-defects",
+        "fix-strategy",
         "handoff",
         "assess-tech-design"
       ]
@@ -101,6 +102,7 @@
     "execute-plan": {"tags": ["planning", "workflow"]},
     "explain-for-me": {"tags": ["communication", "standalone"]},
     "explore-defects": {"tags": ["analysis", "standalone"]},
+    "fix-strategy": {"tags": ["analysis", "planning", "standalone"]},
     "handoff": {"tags": ["communication", "standalone"]},
     "multi-agent-protocol": {"tags": ["workflow", "protocol"]},
     "plan-report": {"tags": ["planning", "workflow"]},

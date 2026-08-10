@@ -1,0 +1,6 @@
+interface:
+  display_name: "Fix Strategy"
+  short_description: "Analyze problem leads and recommend a fix strategy"
+  default_prompt: "Use $fix-strategy to verify these problem leads and recommend a coordinated fix strategy without executing it."
+policy:
+  allow_implicit_invocation: false

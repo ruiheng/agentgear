@@ -639,7 +639,7 @@ test("release install copies skills, records schema-v2 state, and ordinary unins
     const afterUninstall = readState(fixture);
     assert.deepEqual(
       Object.keys(afterUninstall.targets[path.join(fixture.home, ".agents", "skills")].skills).sort(),
-      ["assess-tech-design", "commit-staged", "explain-for-me", "explore-defects"]
+      ["assess-tech-design", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy"]
     );
     assert.equal(afterUninstall.channel, "release");
     assert.equal(afterUninstall.releases.length, 1);
