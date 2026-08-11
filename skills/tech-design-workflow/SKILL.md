@@ -75,6 +75,7 @@ Common:
 
 - task_id
 - requester session id/role
+- recorded session host for every workflow-created architect
 - problem, goals, constraints
 - optional known_context, open_questions, feedback_requested, round, max_review_rounds
 
@@ -124,7 +125,7 @@ Resolve both deterministic refs with `session_resolve`. For each target:
 - found: verify its returned path, then call `session_require` with its returned host, real id, and expected workdir;
 - not found: resolve the target's architect role, then call `session_create` with the deterministic ref, recorded requester parent, and selected opaque launch candidate. It verifies that parent; do not preflight it with `session_require`.
 
-Require distinct author and reviewer real ids; stop if they match. Record both ids, hosts, and sole addresses, and derive the artifact directory from the author id. After interrupted setup, repeat this resolve-first flow; never create a target that resolves. After review history exists, recover missing real ids from Waypost history and stop if recovery fails.
+Require distinct author and reviewer real ids and one shared returned host; stop if the ids match or the hosts differ. Record both ids, their host, and sole addresses, and derive the artifact directory from the author id. After interrupted setup, repeat this resolve-first flow; never create a target that resolves. After review history exists, recover missing real ids from Waypost history and stop if recovery fails.
 
 Send only the author. Omit empty optional sections:
 
@@ -134,6 +135,7 @@ Action: design_spec_draft_requested
 From: <requester_role> <requester_session_id>
 To: architect_author <author_session_id>
 Reviewer: architect_reviewer <reviewer_session_id>
+Session Host: <session_host>
 Round: <round>
 Max Review Rounds: <max_review_rounds>
 
@@ -165,7 +167,7 @@ Send once from the requester address to the author address with subject design-s
 
 On design_spec_draft_requested:
 
-1. recover the requester, reviewer, round, maximum, artifact path, archive branch, and optional review focus
+1. recover the requester, reviewer, session host, round, maximum, artifact path, archive branch, and optional review focus
 2. inspect relevant repository state and user-aligned context
 3. write the complete, proportional, implementation-ready design to the named round file, following Dispatched Draft Round Contract and Design Content Gate
 4. ensure accepted constraints and rationale live in the artifact, not only in messages
@@ -182,7 +184,7 @@ Treat a later design_spec_draft_requested as a decision or constraint delta: reu
 
 Require committed docs, their design branch, and the recorded base branch. Never guess the base.
 
-Resolve the reviewer id from explicit input, workflow context, then persisted Waypost history. If prior-review context exists but the real id remains missing, stop; do not create a context-free replacement. Create a reviewer only for a clearly new lane, using resolver role `architect_reviewer` and the same verified parent/workdir settings as above.
+Resolve the reviewer id and host from explicit input, workflow context, then persisted Waypost history and `session_resolve`. If prior-review context exists but the real id or host remains missing, stop; do not create a context-free replacement. Create a reviewer only for a clearly new lane, using resolver role `architect_reviewer` and the same verified parent/workdir settings as above.
 
 Before each review request, resolve <reviewed_commit> = git rev-parse <design_spec_branch>, then apply the review-existing path gate:
 
@@ -248,7 +250,40 @@ Do not paste or summarize the design specification, or hand-write a diff. Send f
 
 ## User Completion
 
-After the accepted design becomes authoritative, report only final design path(s) and authoritative commit.
+After the accepted design becomes authoritative, report final design path(s), authoritative commit, and session cleanup status. Include the cleanup archive and manual unblock step only when cleanup is preserved or pending.
+
+## Session Cleanup
+
+The requester that receives the terminal delivery or review report owns successful closeout. Run cleanup only after the accepted design is authoritative: after the archive commit for draft-review, or after the accepted design branch merge for review-existing. Never clean up while a revision, decision, commit, merge, or conflict remains open.
+
+Use exact recorded real ids with the shared host-neutral cleanup entry point. New workflows use repeatable generic targets; do not add role-specific cleanup options.
+
+For draft-review:
+
+~~~bash
+agentgear run multi-agent-protocol archive-and-remove-task-sessions.mjs \
+  --task-id <task_id> \
+  --owner-session-id <requester_session_id> \
+  --session-host <session_host> \
+  --artifact-root .agent-artifacts/design-spec-closeout \
+  --target architect-author=<author_session_id> \
+  --target architect-reviewer=<reviewer_session_id> \
+  --apply
+~~~
+
+For review-existing:
+
+~~~bash
+agentgear run multi-agent-protocol archive-and-remove-task-sessions.mjs \
+  --task-id <task_id> \
+  --owner-session-id <requester_session_id> \
+  --session-host <session_host> \
+  --artifact-root .agent-artifacts/design-spec-closeout \
+  --target architect=<reviewer_session_id> \
+  --apply
+~~~
+
+Run cleanup once. Deleted or already absent targets are complete. Preserve and report non-disposable sessions and unsupported hosts. On a guard or deletion failure, report cleanup as pending with the generated archive and exact manual unblock step; do not retry automatically, roll back the authoritative design, or reopen review.
 
 ## Report Handling
 
@@ -275,7 +310,8 @@ After acceptance:
   2. require git rev-parse <design_spec_branch> to equal that commit; if it differs, stop and review the new tip
   3. rerun the review-existing path gate against the accepted commit
   4. verify the final specifications are committed, switch to the recorded base branch, require it as current, then merge the specification branch with normal git merge
-  5. follow User Completion with design_specs_in_scope and the resulting base HEAD
+  5. follow Session Cleanup for the recorded reviewer
+  6. follow User Completion with design_specs_in_scope and the resulting base HEAD
 
 For review-existing, do not squash, rebase, cherry-pick, or guess through dirty state, conflicts, detached HEAD, or base uncertainty.
 
@@ -317,6 +353,8 @@ Task: <task_id>
 Action: design_spec_delivered
 From: architect_author <author_session_id>
 To: <requester_role> <requester_session_id>
+Reviewer: architect_reviewer <reviewer_session_id>
+Session Host: <session_host>
 Round: final
 
 ## Delivered
@@ -341,7 +379,7 @@ On design_spec_delivered:
 5. choose the formal tracked docs path; stop if it has unrelated uncommitted changes
 6. if substantive changes are needed, return them to the author for a new reviewed round while preserving Max Review Rounds
 7. copy the accepted artifact to the formal tracked docs path, resolve trivial non-substantive issues locally, and commit that file only
-8. after the archive commit succeeds, report the architect sessions as provider-managed; generic workflow code does not remove them
+8. after the archive commit succeeds, follow Session Cleanup for the delivered author and reviewer
 9. treat the tracked committed doc as authoritative and cite it in later implementation work
 10. follow User Completion with the tracked doc and archive commit
 

@@ -80,3 +80,27 @@ test("closeout documents exact task-session cleanup ownership", () => {
   assert.match(hostContract, /exact recorded ids/);
   assert.doesNotMatch(plannerCloseout, /Generic workflow code does not remove or rehome host sessions/);
 });
+
+test("shared cleanup uses generic targets and provider-owned host behavior", () => {
+  const cleanupPath = path.join(rootDir, "skills/multi-agent-protocol/scripts/archive-and-remove-task-sessions.mjs");
+  const cleanup = fs.readFileSync(cleanupPath, "utf8");
+  const provider = read("providers/session-cleanup.mjs");
+  const plannerBatch = read("skills/multi-agent-protocol/scripts/planner-closeout-batch.mjs");
+  if (process.platform !== "win32") assert.notEqual(fs.statSync(cleanupPath).mode & 0o111, 0);
+  assert.match(cleanup, /--target <role>=<session-id>/);
+  assert.match(cleanup, /repeatableValues: \["--target"\]/);
+  assert.doesNotMatch(cleanup, /sqlite3|thurbox-cli|agent-deck remove|group.*delete/);
+  assert.match(provider, /thurbox-cli/);
+  assert.match(provider, /providerIdsFromStateDatabase/);
+  assert.match(plannerBatch, /cleanupArgs\.push\("--target"/);
+});
+
+test("technical design requester owns terminal architect cleanup", () => {
+  const workflow = read("skills/tech-design-workflow/SKILL.md");
+  assert.match(workflow, /requester that receives the terminal delivery or review report owns successful closeout/);
+  assert.match(workflow, /--target architect-author=<author_session_id>/);
+  assert.match(workflow, /--target architect-reviewer=<reviewer_session_id>/);
+  assert.match(workflow, /--target architect=<reviewer_session_id>/);
+  assert.match(workflow, /after the archive commit succeeds, follow Session Cleanup/);
+  assert.doesNotMatch(workflow, /generic workflow code does not remove them/);
+});

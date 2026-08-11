@@ -262,10 +262,10 @@ export function main(argv = process.argv.slice(2)) {
     if (workspaceReleaseBlocked) {
       sessionCleanupStatus = "skipped_prior_optional_failure";
     } else {
-      const cleanupArgs = ["--task-id", options.taskId, "--planner-session-id", plannerSessionRef, "--session-host", options.sessionHost, "--artifact-root", plannerArtifactRoot, "--apply"];
-      if (options.coderSessionId) cleanupArgs.push("--coder-session-id", options.coderSessionId);
-      if (options.reviewerSessionId) cleanupArgs.push("--reviewer-session-id", options.reviewerSessionId);
-      if (options.architectSessionId) cleanupArgs.push("--architect-session-id", options.architectSessionId);
+      const cleanupArgs = ["--task-id", options.taskId, "--owner-session-id", plannerSessionRef, "--session-host", options.sessionHost, "--artifact-root", plannerArtifactRoot, "--apply"];
+      if (options.coderSessionId) cleanupArgs.push("--target", `coder=${options.coderSessionId}`);
+      if (options.reviewerSessionId) cleanupArgs.push("--target", `reviewer=${options.reviewerSessionId}`);
+      if (options.architectSessionId) cleanupArgs.push("--target", `architect=${options.architectSessionId}`);
       if (options.sessionProfile) cleanupArgs.push("--profile", options.sessionProfile);
       const cleanup = invokeNodeScript(path.join(scriptDir, "archive-and-remove-task-sessions.mjs"), cleanupArgs);
       if (cleanup.stdout) process.stdout.write(cleanup.stdout);

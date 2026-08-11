@@ -250,6 +250,104 @@ integrationTest("task-session cleanup preserves an explicitly reusable session",
   }
 });
 
+integrationTest("task-session cleanup removes generic multi-role targets in one archive", () => {
+  const taskId = "20260811-1200-design-targets";
+  const fixture = makeFixture([
+    { id: "requester-1", title: "requester", tool: "shell", group: "", current: true },
+    { id: "author-1", title: `architect-author-${taskId}`, tool: "shell", group: "" },
+    { id: "design-reviewer-1", title: `architect-reviewer-${taskId}`, tool: "shell", group: "" },
+    { id: "shared-architect", title: "shared-architect", tool: "shell", group: "" }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "design-closeout");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--owner-session-id", "requester-1",
+      "--target", "architect-author=author-1",
+      "--target", "architect-reviewer=design-reviewer-1",
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), ["requester-1", "shared-architect"]);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.equal(archive.owner_session_id, "requester-1");
+    assert.deepEqual(archive.sessions.map(session => session.role), ["architect-author", "architect-reviewer"]);
+    assert.deepEqual(archive.sessions.map(session => session.delete_status), ["deleted", "deleted"]);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("task-session cleanup soft-deletes generic multi-role Thurbox targets", () => {
+  const taskId = "20260811-1201-design-thurbox";
+  const fixture = makeFixture([
+    { uuid: "thurbox-author", name: `architect-author-${taskId}`, cwd: "/tmp/work", parent_session_id: "requester-1" },
+    { uuid: "thurbox-reviewer", name: `architect-reviewer-${taskId}`, cwd: "/tmp/work", parent_session_id: "requester-1" }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "design-closeout");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--owner-session-id", "requester-1",
+      "--session-host", "thurbox",
+      "--target", "architect-author=thurbox-author",
+      "--target", "architect-reviewer=thurbox-reviewer",
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions, []);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.deepEqual(archive.sessions.map(session => session.delete_mode), ["soft-delete", "soft-delete"]);
+    assert.deepEqual(archive.sessions.map(session => session.recoverable), [true, true]);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("task-session cleanup rejects duplicate generic and legacy roles", () => {
+  const duplicate = run(process.execPath, [
+    archiveScript,
+    "--task-id", "20260811-1202-duplicate",
+    "--target", "coder=coder-1",
+    "--target", "coder=coder-1"
+  ]);
+  assert.equal(duplicate.status, 2);
+  assert.match(duplicate.stderr, /duplicate cleanup target: coder=coder-1/);
+
+  const mixed = run(process.execPath, [
+    archiveScript,
+    "--task-id", "20260811-1203-mixed",
+    "--target", "coder=coder-1",
+    "--coder-session-id", "coder-2"
+  ]);
+  assert.equal(mixed.status, 2);
+  assert.match(mixed.stderr, /supplied by both --target and a legacy option/);
+
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-target-repeat-test-"));
+  try {
+    const taskId = "20260811-1204-repeat-role";
+    const artifactRoot = path.join(temporary, "artifacts");
+    const repeatedRole = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--session-host", "unsupported-test-host",
+      "--target", "participant=participant-1",
+      "--target", "participant=participant-2",
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ]);
+    assert.equal(repeatedRole.status, 0, repeatedRole.stderr || repeatedRole.stdout);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.deepEqual(archive.sessions.map(session => session.ref), ["participant-1", "participant-2"]);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 integrationTest("planner closeout removes exact Agent Deck coder and reviewer sessions", () => {
   const taskId = "20260809-1202-closeout";
   const fixture = makeFixture([

@@ -64,6 +64,10 @@ report sessions when the host has no supported cleanup adapter or a guard
 fails. Explicitly reusable sessions are never disposable. Waypost delivery is
 durable truth; a host wake is only a best-effort hint.
 
+Closeout scripts accept cleanup targets as repeatable `<role>=<real_id>`
+entries. Action skills decide the roles and exact ids; adding a workflow role
+must not add another role-specific option to the shared cleanup interface.
+
 When a durable send succeeds but its wake is failed or unverified, report the
 wake result and stop. The host may have submitted the hint despite a false
 negative. Do not resend, press Enter, restart, inspect, or otherwise repair the

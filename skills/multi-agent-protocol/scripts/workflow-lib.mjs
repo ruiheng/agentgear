@@ -33,9 +33,10 @@ export async function execute(main) {
   }
 }
 
-export function parseArgs(argv, { values = [], flags = [], defaults = {}, allowUnknown = false } = {}) {
+export function parseArgs(argv, { values = [], repeatableValues = [], flags = [], defaults = {}, allowUnknown = false } = {}) {
   const result = { ...defaults, _: [] };
   const valueSet = new Set(values);
+  const repeatableValueSet = new Set(repeatableValues);
   const flagSet = new Set(flags);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -43,10 +44,16 @@ export function parseArgs(argv, { values = [], flags = [], defaults = {}, allowU
       result._.push(...argv.slice(index + 1));
       break;
     }
-    if (valueSet.has(argument)) {
+    if (valueSet.has(argument) || repeatableValueSet.has(argument)) {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("--")) fail(`missing value for ${argument}`);
-      result[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
+      const key = argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+      if (repeatableValueSet.has(argument)) {
+        if (!Array.isArray(result[key])) result[key] = [];
+        result[key].push(value);
+      } else {
+        result[key] = value;
+      }
       index += 1;
       continue;
     }
