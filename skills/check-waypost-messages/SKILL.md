@@ -15,6 +15,7 @@ Workflow protocol baseline: use the `multi-agent-protocol` skill.
    - parse the `Action:` header
    - if `Action: group_message_available`, run the group handler for `Group-Address` and `As-Person`; for `group/roundtable-*`, use `roundtable` Moderator Group Check
    - route `execute_delegated_task` and `delegated_task_result` to `delegate-task`; `execute_delegate_task` to `delegate-code-task`; `closeout_delivered` and `code_delivery_complete` to `planner-closeout`
+   - route `design_spec_review_context` and `design_spec_review_requested` to `review-tech-design`; route `design_spec_review_context_recovery_requested` to `tech-design-workflow` by its actual recipient, `design_spec_review_context_rejected` to its Requester Handling, and `design_spec_context_corrected` to its Author Execution
    - route `browser_check_requested`, `browser_setup_requested`, and `browser_setup_provided` to `browser-test`; route reviewer-addressed `browser_check_report` to `review-code`
    - route accepted task `stop_recommended` to `review-closeout`; ACK only after closeout completes
    - route an `integration_final` result only with one matching active/recoverable plan; otherwise `waypost_defer`, do not ACK or fall through. Rework continues the plan; approved `stop_recommended` sends its final report before ACK

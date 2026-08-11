@@ -137,7 +137,8 @@ flowchart TD
     W -->|message: delegated_task_result| Q
     P[Planner] -->|message: review_task_context| R[Reviewer]
     P -->|message: execute_delegate_task| C[Coder]
-    X[Original Requester] -->|vague goal: design_spec_draft_requested| DA[Architect Author]
+    X[Original Requester] -->|canonical context: design_spec_review_context| A[Architect Reviewer]
+    X -->|same canonical contract: design_spec_draft_requested| DA[Architect Author]
     DA -->|message: design_spec_review_requested| A[Architect Reviewer]
     A -->|message: design_spec_review_report| DA
     DA -->|terse message: design_spec_delivered| X
@@ -164,6 +165,7 @@ flowchart TD
 - `review-code` remains the authoritative full review output
 - `review-tech-design` is a separate advisory lane for immutable draft artifacts or committed technical design specifications; it does not replace code review
 - `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
+- in the two-architect lane, the requester sends one canonical Design Task Contract to the reviewer first and then to the author; the reviewer retains it as original-task authority before any draft review
 - in the two-architect lane, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and the reviewer is read-only
 - the author sends only the accepted artifact pointer and review decision; the original requester archives that artifact to the formal docs path and commits it
 - after the archive commit or accepted design-branch merge succeeds, the requester removes verified task-scoped disposable architect sessions through the shared host adapter and reports any preserved or pending cleanup

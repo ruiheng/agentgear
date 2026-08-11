@@ -1,6 +1,6 @@
 ---
 name: tech-design-workflow
-description: Create, review, revise, and deliver a coder-facing technical design specification through a multi-agent workflow. Use when starting, continuing, or routing this workflow.
+description: Create, independently review, revise, and deliver a coder-facing technical design specification through a multi-agent workflow with requester-owned review context. Use when starting, continuing, or routing this workflow.
 ---
 
 # Technical Design Workflow
@@ -11,9 +11,10 @@ Use multi-agent-protocol for shared transport and session protocol.
 
 Route inbound actions before starting a new lane:
 
-- design_spec_draft_requested -> Author Execution
+- design_spec_draft_requested or design_spec_context_corrected -> Author Execution
 - design_spec_review_report -> Report Handling
-- design_spec_decision_requested or design_spec_delivered -> Requester Handling
+- design_spec_review_context_recovery_requested -> Author Execution when addressed to architect-author; otherwise Requester Handling
+- design_spec_review_context_rejected, design_spec_decision_requested, or design_spec_delivered -> Requester Handling
 
 For a new request, select:
 
@@ -28,7 +29,33 @@ Do not make the requester invent a specification merely to obtain review.
 - architect-author: inspects the repository, writes draft rounds, handles reviewer dialogue, and sends the final pointer
 - architect-reviewer: independently reviews the requested round without editing it and stops at the review limit
 
-In draft-review, author and reviewer are separate sibling sessions. The reviewer normally replies to the author; limit decisions are user-gated.
+In draft-review, author and reviewer are separate sibling sessions. The requester gives both the same canonical task contract before drafting and sends later user decisions directly to both, reviewer first. The reviewer normally replies to the author; limit decisions are user-gated.
+
+## Canonical Design Task Contract
+
+For draft-review, write one canonical contract under `.agent-artifacts/message/`. The dispatch wrapper embeds it unchanged in both reviewer and author messages. Keep transport, role, artifact, and archive instructions outside the contract.
+
+```markdown
+## Original Request
+[Preserve the requester's original wording verbatim when available. Otherwise preserve the authoritative handoff text and state its source.]
+
+## Requester Context
+- Desired outcome: [normalized outcome]
+- Must preserve: [required behavior or boundary]
+- Established facts: [facts both architects may rely on]
+- Read first: [required repository paths]
+
+## Constraints
+- [hard constraint]
+
+## Open Questions
+- [architect-owned technical question]
+
+## Optional Review Focus
+[explicit emphasis; never a limit on independent review]
+```
+
+Omit empty optional sections and lines. Keep `Original Request` distinct from requester normalization. Treat this contract and later requester-delivered Decision Deltas as task authority; the design artifact is a proposal against that authority.
 
 ## Dispatched Draft Round Contract
 
@@ -76,7 +103,7 @@ Common:
 - task_id
 - requester session id/role
 - recorded session host for every workflow-created architect
-- problem, goals, constraints
+- original_request, problem, goals, constraints
 - optional known_context, open_questions, feedback_requested, round, max_review_rounds
 
 New architect sessions:
@@ -90,6 +117,7 @@ New architect sessions:
 draft-review additionally uses:
 
 - archive_branch: explicit -> current branch only when it is clearly the formal-doc landing branch -> ask
+- canonical contract file under `.agent-artifacts/message/`
 - optional refs; default architect-author-<task_id> and architect-reviewer-<task_id>
 - existing real author/reviewer session ids when resuming
 
@@ -127,47 +155,41 @@ Resolve both deterministic refs with `session_resolve`. For each target:
 
 Require distinct author and reviewer real ids and one shared returned host; stop if the ids match or the hosts differ. Record both ids, their host, and sole addresses, and derive the artifact directory from the author id. After interrupted setup, repeat this resolve-first flow; never create a target that resolves. After review history exists, recover missing real ids from Waypost history and stop if recovery fails.
 
-Send only the author. Omit empty optional sections:
+Write the Canonical Design Task Contract once. Send it through the owning wrapper, which delivers reviewer context first and dispatches the author only after the reviewer delivery returns an id:
 
-~~~markdown
-Task: <task_id>
-Action: design_spec_draft_requested
-From: <requester_role> <requester_session_id>
-To: architect_author <author_session_id>
-Reviewer: architect_reviewer <reviewer_session_id>
-Session Host: <session_host>
-Round: <round>
-Max Review Rounds: <max_review_rounds>
-
-## Goal
-[Problem and desired outcome; state uncertainty plainly]
-
-## Constraints
-- [constraint]
-
-## Known Context
-- [fact]
-
-## Open Questions
-- [question]
-
-## Optional Review Focus
-- [feedback_requested]
-
-## Artifact
-- Target: <exact .agent-artifacts/design-spec/<author_session_id>/rNNN.md path>
-
-## Archive Target
-- Branch: <archive_branch>
+~~~bash
+agentgear run tech-design-workflow send-design-draft-with-review-context.mjs \
+  --workdir "<current workspace>" \
+  --task-id "<task_id>" \
+  --requester-role "<requester_role>" \
+  --requester-session-id "<requester_session_id>" \
+  --author-session-id "<author_session_id>" \
+  --reviewer-session-id "<reviewer_session_id>" \
+  --session-host "<session_host>" \
+  --round "<round>" \
+  --max-review-rounds "<max_review_rounds>" \
+  --artifact-path "<exact .agent-artifacts/design-spec/<author_session_id>/rNNN.md path>" \
+  --archive-branch "<archive_branch>" \
+  --from-address "<waypost_status.default_sender>" \
+  --author-to-address "<author returned address>" \
+  --reviewer-to-address "<reviewer returned address>" \
+  --contract-file "<canonical contract file>" \
+  --json
 ~~~
 
-Send once from the requester address to the author address with subject design-spec draft: <task_id> r<round>, then follow the shared Async sender rule.
+Run the wrapper with host permission. It owns reviewer-first ordering, both sends, and retained dispatch state; do not split or duplicate them. Report success only when the state is `sent` with both delivery ids. A failed or unverified wake does not reverse delivery; report it and do not resend or repair a target automatically. If reviewer delivery succeeds but author delivery fails, or either receipt is unknown, surface the retained partial state and do not retry automatically.
+
+After successful dispatch, follow the shared Async sender rule.
 
 ## Author Execution
 
+On `design_spec_context_corrected` from the requester, update only the named shared lane fields. Keep the current round and artifact unchanged; do not draft or request review. Authority or design-content changes require `design_spec_draft_requested` and normal Round Resolution instead.
+
+On `design_spec_review_context_recovery_requested` with `Relay: requester`, recover the requester route from lane context. Carry Task, Reviewer, Author, Session Host, Round, and maximum; preserve Missing Context and Pending Review unchanged. Do not supply, reconstruct, or summarize requester context.
+
 On design_spec_draft_requested:
 
-1. recover the requester, reviewer, session host, round, maximum, artifact path, archive branch, and optional review focus
+1. recover the requester, reviewer, session host, round, maximum, Design Task Contract, artifact path, and archive branch
 2. inspect relevant repository state and user-aligned context
 3. write the complete, proportional, implementation-ready design to the named round file, following Dispatched Draft Round Contract and Design Content Gate
 4. ensure accepted constraints and rationale live in the artifact, not only in messages
@@ -177,6 +199,7 @@ On design_spec_draft_requested:
 
 Do not ask the requester to supply design specification content that repository inspection and engineering judgment can resolve.
 Do not resolve user-owned product scope through engineering judgment; exclude optional capability or use Decision Request.
+Do not restate the task contract or requester decisions in review requests. The reviewer receives requester authority directly.
 
 Treat a later design_spec_draft_requested as a decision or constraint delta: reuse the lane and create the next numbered round. A continued review arrives as a normal report with its updated maximum.
 
@@ -199,24 +222,22 @@ Resolve the review sender by lane; that sender owns normal returned reports:
 - draft-review: review_sender_role = architect_author, review_sender_session_id = author_session_id
 - review-existing: review_sender_role = requester_role, review_sender_session_id = requester_session_id
 
-For the first round with a reviewer, send the applicable target form and omit empty optional sections:
+For each round, send the applicable target form and omit empty optional sections. In draft-review, the reviewer already owns the requester contract and any Decision Deltas; do not repeat or summarize them. In review-existing, the requester includes a full Canonical Design Task Contract inline on the first request.
 
 ~~~markdown
 Task: <task_id>
 Action: design_spec_review_requested
 From: <review_sender_role> <review_sender_session_id>
 To: architect_reviewer <reviewer_session_id>
+Session Host: <session_host>
 Round: <round>
 Max Review Rounds: <max_review_rounds>
 
-## Problem
-[Problem the design specification solves]
+## Requester Context
+- Source: <pre-delivered requester contract and Decision Deltas | inline requester Design Task Contract>
 
-## Goals
-- [goal]
-
-## Constraints
-- [constraint]
+# Design Task Contract
+[review-existing first request only; omit for draft-review]
 
 ## Review Target
 [Use exactly one form]
@@ -233,20 +254,12 @@ or
   - path/to/doc.md
 
 ## Optional Review Focus
-- [explicit emphasis; never narrow the full review]
+[review-existing first request only; omit in draft-review because it is already in the requester contract]
 ~~~
 
-Later rounds use the same header, plus:
+Later rounds use the same envelope and target form, naming the current round's exact artifact or commit. In draft-review, do not carry author-restated requester context; in review-existing, the requester may include its own Decision Delta directly. Author reasoning, changed implementation ideas, and responses to findings belong in the self-contained artifact.
 
-~~~markdown
-## Updated Review Target
-[Exact new artifact path, or committed branch/commit/docs]
-
-## Context Delta
-- [changed context; restore any context needed for recovery]
-~~~
-
-Do not paste or summarize the design specification, or hand-write a diff. Send from `waypost_status.default_sender` to the recorded reviewer address with subject `design-spec review: <task_id> r<round>`, then follow the shared Async sender rule.
+Do not paste or summarize the design specification or a hand-written diff. In draft-review, do not repeat the task contract; in review-existing, include it only in the requester-authored first request as specified above. Send from `waypost_status.default_sender` to the recorded reviewer address with subject `design-spec review: <task_id> r<round>`, then follow the shared Async sender rule.
 
 ## User Completion
 
@@ -342,7 +355,24 @@ Max Review Rounds: <max_review_rounds>
 
 ### Decision Response
 
-After the user answers, send the same author a design_spec_draft_requested delta containing the decision, changed constraints, next artifact path, unchanged archive branch, and unchanged Max Review Rounds.
+After the user answers, write one canonical Requester Decision Delta under `.agent-artifacts/message/` with the decision verbatim and only its resulting constraint changes. Send it unchanged to the reviewer first:
+
+~~~markdown
+Task: <task_id>
+Action: design_spec_review_context
+Context: decision
+From: <requester_role> <requester_session_id>
+To: architect_reviewer <reviewer_session_id>
+Author: architect_author <author_session_id>
+Session Host: <session_host>
+Round: <effective round>
+Max Review Rounds: <max_review_rounds>
+
+# Requester Decision Delta
+[canonical delta]
+~~~
+
+Only after that delivery returns an id, send the same delta unchanged to the author in a `design_spec_draft_requested` message with the resolved round, artifact path, unchanged archive branch, and unchanged maximum. Record both delivery ids. If reviewer delivery fails, do not send the author; if author delivery fails or either receipt is unknown, surface the partial result and do not retry automatically.
 
 ## Final Notification
 
@@ -367,6 +397,10 @@ Round: final
 Send with subject design-spec delivered: <task_id>.
 
 ## Requester Handling
+
+On `design_spec_review_context_recovery_requested`, recover the canonical initial context and every requester Decision Delta effective through the pending round. Replay their canonical payloads directly to the named reviewer in order; add `Recovery Complete: yes` only to the last envelope. If requester-owned authority cannot be recovered, ask the user for it. Do not source it from the author or resend the author unless shared lane fields change.
+
+On design_spec_review_context_rejected, correct the named context and send it to the reviewer again. After reviewer delivery succeeds, send every corrected shared lane field to the author: use `design_spec_context_corrected` for metadata-only changes, or `design_spec_draft_requested` when task authority or design content changes. Do not rerun the initial wrapper or edit a reviewed artifact; only the latter case follows Round Resolution.
 
 On design_spec_decision_requested, follow Decision Response; do not edit the artifact.
 

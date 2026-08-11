@@ -96,6 +96,8 @@ export const workflowWaypostMcpTools = [
   "waypost_status"
 ];
 
+const workflowLauncherSkills = ["multi-agent-protocol", "tech-design-workflow"];
+
 const CODEX_OWNERSHIP_VERSION = 1;
 const CODEX_BLOCK_BEGIN = "# BEGIN Agentgear Waypost MCP approvals";
 const CODEX_BLOCK_END = "# END Agentgear Waypost MCP approvals";
@@ -263,8 +265,8 @@ function waypostContext(projectDir, { quiet = false } = {}) {
   return context;
 }
 
-function launcherForms() {
-  const absolute = path.join(getHome(), ".local", "bin", "agentgear");
+function launcherForms(env = process.env) {
+  const absolute = path.join(getHome(env), ".local", "bin", "agentgear");
   return ["agentgear", "~/.local/bin/agentgear", absolute];
 }
 
@@ -352,11 +354,82 @@ export function findRetiredPermissionApprovals({
   };
 }
 
+function missingClaudeWorkflowLauncherIssue(filePath, env) {
+  const inspected = readRetiredPermissionFile(filePath, "Claude settings");
+  if (inspected.issue || inspected.source === null) return null;
+  let settings;
+  try {
+    settings = JSON.parse(inspected.source);
+  } catch {
+    return inspected.source.includes("run multi-agent-protocol")
+      ? `Claude settings contain Agentgear workflow approvals but are not valid JSON: ${filePath}`
+      : null;
+  }
+  const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
+  const prior = launcherForms(env).map(command => jsonPermission(`${command} run multi-agent-protocol *`));
+  if (!prior.some(permission => allowed.has(permission))) return null;
+  const missing = launcherForms(env)
+    .map(command => jsonPermission(`${command} run tech-design-workflow *`))
+    .filter(permission => !allowed.has(permission));
+  return missing.length > 0
+    ? `Claude settings are missing ${missing.length} tech-design-workflow launcher approval(s): ${filePath}`
+    : null;
+}
+
+function generatedLauncherPattern(command, skill, format) {
+  const words = [command, "run", skill].map(JSON.stringify).join(", ");
+  return format === "codex" ? `pattern = [${words}]` : `commandPrefix = [${words}]`;
+}
+
+function missingGeneratedWorkflowLauncherIssue(filePath, label, format, env) {
+  const inspected = readRetiredPermissionFile(filePath, label);
+  if (inspected.issue || inspected.source === null) return null;
+  const prior = launcherForms(env).map(command => generatedLauncherPattern(command, "multi-agent-protocol", format));
+  if (!prior.some(pattern => inspected.source.includes(pattern))) return null;
+  const missing = launcherForms(env)
+    .map(command => generatedLauncherPattern(command, "tech-design-workflow", format))
+    .filter(pattern => !inspected.source.includes(pattern));
+  return missing.length > 0
+    ? `${label} is missing ${missing.length} tech-design-workflow launcher approval(s): ${filePath}`
+    : null;
+}
+
+export function findMissingWorkflowLauncherApprovals({
+  scope = "user",
+  project = process.cwd(),
+  env = process.env
+} = {}) {
+  if (!["user", "project"].includes(scope)) {
+    throw new Error(`Invalid permissions scope: ${scope}. Use user or project.`);
+  }
+  const projectDir = path.resolve(project);
+  const paths = permissionPaths(scope, projectDir, env);
+  const issues = [];
+  const claudeIssue = missingClaudeWorkflowLauncherIssue(paths.claudeSettings, env);
+  if (claudeIssue) issues.push(claudeIssue);
+  for (const [filePath, label, format] of [
+    [paths.codexRules, "Codex rules", "codex"],
+    [paths.codexLegacyRules, "Legacy Codex rules", "codex"],
+    [paths.geminiPolicy, "Gemini policy", "gemini"],
+    [paths.geminiLegacyPolicy, "Legacy Gemini policy", "gemini"]
+  ]) {
+    const issue = missingGeneratedWorkflowLauncherIssue(filePath, label, format, env);
+    if (issue) issues.push(issue);
+  }
+  return {
+    required: issues.length > 0,
+    scope,
+    project: projectDir,
+    issues,
+    paths
+  };
+}
+
 function generatedClaudePermissions(waypost) {
   const permissions = [
     jsonPermission("agent-deck"), jsonPermission("agent-deck *"),
     "Bash(git diff)", "Bash(git diff *)", "Bash(git show)", "Bash(git show *)", "Bash(git status)", "Bash(git status *)", "Bash(git log)", "Bash(git log *)", "Bash(git rev-parse)", "Bash(git rev-parse *)",
-    ...launcherForms().map(command => jsonPermission(`${command} run multi-agent-protocol *`)),
+    ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill => jsonPermission(`${command} run ${skill} *`))),
     ...launcherForms().map(command => jsonPermission(`${command} resolve-tool-command *`)),
     "Write(/.agent-artifacts/**)"
   ];
@@ -699,7 +772,7 @@ function codexRulesSource(waypost) {
     "# Agentgear workflow - generated approval rules\n",
     codexRule(["agent-deck"], "Agent Deck session-host commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck workflow dispatch",\n    ]'),
     codexRule(["printf"], "Shell formatting helper commands"),
-    ...launcherForms().map(command => codexRule([command, "run", "multi-agent-protocol"], "Protocol scripts through the managed agentgear launcher")),
+    ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill => codexRule([command, "run", skill], "Workflow scripts through the managed agentgear launcher"))),
     ...launcherForms().map(command => codexRule([command, "resolve-tool-command"], "Workflow launch-candidate resolver through Agentgear")),
     ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Waypost query; host permission required")),
     "# Waypost reads and writes require host permission.\n"
@@ -776,7 +849,9 @@ function geminiPolicySource(waypost) {
     "# Agentgear workflow - generated policy rules\n",
     geminiRule("allow_agent_deck_cli", ["agent-deck"]),
     ...(waypost.trusted ? [`[[rule]]\nname = "allow_waypost_mcp"\nenabled = true\ndecision = "allow"\ntoolName = "*"\nmcpName = "waypost"\npriority = 950\nmodes = ["default", "autoEdit", "yolo"]\n`] : []),
-    ...launcherForms().map((command, index) => geminiRule(`allow_multi_agent_protocol_launcher_${index}`, [command, "run", "multi-agent-protocol"])),
+    ...launcherForms().flatMap((command, commandIndex) => workflowLauncherSkills.map((skill, skillIndex) =>
+      geminiRule(`allow_workflow_launcher_${commandIndex}_${skillIndex}`, [command, "run", skill])
+    )),
     ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_resolve_tool_command_${index}`, [command, "resolve-tool-command"])),
     ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
     "# Waypost reads and writes require host permission.\n"

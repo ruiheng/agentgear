@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { findRetiredPermissionApprovals } from "../../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
+import {
+  findMissingWorkflowLauncherApprovals,
+  findRetiredPermissionApprovals
+} from "../../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
 import { resolveSelection } from "./catalog.mjs";
 import {
   provisionUpstreamSkill as defaultProvisionUpstreamSkill,
@@ -56,16 +59,55 @@ export function retiredPermissionMigrationScopes(options, env = process.env) {
     .filter(result => result.required);
 }
 
+export function permissionMigrationScopes(options, env = process.env) {
+  const candidates = [
+    { scope: "user", project: options.project },
+    { scope: "project", project: options.project }
+  ];
+  return candidates
+    .map(candidate => {
+      const retired = findRetiredPermissionApprovals({ ...candidate, env });
+      const launcher = findMissingWorkflowLauncherApprovals({ ...candidate, env });
+      return {
+        ...candidate,
+        required: retired.required || launcher.required,
+        reasons: [
+          ...(retired.required ? ["retired-command"] : []),
+          ...(launcher.required ? ["missing-workflow-launcher"] : [])
+        ],
+        issues: [...retired.issues, ...launcher.issues]
+      };
+    })
+    .filter(result => result.required);
+}
+
 export function printPermissionMigrationRequirement({
   print,
   commandRetired = false,
   detectedScopes = []
 }) {
-  if (!commandRetired && detectedScopes.length === 0) return;
-  const scopes = [...new Set(detectedScopes.map(result => result.scope))];
-  print("SECURITY ACTION REQUIRED: permission_migration_required command=adwf-send-and-wake");
-  if (scopes.length > 0) {
-    print(`Detected retired permission approvals in scope(s): ${scopes.join(",")}`);
+  const isRetiredResult = result => result.reasons?.includes("retired-command")
+    || (!Array.isArray(result.reasons) && result.required);
+  const retiredDetected = detectedScopes.some(isRetiredResult);
+  const launcherMissing = detectedScopes.some(result => result.reasons?.includes("missing-workflow-launcher"));
+  if (!commandRetired && !retiredDetected && !launcherMissing) return;
+  const retiredScopes = [...new Set(detectedScopes
+    .filter(isRetiredResult)
+    .map(result => result.scope))];
+  const launcherScopes = [...new Set(detectedScopes
+    .filter(result => result.reasons?.includes("missing-workflow-launcher"))
+    .map(result => result.scope))];
+  if (commandRetired || retiredDetected) {
+    print("SECURITY ACTION REQUIRED: permission_migration_required command=adwf-send-and-wake");
+  }
+  if (launcherMissing) {
+    print("SECURITY ACTION REQUIRED: permission_migration_required missing=tech-design-workflow-launcher");
+  }
+  if (retiredScopes.length > 0) {
+    print(`Detected retired permission approvals in scope(s): ${retiredScopes.join(",")}`);
+  }
+  if (launcherScopes.length > 0) {
+    print(`Detected outdated workflow launcher approvals in scope(s): ${launcherScopes.join(",")}`);
   }
   print("Run: agentgear permissions init");
   print("For every project where workflow permissions were initialized, run: agentgear permissions init --scope project --project <path>");
@@ -186,7 +228,7 @@ export function installSelection({
   const retiredSkills = retiredSkillPlan(catalog, state);
   const retiredCommands = retiredCommandEntries(env)
     .filter(entry => state?.commands?.[entry.destination]);
-  const detectedPermissionScopes = retiredPermissionMigrationScopes(options, env);
+  const detectedPermissionScopes = permissionMigrationScopes(options, env);
   for (const entry of retiredCommands) {
     const record = state.commands[entry.destination];
     const artifactExists = commandArtifactPaths(entry.destination).some(candidate => exists(candidate));

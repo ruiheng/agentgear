@@ -97,7 +97,34 @@ test("shared cleanup uses generic targets and provider-owned host behavior", () 
 
 test("technical design requester owns terminal architect cleanup", () => {
   const workflow = read("skills/tech-design-workflow/SKILL.md");
+  const reviewer = read("skills/review-tech-design/SKILL.md");
+  const messageRouter = read("skills/check-waypost-messages/SKILL.md");
   assert.match(workflow, /requester that receives the terminal delivery or review report owns successful closeout/);
+  assert.match(workflow, /Canonical Design Task Contract/);
+  assert.match(workflow, /agentgear run tech-design-workflow send-design-draft-with-review-context\.mjs/);
+  assert.match(workflow, /reviewer-first ordering/);
+  assert.match(workflow, /Session Host: <session_host>/);
+  assert.match(workflow, /Later rounds use the same envelope and target form, naming the current round's exact artifact or commit/);
+  assert.match(workflow, /send the same delta unchanged to the author/);
+  assert.match(workflow, /design_spec_review_context_rejected/);
+  assert.match(workflow, /design_spec_context_corrected/);
+  assert.match(workflow, /design_spec_review_context_recovery_requested/);
+  assert.match(workflow, /Do not supply, reconstruct, or summarize requester context/);
+  assert.match(workflow, /add `Recovery Complete: yes` only to the last envelope/);
+  assert.match(workflow, /send every corrected shared lane field to the author/);
+  assert.match(reviewer, /Action: design_spec_review_context/);
+  assert.match(reviewer, /any Waypost body with Action: design_spec_review_context; validate Context inside this mode/);
+  assert.match(reviewer, /missing or unsupported `Context` value/);
+  assert.match(reviewer, /Before opening the review target/);
+  assert.match(reviewer, /retain it and settle the claimed delivery under the shared Receiver Contract/);
+  assert.match(reviewer, /Optional Review Focus as requester emphasis, not an exhaustive review boundary/);
+  assert.match(reviewer, /Action: design_spec_review_context_rejected/);
+  assert.match(reviewer, /Action: design_spec_review_context_recovery_requested/);
+  assert.match(reviewer, /Do not send NEEDS_INPUT or accept author-supplied replacement context/);
+  assert.match(reviewer, /marking the last replay `Recovery Complete: yes`/);
+  assert.match(reviewer, /actual inbound sender address/);
+  assert.match(messageRouter, /design_spec_review_context_recovery_requested/);
+  assert.match(messageRouter, /by its actual recipient/);
   assert.match(workflow, /--target architect-author=<author_session_id>/);
   assert.match(workflow, /--target architect-reviewer=<reviewer_session_id>/);
   assert.match(workflow, /--target architect=<reviewer_session_id>/);

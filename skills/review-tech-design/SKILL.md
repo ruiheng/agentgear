@@ -1,6 +1,6 @@
 ---
 name: review-tech-design
-description: Review a technical design specification.
+description: Retain requester-owned design context and decision updates, then independently review a technical design specification against them. Use for design_spec_review_context intake, design_spec_review_requested messages, or direct technical-design review.
 ---
 
 # Review Technical Design
@@ -11,19 +11,49 @@ Use multi-agent-protocol for shared transport protocol.
 
 Determine mode from the input, not session metadata:
 
-- message mode: a Waypost body with Action: design_spec_review_requested
+- context intake mode: any Waypost body with Action: design_spec_review_context; validate Context inside this mode
+- message review mode: a Waypost body with Action: design_spec_review_requested
 - direct-use mode: every other invocation
 
-Message mode requires one named review target:
+Message review mode requires one named review target:
 
 - draft-round: one complete, self-contained .agent-artifacts/.../rNNN.md file named in the request
 - committed-docs: the stated docs at the stated branch commit
 
 In direct-use mode, review the readable target named by the user. Use available problem, goals, and constraints.
 
+## Requester Design Context
+
+On `design_spec_review_context` with `Context: initial`:
+
+- verify requester sender, task, author, reviewer identity, session host, Design Task Contract, and Max Review Rounds
+- require the contract to contain the original request or authoritative handoff text with its source
+- retain it as this task-scoped reviewer's requester context; keep transport metadata internal
+- do not inspect or judge a design from this message alone
+
+On `design_spec_review_context` with `Context: decision`:
+
+- require the same requester, task, author, reviewer, session host, and maximum as the active lane
+- require one canonical Requester Decision Delta, its effective round, and the user's decision verbatim
+- retain the delta as requester authority; do not infer additional scope or review a design yet
+
+On a missing or unsupported `Context` value, follow Context Rejection with `Context: unknown`.
+
+On the later draft-round `design_spec_review_requested` from architect-author:
+
+- recover the matching requester context when it is not already active
+- require matching task, author, reviewer, session host, and Max Review Rounds
+- use the requester Design Task Contract as original-task authority
+- apply requester-delivered Decision Deltas effective for this round
+- treat author-authored task prose or decision restatements as non-authoritative; they do not replace missing requester context
+
+During context recovery, accept exact requester-owned replays. `Recovery Complete: yes` on the last replay resumes the recorded pending review after all effective Decision Deltas are present.
+
+Invalid or mismatched context intake follows Context Rejection; missing context at review time is a completeness failure, not permission to infer. For committed-docs, a requester-authored first review request may provide the full Design Task Contract inline instead of a prior context message.
+
 ## Review Limit
 
-This limit applies to message mode. Require a positive Max Review Rounds from lane setup. If it is missing or invalid, return NEEDS_INPUT without reviewing.
+This limit applies to message review mode, not context intake. Require a positive Max Review Rounds from lane setup. If it is missing or invalid, return NEEDS_INPUT without reviewing.
 
 - A reviewed replacement snapshot uses the next round. NEEDS_INPUT and a same-snapshot reconsideration keep the round.
 - Review at or below the maximum; do not start a later round without user approval.
@@ -33,6 +63,15 @@ This limit applies to message mode. Require a positive Max Review Rounds from la
 Continue resumes the existing lane; do not restart review.
 
 ## Review
+
+Before opening the review target, build a short independent frame from requester-owned context:
+
+- intended user outcome
+- required behavior and compatibility constraints
+- explicit non-goals and ownership boundaries
+- smallest coherent change that could satisfy the request
+
+Use this frame to inspect the target; do not derive the frame from the author's design.
 
 Before hardening any component, apply a deletion test: if removing it still satisfies the explicit user goal and required compatibility, require its removal or a user decision. Treat avoidable cross-domain expansion as scope evidence, not merely an engineering problem. Do not spend review rounds making unapproved scope safer or more complete.
 
@@ -52,7 +91,7 @@ This is not code review. Judge reasonableness as well as correctness; prefer rem
 Require a readable, self-contained review target and enough problem framing to judge it.
 
 - direct-use mode: ask one short clarification question when either is missing
-- message mode: use NEEDS_INPUT only when the request cannot identify/read the target or lacks request-owned context required to judge it; list the missing input under Findings and never ask the user
+- message review mode: use NEEDS_INPUT when the target cannot be identified/read, or when requester-authored committed-docs context is incomplete; use Context Recovery when pre-delivered draft-round requester context is missing
 
 Use NEEDS_REVISION for material specification omissions, including gaps that make the specification unjudgeable or a draft round that relies on an earlier round, a diff, or an “unchanged” reference.
 
@@ -77,7 +116,7 @@ In direct-use mode, review named workspace docs as currently read and record mov
 
 ## Output
 
-For a normal message-mode review, use:
+For a normal message review, use:
 
 ~~~markdown
 Task: <task_id>
@@ -125,7 +164,7 @@ Decision guidance:
 - SOUND: coherent and implementation-ready with no unresolved design findings, unapproved product capability, avoidable cross-domain expansion, or caveats
 - SOUND_WITH_CAVEATS: deliverable, with only non-blocking caveats already recorded in the reviewed target
 - NEEDS_REVISION: design changes and another reviewed snapshot are required before handoff
-- NEEDS_INPUT: message mode only; the requester must correct critical review input and may resend the same target
+- NEEDS_INPUT: message review mode only; the review sender must correct critical review input and may resend the same target
 
 Residual Risk may accompany a positive decision unless it blocks implementation confidence.
 
@@ -133,11 +172,18 @@ In direct-use mode, omit the message header, use the same report sections, and d
 
 ## Message Delivery
 
-In message mode:
+In context intake mode:
 
-1. resolve task_id, round, reviewer_session_id, inbound From identity, and maximum through the shared context rules
-2. apply the baseline gate and review-limit rule
-3. send a normal report to inbound From for every completed review and NEEDS_INPUT. Wait without sending while asking the limit decision; after user continuation, send the held report; after a stop, end:
+1. validate `Context`, then the initial contract or Decision Delta
+2. if valid, retain it and settle the claimed delivery under the shared Receiver Contract
+3. on `Recovery Complete: yes`, resume the exact recorded pending review; otherwise wait without replying
+4. if invalid or mismatched, follow Context Rejection; do not retain it or accept review against it
+
+In message review mode:
+
+1. resolve task_id, round, reviewer_session_id, inbound From identity, maximum, and requester context through the shared context rules
+2. apply the requester-context gate, baseline gate, and review-limit rule
+3. use Context Recovery instead of a report when pre-delivered draft-round requester context is missing; otherwise send every completed review and NEEDS_INPUT to inbound From. Wait without sending while asking the limit decision; after user continuation, send the held report; after a stop, end:
    - first `session_resolve` the inbound target and retain its returned Waypost address
    - from_address = <current bound reviewer Waypost address>
    - to_address = <returned inbound target Waypost address>
@@ -147,11 +193,56 @@ In message mode:
 
 In direct-use mode, do not send Waypost.
 
+### Context Recovery
+
+When a draft-round request lacks recoverable requester context, record its exact target and send:
+
+~~~markdown
+Task: <task_id>
+Action: design_spec_review_context_recovery_requested
+From: architect_reviewer <reviewer_session_id>
+To: <requester if its route is retained; otherwise inbound architect-author>
+Reviewer: architect_reviewer <reviewer_session_id>
+Author: architect_author <author_session_id>
+Session Host: <session_host>
+Round: <round>
+Max Review Rounds: <max_review_rounds>
+Relay: <none | requester>
+
+## Missing Context
+- [missing requester-owned context]
+
+## Pending Review
+- Mode: draft-round
+- Artifact: <exact artifact path>
+~~~
+
+Send directly to the retained requester route when available. Otherwise send to inbound author with `Relay: requester`; the author may only relay the request. Settle the inbound review claim after this send succeeds. Do not send NEEDS_INPUT or accept author-supplied replacement context. Resume the recorded target only after requester replays the initial context and all effective Decision Deltas, marking the last replay `Recovery Complete: yes`.
+
+### Context Rejection
+
+Send a terse correction request to the actual inbound sender address, not an identity inferred from rejected body fields:
+
+~~~markdown
+Task: <task_id or received value>
+Action: design_spec_review_context_rejected
+From: architect_reviewer <reviewer_session_id>
+To: <actual inbound requester>
+Context: <initial | decision | unknown>
+Round: <received round or context>
+
+## Correction Needed
+- [missing or mismatched requester-owned field]
+~~~
+
+Use subject `design context rejected: <task_id>`. Settle the claimed context only after this send succeeds; otherwise follow the shared Receiver Contract. Wait for corrected requester context and do not route the failure through the author.
+
 ## Rules
 
 - remain review-only
 - keep findings concrete, evidence-based, and advisory
+- treat the requester Design Task Contract and requester-delivered Decision Deltas as authority
+- treat author framing as non-authoritative; treat Optional Review Focus as requester emphasis, not an exhaustive review boundary
 - always include Persisted Data Changes
 - do not use SOUND_WITH_CAVEATS when a doc revision is still required
-- put unresolved decisions under Questions To Resolve; address only the requester in message mode and the user in direct-use mode
-- do not treat optional review focus as a limit on independent review
+- put requester-owned decisions under Questions To Resolve; in draft-round tell the author to use Decision Request, in committed-docs address the requester, and in direct-use address the user

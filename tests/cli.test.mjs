@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { childProcessOutcome, main } from "../cli/agentgear.mjs";
 import { main as linkMain } from "../cli/link.mjs";
 import { loadCatalog } from "../cli/lib/catalog.mjs";
-import { installSelection, resolveTargetRoots, selected } from "../cli/lib/installer.mjs";
+import { installSelection, permissionMigrationScopes, resolveTargetRoots, selected } from "../cli/lib/installer.mjs";
 import { parseOptions } from "../cli/lib/options.mjs";
 import { directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
@@ -761,6 +761,40 @@ test("workflow update with --no-launcher retires send-and-wake and requires perm
     assert.match(fs.readFileSync(claudeSettings, "utf8"), /adwf-send-and-wake/);
     assert.match(fs.readFileSync(codexRules, "utf8"), /adwf-send-and-wake/);
     assert.match(fs.readFileSync(geminiPolicy, "utf8"), /adwf-send-and-wake/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("workflow update requires permission reinitialization for a missing design launcher grant", () => {
+  const fixture = environmentFixture();
+  const claudeSettings = path.join(fixture.home, ".claude", "settings.json");
+  const project = path.join(fixture.temporary, "project");
+  const projectCodexRules = path.join(project, ".codex", "rules", "agentgear-workflow.rules");
+  try {
+    run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
+    fs.mkdirSync(path.dirname(claudeSettings), { recursive: true });
+    fs.writeFileSync(claudeSettings, `${JSON.stringify({
+      permissions: { allow: ["Bash(agentgear run multi-agent-protocol *)"] }
+    }, null, 2)}\n`);
+    fs.mkdirSync(path.dirname(projectCodexRules), { recursive: true });
+    fs.writeFileSync(projectCodexRules, '# Agentgear workflow - generated approval rules\nprefix_rule(\n    pattern = ["agentgear", "run", "multi-agent-protocol"],\n)\n');
+
+    const scopes = permissionMigrationScopes({ scope: "global", project }, fixture.environment);
+    assert.deepEqual(scopes.map(result => result.scope), ["user", "project"]);
+
+    const result = spawnAgentgear(
+      ["update", "--pack", "workflow", "--target", "general", "--project", project],
+      fixture,
+      fixture.environment
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /SECURITY ACTION REQUIRED: permission_migration_required missing=tech-design-workflow-launcher/);
+    assert.match(result.stdout, /Detected outdated workflow launcher approvals in scope\(s\): user,project/);
+    assert.match(result.stdout, /Run: agentgear permissions init/);
+    assert.match(result.stdout, /Restart existing agent sessions/);
+    assert.doesNotMatch(fs.readFileSync(claudeSettings, "utf8"), /tech-design-workflow/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { main as cliMain } from "../cli/agentgear.mjs";
 import {
   checkPermissions,
+  findMissingWorkflowLauncherApprovals,
   findRetiredPermissionApprovals,
   initializePermissions,
   permissionPaths,
@@ -76,11 +77,15 @@ test("workflow permissions use the stable launcher and never an old source path"
     const claude = JSON.parse(generated[0]);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear run multi-agent-protocol *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run multi-agent-protocol *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear run tech-design-workflow *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run tech-design-workflow *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear resolve-tool-command *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear resolve-tool-command *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear install *)"), false);
     assert.match(generated[1], /pattern = \["agentgear", "resolve-tool-command"\]/);
+    assert.match(generated[1], /pattern = \["agentgear", "run", "tech-design-workflow"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "resolve-tool-command"\]/);
+    assert.match(generated[2], /commandPrefix = \["agentgear", "run", "tech-design-workflow"\]/);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -156,6 +161,37 @@ test("retired permission detection only treats Claude allow entries as approvals
     });
     assert.equal(stale.required, true);
     assert.equal(stale.issues.some(issue => /Claude settings retain an approval/.test(issue)), true);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("permission migration detects managed workflow rules missing the design launcher", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-missing-launcher-permissions-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const environment = { HOME: home, PATH: "" };
+  const paths = permissionPaths("user", project, environment);
+  try {
+    fs.mkdirSync(path.dirname(paths.claudeSettings), { recursive: true });
+    fs.writeFileSync(paths.claudeSettings, `${JSON.stringify({
+      permissions: { allow: ["Bash(agentgear run multi-agent-protocol *)"] }
+    }, null, 2)}\n`);
+    fs.mkdirSync(path.dirname(paths.codexRules), { recursive: true });
+    fs.writeFileSync(paths.codexRules, '# Agentgear workflow - generated approval rules\nprefix_rule(\n    pattern = ["agentgear", "run", "multi-agent-protocol"],\n)\n');
+    fs.mkdirSync(path.dirname(paths.geminiPolicy), { recursive: true });
+    fs.writeFileSync(paths.geminiPolicy, '# Agentgear workflow - generated policy rules\ncommandPrefix = ["agentgear", "run", "multi-agent-protocol"]\n');
+
+    const stale = findMissingWorkflowLauncherApprovals({
+      scope: "user",
+      project,
+      env: environment
+    });
+
+    assert.equal(stale.required, true);
+    assert.equal(stale.issues.some(issue => /Claude settings are missing/.test(issue)), true);
+    assert.equal(stale.issues.some(issue => /Codex rules is missing/.test(issue)), true);
+    assert.equal(stale.issues.some(issue => /Gemini policy is missing/.test(issue)), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
