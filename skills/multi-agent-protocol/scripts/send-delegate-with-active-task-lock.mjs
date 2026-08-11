@@ -40,17 +40,47 @@ Optional:
   --artifact-root <path>         Default: <workdir>/.agent-artifacts
   --content-type <type>          Default: text/markdown
   --schema-version <value>       Default: 1
-  --send-timeout-ms <ms>         Default: 20000
+  --send-timeout-ms <ms>         Default: 0 (disabled; diagnostic override)
   --json
   -h, --help`;
 
-export function receiptFrom(output) {
-  const receipt = {};
-  for (const token of output.split(/\s+/)) {
-    const match = token.match(/^(delivery_id|message_id|blob_id)=(.*)$/);
-    if (match) receipt[match[1]] = match[2];
+function optionalOutputString(value) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+export function sendOutputFrom(output) {
+  const payload = JSON.parse(output);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("waypost send returned a non-object JSON payload");
   }
-  return receipt;
+  const receipt = {};
+  for (const key of ["delivery_id", "message_id", "blob_id"]) {
+    const value = optionalOutputString(payload[key]);
+    if (value) receipt[key] = value;
+  }
+  const notifyStatus = optionalOutputString(payload.notify_status);
+  return {
+    receipt,
+    notification: {
+      status: notifyStatus || "unknown",
+      scheme: optionalOutputString(payload.notify_scheme),
+      error: optionalOutputString(payload.notify_error)
+        || (notifyStatus ? null : "waypost send --notify returned no notify_status")
+    }
+  };
+}
+
+export function receiptFrom(output) {
+  try {
+    return sendOutputFrom(output).receipt;
+  } catch {
+    const receipt = {};
+    for (const token of output.split(/\s+/)) {
+      const match = token.match(/^(delivery_id|message_id|blob_id)=(.*)$/);
+      if (match) receipt[match[1]] = match[2];
+    }
+    return receipt;
+  }
 }
 
 function branchPlan(options) {
@@ -162,10 +192,12 @@ function rollbackPendingLock(lockFile, lockDir, taskId) {
   }
 }
 
-function positiveInteger(value, label) {
-  if (!/^\d+$/.test(value || "") || Number(value) <= 0) fail(`${label} must be a positive integer`);
+function nonNegativeInteger(value, label) {
+  if (!/^\d+$/.test(value || "")) fail(`${label} must be a non-negative integer`);
   return Number(value);
 }
+
+export const DEFAULT_SEND_TIMEOUT_MS = 0;
 
 function stdinUnavailable(detail = "") {
   const suffix = detail ? ` (${detail})` : "";
@@ -187,7 +219,7 @@ export function readDelegateBody(bodyFile, { stdinIsTTY = Boolean(process.stdin.
 }
 
 function sendWaypost(options, toAddress, subject, body) {
-  const send = run("waypost", ["send", "--to", toAddress, "--from", options.fromAddress, "--subject", subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-"], {
+  const send = run("waypost", ["send", "--to", toAddress, "--from", options.fromAddress, "--subject", subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-", "--notify", "--json"], {
     input: body,
     timeoutMs: options.sendTimeoutMs
   });
@@ -195,8 +227,19 @@ function sendWaypost(options, toAddress, subject, body) {
   if (send.error) return { status: "failed", detail: send.error.message };
   if (send.status !== 0) return { status: "failed", detail: (send.stderr || send.stdout).trim() || `exit code ${send.status}` };
   const raw = send.stdout + send.stderr;
-  const receipt = receiptFrom(raw);
-  return receipt.delivery_id ? { status: "sent", receipt } : { status: "receipt_unknown", raw };
+  let parsed;
+  try {
+    parsed = sendOutputFrom(send.stdout);
+  } catch {
+    return { status: "receipt_unknown", raw };
+  }
+  return parsed.receipt.delivery_id ? { status: "sent", ...parsed } : { status: "receipt_unknown", raw };
+}
+
+function recordNotification(lock, prefix, notification) {
+  lock[`${prefix}_notify_status`] = notification.status;
+  lock[`${prefix}_notify_scheme`] = notification.scheme;
+  lock[`${prefix}_notify_error`] = notification.error;
 }
 
 function requireReviewRoute(options) {
@@ -214,7 +257,7 @@ export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
     values: ["--workdir", "--task-id", "--start-branch", "--integration-branch", "--task-branch", "--planner-session-id", "--coder-session-id", "--coder-session-ref", "--reviewer-session-id", "--reviewer-session-ref", "--session-host", "--planner-workspace", "--worker-workspace", "--task-dir", "--workspace-lifecycle", "--session-reason", "--from-address", "--to-address", "--reviewer-to-address", "--subject", "--reviewer-subject", "--brief-file", "--review-context", "--workflow-policy", "--artifact-root", "--content-type", "--schema-version", "--send-timeout-ms"],
     flags: ["--json"],
-    defaults: { reviewerSessionId: "", reviewerSessionRef: "", reviewerToAddress: "", reviewerSubject: "", workflowPolicy: "unattended; auto_accept_if_no_must_fix=true", artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", sendTimeoutMs: "20000", json: false }
+    defaults: { reviewerSessionId: "", reviewerSessionRef: "", reviewerToAddress: "", reviewerSubject: "", workflowPolicy: "unattended; auto_accept_if_no_must_fix=true", artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", sendTimeoutMs: String(DEFAULT_SEND_TIMEOUT_MS), json: false }
   });
   if (options.help) {
     process.stdout.write(`${usage}\n`);
@@ -237,7 +280,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (options.reviewContext === "required") requireReviewRoute(options);
   requireCommand("waypost");
   if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) fail(`workdir does not exist: ${options.workdir}`);
-  options.sendTimeoutMs = positiveInteger(options.sendTimeoutMs, "--send-timeout-ms");
+  options.sendTimeoutMs = nonNegativeInteger(options.sendTimeoutMs, "--send-timeout-ms");
   options.workdir = fs.realpathSync(options.workdir);
   if (!options.artifactRoot) options.artifactRoot = path.join(options.workdir, ".agent-artifacts");
   const lockDir = path.join(options.artifactRoot.replace(/[\\/]+$/, ""), "active-task.lock");
@@ -263,6 +306,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   let rollback = true;
   let reviewContextDeliveryId = "";
+  let reviewContextNotification = null;
   const retainInterrupted = (stage, result) => {
     rollback = false;
     mutateLock(lockFile, lock => {
@@ -302,12 +346,14 @@ export async function main(argv = process.argv.slice(2)) {
         fail("reviewer context sent without a delivery id; inspect Waypost before retry", 5, "SEND_RECEIPT_UNKNOWN");
       }
       reviewContextDeliveryId = reviewSent.receipt.delivery_id;
+      reviewContextNotification = reviewSent.notification;
       rollback = false;
       mutateLock(lockFile, lock => {
         lock.state = "review_context_sent";
         lock.review_context_delivery_id = reviewContextDeliveryId;
         lock.review_context_message_id = reviewSent.receipt.message_id || null;
         lock.review_context_sent_at = nowIso();
+        recordNotification(lock, "review_context", reviewSent.notification);
       });
     }
 
@@ -338,20 +384,27 @@ export async function main(argv = process.argv.slice(2)) {
       lock.delivery_id = coderSent.receipt.delivery_id;
       lock.message_id = coderSent.receipt.message_id || null;
       lock.sent_at = nowIso();
+      recordNotification(lock, "coder", coderSent.notification);
     });
     const summary = {
       status: "sent",
       task_id: options.taskId,
       coder_session_id: options.coderSessionId,
       coder_delivery_id: coderSent.receipt.delivery_id,
+      coder_notify_status: coderSent.notification.status,
+      coder_notify_scheme: coderSent.notification.scheme,
+      coder_notify_error: coderSent.notification.error,
       reviewer_session_id: options.reviewerSessionId || null,
       review_context_delivery_id: reviewContextDeliveryId || null,
+      review_context_notify_status: reviewContextNotification?.status || null,
+      review_context_notify_scheme: reviewContextNotification?.scheme || null,
+      review_context_notify_error: reviewContextNotification?.error || null,
       lock_dir: lockDir,
       lock_file: lockFile,
       lock_output: lockResult.stdout.trim()
     };
     if (options.json) process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-    else process.stdout.write(`delegate_dispatch_ok task_id=${options.taskId} coder_delivery_id=${coderSent.receipt.delivery_id} review_context_delivery_id=${reviewContextDeliveryId || "None"} lock_dir=${lockDir}\n`);
+    else process.stdout.write(`delegate_dispatch_ok task_id=${options.taskId} coder_delivery_id=${coderSent.receipt.delivery_id} coder_notify_status=${coderSent.notification.status} review_context_delivery_id=${reviewContextDeliveryId || "None"} review_context_notify_status=${reviewContextNotification?.status || "None"} lock_dir=${lockDir}\n`);
   } finally {
     if (rollback && fs.existsSync(lockFile)) rollbackPendingLock(lockFile, lockDir, options.taskId);
   }

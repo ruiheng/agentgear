@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { main as sendDelegate, readDelegateBody } from "../skills/multi-agent-protocol/scripts/send-delegate-with-active-task-lock.mjs";
+import {
+  DEFAULT_SEND_TIMEOUT_MS,
+  main as sendDelegate,
+  readDelegateBody
+} from "../skills/multi-agent-protocol/scripts/send-delegate-with-active-task-lock.mjs";
 
 function exists(filePath) {
   return fs.lstatSync(filePath, { throwIfNoEntry: false }) !== undefined;
@@ -84,6 +88,21 @@ async function withEnvironment(environment, action) {
   }
 }
 
+async function captureStdout(action) {
+  const originalWrite = process.stdout.write;
+  let output = "";
+  process.stdout.write = chunk => {
+    output += String(chunk);
+    return true;
+  };
+  try {
+    await action();
+    return output;
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+}
+
 const loggingWaypost = `
 const fs = require("node:fs");
 const body = fs.readFileSync(0, "utf8");
@@ -92,8 +111,20 @@ const review = body.includes("Action: review_task_context");
 const coder = body.includes("Action: execute_delegate_task");
 if (process.env.WAYPOST_MODE === "fail-review" && review) process.exit(7);
 if (process.env.WAYPOST_MODE === "fail-coder" && coder) process.exit(8);
+const notifyFailed = process.env.WAYPOST_MODE === "notify-fail-all";
+const response = JSON.stringify({
+  delivery_id: review ? "review-1" : "coder-1",
+  notify_status: notifyFailed ? "failed" : "sent",
+  notify_scheme: "agent-deck",
+  notify_error: notifyFailed ? "simulated wake failure" : null
+}) + "\\n";
 if (process.env.WAYPOST_MODE === "timeout") setTimeout(() => {}, 10000);
-process.stdout.write("delivery_id=" + (review ? "review-1" : "coder-1") + " message_id=message-1\\n");`;
+else if (process.env.WAYPOST_MODE === "slow-success") setTimeout(() => process.stdout.write(response), 60);
+else process.stdout.write(response);`;
+
+test("default send timeout is disabled so Waypost owns notify deadlines", () => {
+  assert.equal(DEFAULT_SEND_TIMEOUT_MS, 0);
+});
 
 test("brief source rejects TTY stdin before reading", () => {
   let readAttempted = false;
@@ -158,6 +189,9 @@ test("required review sends one opaque task contract to reviewer then coder", as
     });
     const records = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
     assert.equal(records.length, 2);
+    for (const record of records) {
+      assert.deepEqual(record.args.slice(-2), ["--notify", "--json"]);
+    }
     assert.match(records[0].body, /Action: review_task_context/);
     assert.match(records[1].body, /Action: execute_delegate_task/);
     assert.ok(records[0].body.includes(`# Task Contract\n${brief}`));
@@ -170,7 +204,53 @@ test("required review sends one opaque task contract to reviewer then coder", as
     const lock = JSON.parse(fs.readFileSync(path.join(artifactRoot, "active-task.lock", "lock.json"), "utf8"));
     assert.equal(lock.state, "sent");
     assert.equal(lock.review_context_delivery_id, "review-1");
+    assert.equal(lock.review_context_notify_status, "sent");
+    assert.equal(lock.review_context_notify_scheme, "agent-deck");
+    assert.equal(lock.review_context_notify_error, null);
     assert.equal(lock.delivery_id, "coder-1");
+    assert.equal(lock.coder_notify_status, "sent");
+    assert.equal(lock.coder_notify_scheme, "agent-deck");
+    assert.equal(lock.coder_notify_error, null);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("notification failure preserves both durable deliveries and reports each wake result", async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-send-delegate-"));
+  const workdir = path.join(temporary, "workspace");
+  const artifactRoot = path.join(workdir, ".agent-artifacts");
+  const bin = path.join(temporary, "bin");
+  const log = path.join(temporary, "waypost.log");
+  try {
+    fs.mkdirSync(workdir, { recursive: true });
+    writeExecutable(bin, loggingWaypost);
+    const brief = writeBrief(temporary);
+    const output = await captureStdout(() => withEnvironment({
+      PATH: bin,
+      WAYPOST_LOG: log,
+      WAYPOST_MODE: "notify-fail-all"
+    }, () => sendDelegate(args(temporary, artifactRoot, brief, "required", ["--json"]))));
+
+    const records = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+    assert.equal(records.length, 2);
+    const summary = JSON.parse(output);
+    assert.equal(summary.status, "sent");
+    assert.equal(summary.review_context_delivery_id, "review-1");
+    assert.equal(summary.review_context_notify_status, "failed");
+    assert.equal(summary.review_context_notify_scheme, "agent-deck");
+    assert.equal(summary.review_context_notify_error, "simulated wake failure");
+    assert.equal(summary.coder_delivery_id, "coder-1");
+    assert.equal(summary.coder_notify_status, "failed");
+    assert.equal(summary.coder_notify_scheme, "agent-deck");
+    assert.equal(summary.coder_notify_error, "simulated wake failure");
+
+    const lock = JSON.parse(fs.readFileSync(path.join(artifactRoot, "active-task.lock", "lock.json"), "utf8"));
+    assert.equal(lock.state, "sent");
+    assert.equal(lock.review_context_delivery_id, "review-1");
+    assert.equal(lock.review_context_notify_status, "failed");
+    assert.equal(lock.delivery_id, "coder-1");
+    assert.equal(lock.coder_notify_status, "failed");
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -258,6 +338,28 @@ test("interrupted send retains a lock with the affected stage", async () => {
     const lock = JSON.parse(fs.readFileSync(path.join(artifactRoot, "active-task.lock", "lock.json"), "utf8"));
     assert.equal(lock.state, "send_interrupted_unknown");
     assert.equal(lock.send_stage, "coder");
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("zero send timeout waits for Waypost to return the durable receipt", async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-send-delegate-"));
+  const workdir = path.join(temporary, "workspace");
+  const artifactRoot = path.join(workdir, ".agent-artifacts");
+  const bin = path.join(temporary, "bin");
+  const log = path.join(temporary, "waypost.log");
+  try {
+    fs.mkdirSync(workdir, { recursive: true });
+    writeExecutable(bin, loggingWaypost);
+    const brief = writeBrief(temporary);
+    await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "slow-success" }, async () => {
+      await sendDelegate(args(temporary, artifactRoot, brief, "skip", ["--send-timeout-ms", "0"]));
+    });
+    const lock = JSON.parse(fs.readFileSync(path.join(artifactRoot, "active-task.lock", "lock.json"), "utf8"));
+    assert.equal(lock.state, "sent");
+    assert.equal(lock.delivery_id, "coder-1");
+    assert.equal(lock.coder_notify_status, "sent");
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

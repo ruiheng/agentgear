@@ -79,8 +79,11 @@ was deleted (full purge can remove that link).
 The workflow-orchestration features depend on
 [Waypost](https://github.com/ruiheng/waypost). Install Waypost separately and
 ensure its `waypost` command is available on `PATH` before using the workflow
-pack. `agentgear doctor --pack workflow` checks the declared executable and
-session-host prerequisites.
+pack. The workflow dispatch wrapper requires a Waypost build whose
+`waypost send --help` lists `--notify`. `agentgear doctor --pack workflow`
+checks the declared executable and session-host prerequisites. The wrapper
+lets Waypost own notification deadlines instead of imposing a default outer
+timeout that could discard an already-persisted delivery receipt.
 
 ## Workflow pack
 

@@ -141,7 +141,8 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
      --reviewer-session-id "<reviewer_session_id>" \
      --reviewer-session-ref "<reviewer_session_ref>" \
      --reviewer-to-address "<reviewer returned address>" \
-     --reviewer-subject "task context: <task_id> -> reviewer"
+     --reviewer-subject "task context: <task_id> -> reviewer" \
+     --json
    ```
 
    For skipped review, set `--review-context "skip"` and omit the four
@@ -149,7 +150,14 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 
    Run this wrapper with host permission. Report success only with a delivery
    id and a `sent` lock. Required review succeeds only with reviewer-context
-   and coder delivery ids.
+   and coder delivery ids. The wrapper requests an immediate best-effort wake
+   through `waypost send --notify --json` for each durable send and records the
+   returned notify status. A failed or unverified wake does not reverse the
+   delivery; report it and do not resend or repair the target automatically.
+   The wrapper does not impose an outer send timeout by default because Waypost
+   persists the delivery before finishing its synchronous notify result. Use
+   `--send-timeout-ms` only as an explicit diagnostic override; an interruption
+   makes the delivery receipt unknown.
 
 The wrapper owns active-task lock acquisition, reviewer-first ordering, and both sends. Do not split or duplicate those operations. If reviewer delivery succeeds but coder delivery fails, or either delivery is unknown, it retains the lock with the partial result. Surface that state; do not retry automatically.
 
@@ -219,5 +227,6 @@ Return only:
 - reviewer session id when review is required
 - temporary workspace and cleanup status, when applicable
 - any blocker or send failure
+- any failed or unverified wake hint
 
-Keep tool commands, addresses, raw JSON, and routine wakeup details internal. Use shared diagnostics internally; report only the concise failure cause.
+Keep tool commands, addresses, raw JSON, and successful routine wakeup details internal. Use shared diagnostics internally; report only the concise failure cause.
