@@ -19,6 +19,7 @@ export function parseOptions(argumentsList) {
     noLauncher: false,
     apply: false,
     json: false,
+    supplied: new Set(),
     positional: []
   };
 
@@ -31,38 +32,49 @@ export function parseOptions(argumentsList) {
     };
     switch (argument) {
       case "--pack":
+        options.supplied.add("pack");
         options.packs.push(...csv(next(), argument));
         break;
       case "--skill":
+        options.supplied.add("skill");
         options.skills.push(...csv(next(), argument));
         break;
       case "--target":
       case "--provider":
+        options.supplied.add("target");
         options.targets.push(...csv(next(), argument));
         break;
       case "--scope":
+        options.supplied.add("scope");
         options.scope = next();
         break;
       case "--project":
+        options.supplied.add("project");
         options.project = next();
         options.projectSpecified = true;
         break;
       case "--dest":
+        options.supplied.add("dest");
         options.destination = next();
         break;
       case "--force":
+        options.supplied.add("force");
         options.force = true;
         break;
       case "--purge":
+        options.supplied.add("purge");
         options.purge = true;
         break;
       case "--no-launcher":
+        options.supplied.add("no-launcher");
         options.noLauncher = true;
         break;
       case "--apply":
+        options.supplied.add("apply");
         options.apply = true;
         break;
       case "--json":
+        options.supplied.add("json");
         options.json = true;
         break;
       case "--help":

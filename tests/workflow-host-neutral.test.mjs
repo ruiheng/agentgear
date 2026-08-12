@@ -147,7 +147,11 @@ test("technical design requester owns terminal architect cleanup", () => {
   assert.match(draftReview, /Read an ordinary diff between the immutable prior and current artifacts/);
   assert.match(draftReview, /Recheck the evidence needed for each conclusion/);
   assert.match(messageRouter, /design_spec_review_context_recovery_requested/);
-  assert.match(messageRouter, /by its actual recipient/);
+  assert.match(messageRouter, /Only the six discriminator aliases/);
+  assert.match(
+    read("skills/tech-design-workflow/references/context-recovery-route.md"),
+    /Use the received recipient and `Relay` value/
+  );
   assert.match(closeout, /--target architect-author=<author_session_id>/);
   assert.match(closeout, /--target architect-reviewer=<reviewer_session_id>/);
   assert.match(closeout, /--target architect=<reviewer_session_id>/);

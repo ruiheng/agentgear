@@ -100,6 +100,10 @@ export function upstreamSkillDigest(rootDir) {
   return `${UPSTREAM_DIGEST_PREFIX}${hash.digest("hex")}`;
 }
 
+function dataRootFor(env = process.env) {
+  return path.join(env.XDG_DATA_HOME || path.join(env.HOME || os.homedir(), ".local", "share"), "agentgear");
+}
+
 export function pinnedUpstreamSkillIsValid(source, expectedDigest) {
   try {
     const skillFile = path.join(source, "SKILL.md");
@@ -129,7 +133,7 @@ function manifestPath(candidate) {
   return path.join(candidate, ".agentgear-retrieved-skill.json");
 }
 
-function materializationRoot(dataRoot, plan) {
+export function retrievedSkillMaterializationRoot(dataRoot, plan) {
   return path.join(dataRoot, "retrieved-skills", plan.name, digestHex(plan.source));
 }
 
@@ -145,19 +149,38 @@ function materializationManifest(plan) {
   };
 }
 
-function materializationIsValid(candidate, plan) {
+function retrievedSkillMaterializationInspection(candidate, plan) {
   try {
     const info = fs.lstatSync(candidate, { throwIfNoEntry: false });
-    if (!info?.isDirectory() || info.isSymbolicLink()) return false;
+    if (!info?.isDirectory() || info.isSymbolicLink()) return { valid: false };
+    const entries = fs.readdirSync(candidate, { withFileTypes: true })
+      .sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)));
+    if (entries.length !== 2
+      || entries[0].name !== ".agentgear-retrieved-skill.json"
+      || !entries[0].isFile()
+      || entries[0].isSymbolicLink()
+      || entries[1].name !== "payload"
+      || !entries[1].isDirectory()
+      || entries[1].isSymbolicLink()) {
+      return { valid: false };
+    }
     const manifestInfo = fs.lstatSync(manifestPath(candidate), { throwIfNoEntry: false });
-    if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) return false;
+    if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) return { valid: false };
     const expected = materializationManifest(plan);
     const actual = JSON.parse(fs.readFileSync(manifestPath(candidate), "utf8"));
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) return false;
-    return pinnedUpstreamSkillIsValid(path.join(candidate, "payload"), plan.source.contentDigest);
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) return { valid: false };
+    const payload = path.join(candidate, "payload");
+    return {
+      valid: pinnedUpstreamSkillIsValid(payload, plan.source.contentDigest),
+      payload
+    };
   } catch {
-    return false;
+    return { valid: false };
   }
+}
+
+export function retrievedSkillMaterializationIsValid(candidate, plan) {
+  return retrievedSkillMaterializationInspection(candidate, plan).valid;
 }
 
 function copyValidatedTree(source, destination, plan) {
@@ -166,7 +189,7 @@ function copyValidatedTree(source, destination, plan) {
   return pinnedUpstreamSkillIsValid(destination, plan.source.contentDigest);
 }
 
-function runtimeUpstreamSource(plan, runtimeRoots) {
+export function verifiedRuntimeUpstreamSource(plan, runtimeRoots) {
   for (const runtimeRoot of runtimeRoots ?? []) {
     if (!runtimeRoot) continue;
     const catalogFile = path.join(runtimeRoot, "catalog", "skills.json");
@@ -184,6 +207,26 @@ function runtimeUpstreamSource(plan, runtimeRoots) {
   return null;
 }
 
+export function upstreamResourceStatus({ catalog, skill, env = process.env, runtimeRoots = [] }) {
+  const plan = upstreamPlanBySkill(catalog, skill);
+  if (!plan) return null;
+  const finalRoot = retrievedSkillMaterializationRoot(dataRootFor(env), plan);
+  const finalInfo = fs.lstatSync(finalRoot, { throwIfNoEntry: false });
+  if (finalInfo) {
+    const inspection = retrievedSkillMaterializationInspection(finalRoot, plan);
+    if (!inspection.valid) return { plan, state: "corrupt", path: finalRoot };
+    return { plan, state: "retrieved", path: finalRoot, payload: inspection.payload };
+  }
+  const discovered = retrievedUpstreamSkillPlans(catalog, env);
+  const prefix = `${path.join(dataRootFor(env), "retrieved-skills", plan.name)}${path.sep}`;
+  const preserved = discovered.preserved.find(candidate => candidate === path.join(dataRootFor(env), "retrieved-skills", plan.name)
+    || candidate.startsWith(prefix));
+  if (preserved) return { plan, state: "corrupt", path: preserved };
+  const runtimePayload = verifiedRuntimeUpstreamSource(plan, runtimeRoots);
+  if (runtimePayload) return { plan, state: "runtime", path: runtimePayload, payload: runtimePayload };
+  return { plan, state: "available", path: finalRoot };
+}
+
 export function retrieveUpstreamSkill({
   catalog,
   skill,
@@ -194,10 +237,10 @@ export function retrieveUpstreamSkill({
 }) {
   const plan = upstreamPlanBySkill(catalog, skill);
   if (!plan) return null;
-  const dataRoot = path.join(env.XDG_DATA_HOME || path.join(env.HOME || os.homedir(), ".local", "share"), "agentgear");
-  const finalRoot = materializationRoot(dataRoot, plan);
+  const dataRoot = dataRootFor(env);
+  const finalRoot = retrievedSkillMaterializationRoot(dataRoot, plan);
   if (fs.existsSync(finalRoot) || fs.lstatSync(finalRoot, { throwIfNoEntry: false })) {
-    if (!materializationIsValid(finalRoot, plan)) {
+    if (!retrievedSkillMaterializationIsValid(finalRoot, plan)) {
       fail(`Retrieved upstream skill is unverifiable: ${finalRoot}; remove it manually before retrying.`);
     }
     return { plan, payload: path.join(finalRoot, "payload"), materialized: false };
@@ -208,7 +251,7 @@ export function retrieveUpstreamSkill({
   try {
     fs.mkdirSync(temporary);
     const payload = path.join(temporary, "payload");
-    const cached = runtimeUpstreamSource(plan, runtimeRoots);
+    const cached = verifiedRuntimeUpstreamSource(plan, runtimeRoots);
     if (cached) {
       if (!copyValidatedTree(cached, payload, plan)) fail(`Could not validate staged upstream skill: ${cached}`);
     } else {
@@ -220,11 +263,11 @@ export function retrieveUpstreamSkill({
       fs.rmSync(runtime.root, { recursive: true, force: true });
     }
     fs.writeFileSync(manifestPath(temporary), `${JSON.stringify(materializationManifest(plan), null, 2)}\n`);
-    if (!materializationIsValid(temporary, plan)) fail(`Could not verify retrieved upstream skill: ${temporary}`);
+    if (!retrievedSkillMaterializationIsValid(temporary, plan)) fail(`Could not verify retrieved upstream skill: ${temporary}`);
     try {
       fs.renameSync(temporary, finalRoot);
     } catch (error) {
-      if (!materializationIsValid(finalRoot, plan)) throw error;
+      if (!retrievedSkillMaterializationIsValid(finalRoot, plan)) throw error;
       fs.rmSync(temporary, { recursive: true, force: true });
     }
     return { plan, payload: path.join(finalRoot, "payload"), materialized: true };
@@ -235,7 +278,7 @@ export function retrieveUpstreamSkill({
 }
 
 export function retrievedUpstreamSkillPlans(catalog, env = process.env) {
-  const dataRoot = path.join(env.XDG_DATA_HOME || path.join(env.HOME || os.homedir(), ".local", "share"), "agentgear");
+  const dataRoot = dataRootFor(env);
   const root = path.join(dataRoot, "retrieved-skills");
   const info = fs.lstatSync(root, { throwIfNoEntry: false });
   if (!info) return { valid: [], preserved: [] };
@@ -252,7 +295,7 @@ export function retrievedUpstreamSkillPlans(catalog, env = process.env) {
     }
     for (const candidate of fs.readdirSync(nameRoot, { withFileTypes: true })) {
       const candidateRoot = path.join(nameRoot, candidate.name);
-      if (candidate.name === digestHex(plan) && candidate.isDirectory() && !candidate.isSymbolicLink() && materializationIsValid(candidateRoot, plan)) {
+      if (candidate.name === digestHex(plan.source) && candidate.isDirectory() && !candidate.isSymbolicLink() && retrievedSkillMaterializationIsValid(candidateRoot, plan)) {
         valid.push({ plan, root: candidateRoot });
       } else {
         preserved.push(candidateRoot);
@@ -298,19 +341,74 @@ function reusePinnedUpstreamSkill(plan, previousRuntimeRoots, destination) {
 
 export function selectedUpstreamSkillPlans(catalog, selection, state, env = process.env) {
   const selected = new Map();
-  const all = new Map();
-  for (const plan of upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {}))) {
-    all.set(plan.name, plan);
-  }
-  // Host documentation is optional and is retrieved explicitly through
-  // `agentgear skill get`; installation never fetches it just because a pack
-  // declares a compatible session host.
+  const all = new Map(upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {}))
+    .map(plan => [plan.name, plan]));
+  // Host documentation is deliberately materialized only by explicit skill
+  // retrieval. Staging remains able to retain a historical linked upstream
+  // while it is an active runtime consumer, but pack selection alone never
+  // makes an installation fetch optional documentation.
   for (const target of Object.values(state?.targets ?? {})) {
     for (const [name, record] of Object.entries(target.skills ?? {})) {
       if (record?.mode === "link" && all.has(name)) selected.set(name, all.get(name));
     }
   }
   return [...selected.values()];
+}
+
+function removePath(candidate) {
+  const info = fs.lstatSync(candidate, { throwIfNoEntry: false });
+  if (!info) return;
+  if (info.isSymbolicLink()) fs.unlinkSync(candidate);
+  else fs.rmSync(candidate, { recursive: true, force: true });
+}
+
+function pruneEmptyRetrievedParents(candidate, root) {
+  let current = path.dirname(candidate);
+  while (path.resolve(current).startsWith(`${path.resolve(root)}${path.sep}`)) {
+    const info = fs.lstatSync(current, { throwIfNoEntry: false });
+    if (!info?.isDirectory() || info.isSymbolicLink() || fs.readdirSync(current).length > 0) break;
+    fs.rmdirSync(current);
+    current = path.dirname(current);
+  }
+}
+
+// Retrieved resources live in a separate ownership domain from installation
+// state. Quarantine first so a failed deletion restores the exact candidate.
+export function purgeRetrievedUpstreamSkills({ catalog, env = process.env, print = () => {} }) {
+  const plans = retrievedUpstreamSkillPlans(catalog, env);
+  const root = path.join(dataRootFor(env), "retrieved-skills");
+  const failures = [];
+  for (const candidate of plans.valid) {
+    const quarantine = path.join(
+      path.dirname(candidate.root),
+      `.${path.basename(candidate.root)}.agentgear-purge-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`
+    );
+    try {
+      fs.renameSync(candidate.root, quarantine);
+      try {
+        removePath(quarantine);
+      } catch (error) {
+        try {
+          fs.renameSync(quarantine, candidate.root);
+        } catch (restoreError) {
+          failures.push(`${candidate.root}: ${error.message}; restore failed: ${restoreError.message}`);
+          continue;
+        }
+        failures.push(`${candidate.root}: ${error.message}`);
+        continue;
+      }
+      print(`removed retrieved skill: ${candidate.root}`);
+      pruneEmptyRetrievedParents(candidate.root, root);
+    } catch (error) {
+      failures.push(`${candidate.root}: ${error.message}`);
+    }
+  }
+  for (const candidate of plans.preserved) print("preserved unverifiable retrieved skill: " + candidate);
+  return {
+    ...plans,
+    failures,
+    incomplete: plans.preserved.length > 0 || failures.length > 0
+  };
 }
 
 export function selectedUpstreamSkillNames(catalog, selection) {

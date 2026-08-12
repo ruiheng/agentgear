@@ -1504,8 +1504,8 @@ test("state loss beside managed runtime data blocks all publication commands", (
     assert.equal(pathExists(path.join(fixture.dataRoot, "current")), true);
 
     const purge = spawnAgentgear(["uninstall", "--purge"], fixture, fixture.environment);
-    assert.equal(purge.status, 0, purge.stderr);
-    assert.match(purge.stdout, /nothing to purge/);
+    assert.equal(purge.status, 1, purge.stderr);
+    assert.match(purge.stderr, /Installation state is missing beside managed runtime data/);
     assert.equal(pathExists(path.join(fixture.localBin, "agentgear")), true);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
@@ -2015,7 +2015,7 @@ test("link validates documented scripts required by active shared skills", async
 
     assert.throws(
       () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
-      /prepare-workspaces\.mjs is missing or is not a file/
+      /missing or unsafe: .*prepare-workspaces\.mjs/
     );
 
     assert.equal(fs.realpathSync(current), previousRuntime);
@@ -2192,7 +2192,7 @@ test("link ignores a deleted project target retained in installation state", asy
   }
 });
 
-test("link ignores state-recorded skill links pinned to an old physical release", async () => {
+test("authoritative link reconciliation rejects state-recorded skill links pinned to an old physical release", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -2211,10 +2211,12 @@ test("link ignores state-recorded skill links pinned to an old physical release"
     fs.symlinkSync(oldReleaseTarget, target, process.platform === "win32" ? "junction" : "dir");
     fs.rmSync(path.join(checkout, "skills", "handoff"), { recursive: true, force: true });
 
-    runCheckout(["link", "--pack", "workflow", "--target", "general"]);
+    assert.throws(
+      () => runCheckout(["link", "--pack", "workflow", "--target", "general"]),
+      /Refusing to withdraw locally changed skill/
+    );
 
-    assert.notEqual(fs.realpathSync(current), previousRuntime);
-    assert.equal(fs.existsSync(path.join(current, "skills", "handoff", "SKILL.md")), false);
+    assert.equal(fs.realpathSync(current), previousRuntime);
     assert.equal(fs.realpathSync(target), oldReleaseTarget);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });

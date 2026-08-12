@@ -79,17 +79,21 @@ test("workflow permissions use the stable launcher and never an old source path"
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run multi-agent-protocol *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear run tech-design-workflow *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run tech-design-workflow *)"), true);
-    assert.equal(claude.permissions.allow.includes("Bash(agentgear run review-tech-design *)"), true);
-    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run review-tech-design *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear run review-tech-design *)"), false);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run review-tech-design *)"), false);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear skill get *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear skill get *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear resolve-tool-command *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear resolve-tool-command *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear install *)"), false);
     assert.match(generated[1], /pattern = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[1], /pattern = \["agentgear", "run", "tech-design-workflow"\]/);
-    assert.match(generated[1], /pattern = \["agentgear", "run", "review-tech-design"\]/);
+    assert.doesNotMatch(generated[1], /pattern = \["agentgear", "run", "review-tech-design"\]/);
+    assert.match(generated[1], /pattern = \["agentgear", "skill", "get"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "run", "tech-design-workflow"\]/);
-    assert.match(generated[2], /commandPrefix = \["agentgear", "run", "review-tech-design"\]/);
+    assert.doesNotMatch(generated[2], /commandPrefix = \["agentgear", "run", "review-tech-design"\]/);
+    assert.match(generated[2], /commandPrefix = \["agentgear", "skill", "get"\]/);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

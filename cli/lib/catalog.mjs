@@ -106,7 +106,7 @@ export function upstreamSkillPlans(catalog, sessionHosts) {
   for (const hostName of sessionHosts) {
     const host = catalog.skills.sessionHosts?.[hostName];
     if (!host?.upstream) continue;
-    const source = catalog.skills.upstreams?.[host.upstream];
+    const source = catalog.skills.upstreams?.[host.upstream] ?? catalog.upstreams?.[host.upstream];
     if (!source?.skillPath) continue;
     const name = upstreamSkillName(source);
     if (names.has(name)) continue;
@@ -116,7 +116,7 @@ export function upstreamSkillPlans(catalog, sessionHosts) {
       command: host.command,
       upstream: host.upstream,
       name,
-      source
+      source: { ...source }
     });
   }
   return plans;

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadCatalog, resolveSelection, validateCatalog } from "../cli/lib/catalog.mjs";
-import { actionAliases, buildSkillContentIndex, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { buildSkillContentIndex, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { validateLegacySkillNames } from "../cli/lib/legacy-skill-migration.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -85,19 +85,6 @@ for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
 try {
   const index = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
   errors.push(...validateSkillContentIndex(index));
-  const aliases = actionAliases(index);
-  const actionPattern = /^Action: ([^\r\n]+)$/gm;
-  for (const filePath of walk(skillsRoot).filter(file => /\.(?:md|mjs|js)$/.test(file))) {
-    const source = fs.readFileSync(filePath, "utf8");
-    for (const match of source.matchAll(actionPattern)) {
-      const token = match[1];
-      if (/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(token)) {
-        if (!aliases.has(token)) errors.push(`${filePath}: unregistered Action token ${token}`);
-      } else {
-        errors.push(`${filePath}: dynamic or placeholder Action value is invalid`);
-      }
-    }
-  }
 } catch (error) {
   errors.push(`Invalid selector content: ${error.message}`);
 }

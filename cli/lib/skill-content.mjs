@@ -7,8 +7,9 @@ const ALIAS_SELECTOR = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const ACTION_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const MAX_BOOTSTRAP_BYTES = 2 * 1024;
 const MAX_SLICE_BYTES = 8 * 1024;
-const SKILL_GET_REFERENCE = /\bagentgear\s+skill\s+get\s+(?:--\s+)?([a-z0-9][a-z0-9._-]*)\s+([A-Za-z0-9][A-Za-z0-9._:/-]*)/g;
 const RUNTIME_SCRIPT_REFERENCE = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9.][A-Za-z0-9._/-]*\.(?:mjs|cjs|js))(?![A-Za-z0-9._/-])/g;
+const INLINE_CODE = /`([^`\r\n]+)`/g;
+const ACTION_LINE = /^Action: ([^\r\n]*)$/gm;
 
 export const skillContentLimits = Object.freeze({
   bootstrapBytes: MAX_BOOTSTRAP_BYTES,
@@ -137,6 +138,25 @@ function walkMarkdown(root, relative = "") {
   return result;
 }
 
+function walkSkillFiles(root, relative = "") {
+  const directory = path.join(root, relative);
+  regularDirectory(directory, "Canonical skill directory");
+  const result = [];
+  const entries = fs.readdirSync(directory, { withFileTypes: true })
+    .sort((left, right) => compareUtf8(left.name, right.name));
+  for (const entry of entries) {
+    const childRelative = path.join(relative, entry.name);
+    const child = path.join(root, childRelative);
+    if (entry.isSymbolicLink()) {
+      throw new SkillContentError(`Canonical skill content must not contain symbolic links: ${child}`);
+    }
+    if (entry.isDirectory()) result.push(...walkSkillFiles(root, childRelative));
+    else if (entry.isFile()) result.push(child);
+    else throw new SkillContentError(`Unsupported canonical skill entry: ${child}`);
+  }
+  return result;
+}
+
 function canonicalSkillNames(catalog) {
   return Object.keys(catalog?.skills?.skills ?? {}).sort(compareUtf8);
 }
@@ -167,6 +187,7 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   const byOwner = new Map();
   const overviews = new Map();
   const referencedSelectors = [];
+  const referenceErrors = [];
   const documentedScripts = [];
 
   for (const name of names) {
@@ -217,10 +238,10 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   for (const records of byOwner.values()) records.sort((left, right) => compareUtf8(left.selector, right.selector));
 
   for (const overview of overviews.values()) {
-    collectReferences(overview.body, overview.filePath, referencedSelectors, documentedScripts);
+    collectReferences(overview.body, overview.filePath, referencedSelectors, referenceErrors, documentedScripts);
   }
   for (const record of byCanonicalAddress.values()) {
-    collectReferences(record.body, record.filePath, referencedSelectors, documentedScripts);
+    collectReferences(record.body, record.filePath, referencedSelectors, referenceErrors, documentedScripts);
   }
 
   return {
@@ -232,17 +253,52 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
     byAliasAddress,
     byOwner,
     referencedSelectors,
+    referenceErrors,
     documentedScripts
   };
 }
 
-function collectReferences(body, filePath, selectors, scripts) {
-  for (const match of body.matchAll(SKILL_GET_REFERENCE)) {
-    selectors.push({ skill: match[1], selector: match[2], filePath });
+function collectReferences(body, filePath, selectors, errors, scripts) {
+  for (const match of body.matchAll(INLINE_CODE)) {
+    const code = match[1].trim();
+    if (!code.startsWith("agentgear skill get")) continue;
+    const parsed = parseSkillGetReference(code, filePath);
+    if (parsed.error) {
+      errors.push(parsed.error);
+      continue;
+    }
+    for (const selector of parsed.selectors) {
+      selectors.push({ skill: parsed.skill, selector, filePath });
+    }
   }
   for (const match of body.matchAll(RUNTIME_SCRIPT_REFERENCE)) {
     scripts.push({ skill: match[1], script: match[2], filePath });
   }
+}
+
+// Prompt references are intentionally limited to an argv-shaped inline code
+// command.  This recognizes every selector in one lookup (rather than only
+// the first regex capture) and keeps prose around a command out of the API.
+function parseSkillGetReference(source, filePath) {
+  const argv = source.split(/\s+/).filter(Boolean);
+  if (argv[0] !== "agentgear" || argv[1] !== "skill" || argv[2] !== "get") {
+    return { selectors: [] };
+  }
+  let cursor = 3;
+  if (argv[cursor] === "--json") cursor += 1;
+  if (argv[cursor] === "--") cursor += 1;
+  const skill = argv[cursor];
+  if (!skill || !SKILL_NAME.test(skill)) {
+    return { error: `${filePath}: invalid agentgear skill get lookup skill in ${JSON.stringify(source)}` };
+  }
+  cursor += 1;
+  const selectors = argv.slice(cursor);
+  for (const selector of selectors) {
+    if (!ALIAS_SELECTOR.test(selector)) {
+      return { error: `${filePath}: invalid agentgear skill get selector ${JSON.stringify(selector)}` };
+    }
+  }
+  return { skill, selectors };
 }
 
 export function resolveSkillOverview(index, skill) {
@@ -299,7 +355,7 @@ export function actionAliases(index) {
 }
 
 export function validateSkillContentIndex(index) {
-  const errors = [];
+  const errors = [...index.referenceErrors];
   for (const reference of index.referencedSelectors) {
     try {
       resolveSkillSelector(index, reference.skill, reference.selector);
@@ -308,7 +364,8 @@ export function validateSkillContentIndex(index) {
     }
   }
   try {
-    actionAliases(index);
+    const aliases = actionAliases(index);
+    errors.push(...validateActionTemplates(index, aliases));
   } catch (error) {
     errors.push(error.message);
   }
@@ -324,6 +381,38 @@ export function validateSkillContentIndex(index) {
     const relative = path.join("skills", documented.skill, "scripts", documented.script);
     if (regularFileStatus(index.rootDir, relative) !== "file") {
       errors.push(`${documented.filePath}: documented runtime script is missing or unsafe: ${relative}`);
+    }
+  }
+  return errors;
+}
+
+function validateActionTemplates(index, aliases) {
+  const errors = [];
+  const sources = [];
+  for (const record of index.byCanonicalAddress.values()) {
+    sources.push({ filePath: record.filePath, source: record.body });
+  }
+  for (const skill of index.names) {
+    const skillRoot = path.join(index.skillsRoot, skill);
+    for (const filePath of walkSkillFiles(skillRoot)) {
+      if (!/\.(?:mjs|cjs|js)$/.test(filePath)) continue;
+      sources.push({ filePath, source: fs.readFileSync(filePath, "utf8") });
+    }
+  }
+  for (const { filePath, source } of sources) {
+    // Only emitted/template headings participate. Generic protocol prose may
+    // describe the Action header, but it is not a producer declaration.
+    const templateSource = source
+      .split(/\r?\n/)
+      .filter(line => !/^\s*(?:[-*]|\d+\.)\s+.*`?Action:`?/.test(line) && !/`Action:`/.test(line))
+      .join("\n");
+    for (const match of templateSource.matchAll(ACTION_LINE)) {
+      const token = match[1];
+      if (!ACTION_TOKEN.test(token)) {
+        errors.push(`${filePath}: dynamic or placeholder Action value is invalid`);
+      } else if (!aliases.has(token)) {
+        errors.push(`${filePath}: unregistered Action token ${token}`);
+      }
     }
   }
   return errors;

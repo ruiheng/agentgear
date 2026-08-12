@@ -12,6 +12,7 @@ import {
 } from "./lib/catalog.mjs";
 import {
   computePaths,
+  checkStateCoherence,
   destinationMatchesRecord,
   exists,
   preflightRuntimePurge,
@@ -35,8 +36,10 @@ import {
 import { parseOptions } from "./lib/options.mjs";
 import {
   isCommandAvailable,
+  purgeRetrievedUpstreamSkills,
   retrieveUpstreamSkill,
-  retrievedUpstreamSkillPlans
+  retrievedUpstreamSkillPlans,
+  upstreamResourceStatus
 } from "./lib/upstreams.mjs";
 import {
   SkillContentError,
@@ -214,7 +217,7 @@ function purgePlan(state, targets) {
     const record = targetState(state, target.root);
     for (const [skill, item] of Object.entries(record.skills)) {
       const destination = path.join(target.root, skill);
-      if (exists(destination) && !destinationMatchesRecord(destination, item)) {
+      if (exists(destination) && !destinationMatchesRecord(destination, item, skill)) {
         preserved.push(destination);
         continue;
       }
@@ -243,14 +246,23 @@ function purge(catalog, options) {
   const targetLimited = options.targets.length > 0 || options.destination || options.scope === "project";
   const retrieved = targetLimited ? { valid: [], preserved: [] } : retrievedUpstreamSkillPlans(catalog);
   if (state === null && retrieved.valid.length === 0 && retrieved.preserved.length === 0) {
+    // Keep the state-null coherence check even on an apparent no-op.
+    checkStateCoherence(null);
     print("No agentgear installation state recorded; nothing to purge.");
     notifyPermissionMigration(false);
     return;
   }
   if (state === null) {
-    for (const item of retrieved.valid) fs.rmSync(item.root, { recursive: true, force: true });
-    for (const candidate of retrieved.preserved) print("preserved unverifiable retrieved skill: " + candidate);
-    if (retrieved.preserved.length > 0) {
+    // Preserve the normal managed-runtime coherence gate even when retrieval
+    // is the only recorded state. Retrieval cleanup must never legitimize an
+    // ambiguous `current` or marked release left beside a missing state file.
+    try {
+      checkStateCoherence(null);
+    } catch (error) {
+      fail(error.message);
+    }
+    const purged = purgeRetrievedUpstreamSkills({ catalog, print });
+    if (purged.incomplete) {
       process.exitCode = 1;
       print("Purge incomplete: retrieved skill materialization requires manual cleanup");
     } else {
@@ -305,9 +317,8 @@ function purge(catalog, options) {
     const tornDown = purgeManagedRuntime({ state, env: process.env, print });
     if (tornDown) {
       removeInstallStateFile({ print });
-      for (const item of retrieved.valid) fs.rmSync(item.root, { recursive: true, force: true });
-      for (const candidate of retrieved.preserved) print("preserved unverifiable retrieved skill: " + candidate);
-      if (retrieved.preserved.length > 0) {
+      const purged = targetLimited ? { incomplete: false } : purgeRetrievedUpstreamSkills({ catalog, print });
+      if (purged.incomplete) {
         process.exitCode = 1;
         print("Purge incomplete: retrieved skill materialization requires manual cleanup");
       } else {
@@ -321,9 +332,14 @@ function purge(catalog, options) {
   }
 
   if (!targetLimited && Object.keys(state.targets).length > 0) {
-    // A full purge that keeps managed targets due to changed artifacts must
-    // leave globally retrieved documentation alone; it remains usable until
-    // a successful full teardown can establish the normal purge ordering.
+    // Full purge handles the independently-owned documentation after state is
+    // saved even if locally changed targets remain recorded. It must not let
+    // documentation ambiguity block normal target/runtime cleanup.
+    const purged = purgeRetrievedUpstreamSkills({ catalog, print });
+    if (purged.incomplete) {
+      process.exitCode = 1;
+      print("Purge incomplete: retrieved skill materialization requires manual cleanup");
+    }
   }
 }
 
@@ -337,12 +353,21 @@ function sessionHostReady(catalog, hostName, targets) {
   if (host.upstream) {
     const source = catalog.skills.upstreams[host.upstream];
     if (source?.skillPath) {
-      const retrieved = retrievedUpstreamSkillPlans(catalog);
-      const verified = retrieved.valid.some(item => item.plan.upstream === host.upstream);
-      const corrupt = retrieved.preserved.find(candidate => candidate.includes(path.sep + path.basename(source.skillPath) + path.sep));
-      if (verified) print(`ok      optional documentation ${host.upstream} (verified local resource)`);
-      else if (corrupt) print(`warning optional documentation ${host.upstream} (unverifiable local resource: ${corrupt})`);
-      else print(`available optional documentation ${host.upstream} (run: agentgear skill get ${path.basename(source.skillPath)})`);
+      const paths = computePaths();
+      const runtimes = [paths.currentPath, ...((readInstallState()?.releases ?? [])
+        .map(id => path.join(paths.releasesRoot, id)))];
+      const resource = upstreamResourceStatus({
+        catalog,
+        skill: path.basename(source.skillPath),
+        runtimeRoots: runtimes
+      });
+      if (resource?.state === "retrieved" || resource?.state === "runtime") {
+        print(`ok      optional documentation ${host.upstream} (verified local resource)`);
+      } else if (resource?.state === "corrupt") {
+        print(`warning optional documentation ${host.upstream} (unverifiable local resource: ${resource.path})`);
+      } else {
+        print(`available optional documentation ${host.upstream} (run: agentgear skill get ${path.basename(source.skillPath)})`);
+      }
     }
     if (source?.repository) print("upstream " + host.upstream + ": " + source.repository);
   }
@@ -493,7 +518,7 @@ function skill(catalog, argumentsList) {
     print(skillUsage());
     return;
   }
-  if (options.packs.length || options.skills.length || options.targets.length || options.destination || options.force || options.purge || options.noLauncher || options.apply) {
+  if ([...options.supplied].some(option => option !== "json")) {
     fail("skill accepts only --json and positional skill selectors");
   }
   const [skillName, ...selectors] = options.positional;
@@ -501,6 +526,11 @@ function skill(catalog, argumentsList) {
   const index = buildSkillContentIndex(rootDir, catalog);
   const upstream = catalog.skills.upstreams?.[skillName];
   if (upstream) {
+    if (operation === "list") {
+      if (selectors.length) fail("skill list accepts exactly one SKILL");
+      if (options.json) print("[]");
+      return;
+    }
     if (operation !== "get") fail(`Unknown skill: ${skillName}. Run agentgear list for known skills.`);
     if (selectors.length > 0) throw new SkillContentError(`Unknown selector ${skillName}/${selectors[0]}. Run agentgear skill list ${skillName}.`, { kind: "unknown" });
     const paths = computePaths();
@@ -579,6 +609,9 @@ function migrate(catalog, argumentsList) {
   }
   if (options.destination && (options.targets.length > 0 || options.scope !== "global" || options.projectSpecified)) {
     fail("--dest cannot be combined with --target, --scope project, or --project");
+  }
+  if (options.destination && (!path.isAbsolute(options.destination) || path.resolve(options.destination) !== options.destination)) {
+    fail("legacy-skills --dest must be an absolute normalized path");
   }
   let roots;
   if (options.targets.length === 0 && !options.destination && options.scope === "global") {

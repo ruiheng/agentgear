@@ -96,7 +96,7 @@ export const workflowWaypostMcpTools = [
   "waypost_status"
 ];
 
-const workflowLauncherSkills = ["multi-agent-protocol", "tech-design-workflow", "review-tech-design"];
+const workflowLauncherSkills = ["multi-agent-protocol", "tech-design-workflow"];
 
 const CODEX_OWNERSHIP_VERSION = 1;
 const CODEX_BLOCK_BEGIN = "# BEGIN Agentgear Waypost MCP approvals";

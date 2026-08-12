@@ -161,7 +161,7 @@ function targetInstallPlan(state, targets, skills, options) {
       const destinationExists = exists(destination);
       if (destinationExists && !record && !options.force) {
         errors.push("Unmanaged skill already exists: " + destination);
-      } else if (destinationExists && record && !destinationMatchesRecord(destination, record) && !options.force) {
+      } else if (destinationExists && record && !destinationMatchesRecord(destination, record, skill) && !options.force) {
         errors.push("Installer-managed skill changed locally: " + destination + " (use --force to replace it)");
       }
       plan.push({ target, skill, destination, record, destinationExists });
@@ -185,7 +185,7 @@ function retiredSkillPlan(catalog, state) {
         record,
         destination,
         destinationExists,
-        owned: destinationExists && destinationMatchesRecord(destination, record)
+        owned: destinationExists && destinationMatchesRecord(destination, record, skill)
       });
     }
   }
@@ -202,14 +202,7 @@ function withdrawnSkillPlan(state, targets, desiredSkills, authoritative) {
       if (desired.has(skill)) continue;
       const destination = path.join(target.root, skill);
       const destinationExists = exists(destination);
-      if (destinationExists && !destinationMatchesRecord(destination, item)) {
-        // A historical development link can be pinned to an immutable
-        // physical release after `current` advances. It is no longer an
-        // active managed link, so preserve it and its state record rather
-        // than treating it as an editable destination to withdraw.
-        if (item.mode === "link" && fs.lstatSync(destination, { throwIfNoEntry: false })?.isSymbolicLink()) {
-          continue;
-        }
+      if (destinationExists && !destinationMatchesRecord(destination, item, skill)) {
         fail(`Refusing to withdraw locally changed skill: ${destination}`);
       }
       plan.push({ targetRoot: target.root, skill, destination, destinationExists });
@@ -271,18 +264,6 @@ export function installSelection({
   try {
     print("Staging runtime snapshot...");
     runtime = stageRuntime({ sourceRoot, env });
-    // Mark the immutable/copy source before any target is linked. A shared
-    // development link may point at `current` before publication, so writing
-    // through its destination would follow a dangling link. The marker is
-    // therefore part of the staged payload seen by both copied and linked
-    // installed skill directories.
-    for (const skill of installedSkills) {
-      const stagedSource = path.join(runtime.root, "skills", skill);
-      writeInstalledSkillMarker(stagedSource, skill, {
-        mode: development ? "link" : "copy",
-        source: stagedSource
-      });
-    }
     const paths = computePaths(env);
     const previousRuntimeRoots = [
       paths.currentPath,
@@ -299,6 +280,27 @@ export function installSelection({
     }
     print("Checking deployment mode...");
     const mode = chooseDeploymentMode({ runtime, targets, development, state, env, print });
+    const shared = development && mode === "shared";
+    // Embed provenance in the staged source only after the deployment result
+    // is known. This avoids a development copy fallback inheriting a `link`
+    // marker, and avoids writing through a `current` link before publication.
+    for (const skill of installedSkills) {
+      const stagedSource = path.join(runtime.root, "skills", skill);
+      if (shared) {
+        writeInstalledSkillMarker(stagedSource, skill, {
+          mode: "link",
+          source: path.join(paths.currentPath, "skills", skill)
+        });
+      } else {
+        // The marker is excluded from the content fingerprint, letting it
+        // carry the final exact copy fingerprint without self-reference.
+        const record = { mode: "copy", fingerprint: directoryFingerprint(stagedSource) };
+        writeInstalledSkillMarker(stagedSource, skill, {
+          mode: record.mode,
+          source: record.fingerprint
+        });
+      }
+    }
     print("Validating staged runtime...");
     const consumerErrors = validateSharedRuntimeConsumers({
       runtime,
@@ -323,7 +325,6 @@ export function installSelection({
       };
     }
     transaction = createInstallTransaction();
-    const shared = development && mode === "shared";
     const skillSourceRoot = shared ? computePaths(env).currentPath : runtime.root;
     let copiedSkillTargets = 0;
     print(

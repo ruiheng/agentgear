@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildSkillContentIndex } from "./skill-content.mjs";
+import { buildSkillContentIndex, validateSkillContentIndex } from "./skill-content.mjs";
 
 const RUNTIME_MARKER = ".agentgear-runtime.json";
 const MARKER_VERSION = 1;
@@ -143,7 +143,12 @@ function walkEntries(rootDir, relative = "") {
 export function directoryFingerprint(rootDir) {
   const hash = crypto.createHash("sha256");
   hash.update(FINGERPRINT_HEADER);
-  const entries = walkEntries(rootDir).sort((left, right) =>
+  const entries = walkEntries(rootDir)
+    // The installed provenance marker is verified independently from content
+    // fingerprints so its metadata can exactly name the recorded fingerprint
+    // without creating a self-referential hash.
+    .filter(entry => entry.relative !== INSTALLED_SKILL_MARKER)
+    .sort((left, right) =>
     compareUtf8(left.relative.replaceAll(path.sep, "/"), right.relative.replaceAll(path.sep, "/")));
   for (const entry of entries) {
     hash.update(`${entry.type}\0`);
@@ -1188,6 +1193,10 @@ export function validateSharedRuntimeConsumers({
   try {
     const catalog = JSON.parse(fs.readFileSync(path.join(snapshotRoot, "catalog", "skills.json"), "utf8"));
     const index = buildSkillContentIndex(snapshotRoot, { skills: catalog }, { validateBootstraps: true });
+    const selectorErrors = validateSkillContentIndex(index);
+    if (selectorErrors.length > 0) {
+      return selectorErrors.map(error => `Cannot publish shared runtime: selector index is invalid: ${error}`);
+    }
     for (const documented of index.documentedScripts) {
       if (path.isAbsolute(documented.script) || documented.script.split(/[\\/]/).includes("..")) {
         commands.set(`invalid:${documented.filePath}`, new Set([`invalid documented script ${documented.script}`]));
@@ -1278,24 +1287,28 @@ export function installedSkillMarkerMatches(destination, skill, record) {
       && marker.skill === skill
       && marker.mode === record.mode
       && typeof marker.source === "string"
-      && marker.source.length > 0;
+      && marker.source === (record.mode === "link" ? record.source : record.fingerprint);
   } catch {
     return false;
   }
 }
 
-export function destinationMatchesRecord(destination, record) {
+export function destinationMatchesRecord(destination, record, skill = path.basename(destination)) {
   const info = fs.lstatSync(destination, { throwIfNoEntry: false });
   if (!info) return false;
+  const markerInfo = fs.lstatSync(installedSkillMarkerPath(destination), { throwIfNoEntry: false });
+  const markerMatches = !markerInfo || installedSkillMarkerMatches(destination, skill, record);
   if (record.mode === "link") {
     return typeof record.source === "string"
       && info.isSymbolicLink()
-      && resolvedLinkTarget(destination) === normalizeLinkPath(record.source);
+      && resolvedLinkTarget(destination) === normalizeLinkPath(record.source)
+      && markerMatches;
   }
   if (record.mode === "copy") {
     return info.isDirectory()
       && !info.isSymbolicLink()
-      && directoryFingerprint(destination) === record.fingerprint;
+      && directoryFingerprint(destination) === record.fingerprint
+      && markerMatches;
   }
   return false;
 }
