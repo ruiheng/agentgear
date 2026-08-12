@@ -1,3 +1,9 @@
+---
+skill-selector: context-intake
+selector-summary: Retain and validate requester-owned technical-design review context.
+selector-aliases: check-waypost-messages/action:design_spec_review_context
+---
+
 # Requester Context Intake
 
 On `Context: initial`:

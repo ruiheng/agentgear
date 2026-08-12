@@ -1,3 +1,8 @@
+---
+skill-selector: remediation-patterns
+selector-summary: Choose structural remediation patterns for code-health findings.
+---
+
 # Remediation Patterns
 
 Use these patterns to recommend structural corrections without over-prescribing implementation details.

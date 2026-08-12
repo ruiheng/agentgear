@@ -23,7 +23,12 @@ const creationSkills = [
 
 test("generic creation skills do not embed Agent Deck routing", () => {
   for (const name of creationSkills) {
-    const source = read(`skills/${name}/SKILL.md`);
+    const source = [
+      read(`skills/${name}/SKILL.md`),
+      ...fs.readdirSync(path.join(rootDir, "skills", name, "references"), { withFileTypes: true })
+        .filter(entry => entry.isFile() && entry.name.endsWith(".md"))
+        .map(entry => read(`skills/${name}/references/${entry.name}`))
+    ].join("\n");
     assert.match(source, /session_(?:resolve|require|create)|session-host/);
     assert.doesNotMatch(source, /agent_deck_(?:create|require|resolve)_session/);
     assert.doesNotMatch(source, /agent-deck\//);
@@ -70,8 +75,12 @@ test("generic workflow scripts require explicit Waypost routes", () => {
 });
 
 test("closeout documents exact task-session cleanup ownership", () => {
-  const plannerCloseout = read("skills/planner-closeout/SKILL.md");
-  const delegateCode = read("skills/delegate-code-task/SKILL.md");
+  const plannerCloseout = read("skills/planner-closeout/references/disclosure-start.md");
+  const delegateCode = [
+    read("skills/delegate-code-task/references/disclosure-start.md"),
+    read("skills/delegate-code-task/references/disclosure-continue-1.md"),
+    read("skills/delegate-code-task/references/disclosure-continue-2.md")
+  ].join("\n");
   const hostContract = read("skills/multi-agent-protocol/references/session-host.md");
   assert.match(plannerCloseout, /--coder-session-id <coder_session_id>/);
   assert.match(plannerCloseout, /--reviewer-session-id <reviewer_session_id>/);
@@ -96,17 +105,17 @@ test("shared cleanup uses generic targets and provider-owned host behavior", () 
 });
 
 test("technical design requester owns terminal architect cleanup", () => {
-  const workflow = read("skills/tech-design-workflow/SKILL.md");
+  const workflow = read("skills/tech-design-workflow/references/disclosure-start.md");
   const draftStart = read("skills/tech-design-workflow/references/draft-review-start.md");
   const authorRound = read("skills/tech-design-workflow/references/author-round.md");
   const reportHandling = read("skills/tech-design-workflow/references/report-handling.md");
   const requesterHandling = read("skills/tech-design-workflow/references/requester-handling.md");
   const closeout = read("skills/tech-design-workflow/references/closeout.md");
-  const reviewer = read("skills/review-tech-design/SKILL.md");
+  const reviewer = read("skills/review-tech-design/references/disclosure-start.md");
   const contextIntake = read("skills/review-tech-design/references/context-intake.md");
   const draftReview = read("skills/review-tech-design/references/draft-round-review.md");
   const reviewDelivery = read("skills/review-tech-design/references/message-delivery.md");
-  const messageRouter = read("skills/check-waypost-messages/SKILL.md");
+  const messageRouter = read("skills/check-waypost-messages/references/disclosure-start.md");
   assert.match(closeout, /requester that receives the terminal delivery or review report owns successful closeout/);
   assert.match(workflow, /Canonical Design Task Contract/);
   assert.match(draftStart, /agentgear run tech-design-workflow send-design-draft-with-review-context\.mjs/);
@@ -134,10 +143,9 @@ test("technical design requester owns terminal architect cleanup", () => {
   assert.match(reviewDelivery, /Do not send NEEDS_INPUT or accept author-supplied replacement context/);
   assert.match(reviewDelivery, /marking the last `Recovery Complete: yes`/);
   assert.match(reviewDelivery, /actual inbound sender address/);
-  assert.match(draftReview, /prepare-incremental-review\.mjs/);
-  assert.match(draftReview, /Read the generated machine diff first/);
-  assert.match(draftReview, /Inherit previously accepted unchanged conclusions by default/);
-  assert.match(draftReview, /Only the reviewer writes this directory/);
+  assert.doesNotMatch(draftReview, /prepare-incremental-review\.mjs/);
+  assert.match(draftReview, /Read an ordinary diff between the immutable prior and current artifacts/);
+  assert.match(draftReview, /Recheck the evidence needed for each conclusion/);
   assert.match(messageRouter, /design_spec_review_context_recovery_requested/);
   assert.match(messageRouter, /by its actual recipient/);
   assert.match(closeout, /--target architect-author=<author_session_id>/);

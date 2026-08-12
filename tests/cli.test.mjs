@@ -371,7 +371,7 @@ test("general and Claude are the default skill targets", () => {
   }
 });
 
-test("default installation reaches both default targets with every pack", () => {
+test("default installation reaches both default targets with the approved entry surface", () => {
   const fixture = environmentFixture();
   try {
     run(["install"], fixture.environment);
@@ -380,7 +380,8 @@ test("default installation reaches both default targets with every pack", () => 
       path.join(fixture.home, ".claude", "skills")
     ]) {
       assert.equal(fs.existsSync(path.join(skillsRoot, "handoff", "SKILL.md")), true);
-      assert.equal(fs.existsSync(path.join(skillsRoot, "multi-agent-protocol", "SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(skillsRoot, "tech-design-workflow", "SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(skillsRoot, "multi-agent-protocol", "SKILL.md")), false);
     }
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
@@ -413,7 +414,7 @@ test("agentgear-link help states every option default", () => {
       /core\s+Standalone skills with no multi-agent workflow dependency/,
       /workflow\s+Multi-agent workflow skills using Waypost and one supported session host/,
       /browser\s+Browser-validation skills for the multi-agent workflow/,
-      /all\s+Every maintained skill in this repository/
+      /all\s+Every maintained capability in this repository/
     ]) {
       assert.match(result.stdout, expectation);
     }
@@ -586,7 +587,7 @@ test("workflow doctor accepts either declared session host", () => {
     writeExecutable(bin, "agent-deck");
     const agentDeckReady = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
     assert.equal(agentDeckReady.status, 0, agentDeckReady.stderr);
-    assert.match(agentDeckReady.stdout, /provision\s+upstream skill agent-deck for general/);
+    assert.match(agentDeckReady.stdout, /available\s+optional documentation agent-deck \(run: agentgear skill get agent-deck\)/);
     assert.match(agentDeckReady.stdout, /Supported session host: agent-deck\./);
 
     fs.rmSync(path.join(bin, "agent-deck"));
@@ -651,7 +652,7 @@ test("release install copies skills, records schema-v2 state, and ordinary unins
   }
 });
 
-test("workflow installation provisions only the Agentgear launcher", () => {
+test("workflow installation exposes only its approved entries and provisions the Agentgear launcher", () => {
   const fixture = environmentFixture();
   try {
     const result = spawnAgentgear(
@@ -661,7 +662,8 @@ test("workflow installation provisions only the Agentgear launcher", () => {
     );
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout, /permission_migration_required/);
-    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol", "SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "check-waypost-messages", "SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol", "SKILL.md")), false);
     const state = readState(fixture);
     assert.deepEqual(Object.keys(state.commands), [path.join(fixture.localBin, "agentgear")]);
     assert.equal(pathExists(path.join(fixture.localBin, "adwf-send-and-wake")), false);
@@ -913,7 +915,7 @@ test("release update removes owned retired copies and preserves changed ones", (
   }
 });
 
-test("workflow installation stages the declared Agent Deck upstream skill", () => {
+test("workflow installation does not expose the optional Agent Deck upstream skill", () => {
   const fixture = environmentFixture();
   const bin = path.join(fixture.temporary, "bin");
   const installed = [];
@@ -938,13 +940,10 @@ test("workflow installation stages the declared Agent Deck upstream skill", () =
       }
     });
 
-    assert.deepEqual(installed.map(plan => plan.name), ["agent-deck"]);
+    assert.deepEqual(installed.map(plan => plan.name), []);
     const skill = path.join(fixture.home, ".agents", "skills", "agent-deck", "SKILL.md");
-    assert.equal(fs.existsSync(skill), true);
-    assert.equal(
-      readState(fixture).targets[path.join(fixture.home, ".agents", "skills")].skills["agent-deck"].mode,
-      "copy"
-    );
+    assert.equal(fs.existsSync(skill), false);
+    assert.equal(readState(fixture).targets[path.join(fixture.home, ".agents", "skills")].skills["agent-deck"], undefined);
     for (const message of [
       "Checking installation state...",
       "Staging runtime snapshot...",
@@ -2579,17 +2578,22 @@ test("the published package excludes the developer link command", () => {
   assert.equal(packageJson.files.includes("cli/link.mjs"), false);
   assert.equal(packageJson.scripts.link, undefined);
 
-  const pack = childProcess.spawnSync("npm", ["pack", "--dry-run", "--json"], {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-npm-cache-"));
+  const pack = childProcess.spawnSync("npm", ["pack", "--dry-run", "--json", "--cache", cache], {
     cwd: rootDir,
     encoding: "utf8"
   });
-  assert.equal(pack.status, 0, pack.stderr);
-  const files = JSON.parse(pack.stdout)
-    .flatMap(entry => entry.files ?? [])
-    .map(file => file.path);
-  assert.equal(files.includes("bin/agentgear-link.mjs"), false);
-  assert.equal(files.includes("cli/link.mjs"), false);
-  assert.equal(files.includes("bin/agentgear.mjs"), true);
+  try {
+    assert.equal(pack.status, 0, pack.stderr);
+    const files = JSON.parse(pack.stdout)
+      .flatMap(entry => entry.files ?? [])
+      .map(file => file.path);
+    assert.equal(files.includes("bin/agentgear-link.mjs"), false);
+    assert.equal(files.includes("cli/link.mjs"), false);
+    assert.equal(files.includes("bin/agentgear.mjs"), true);
+  } finally {
+    fs.rmSync(cache, { recursive: true, force: true });
+  }
 });
 
 test("link refuses an unrecorded dangling command at the stable current path", t => {

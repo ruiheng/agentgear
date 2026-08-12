@@ -1,3 +1,8 @@
+---
+skill-selector: requester-handling
+selector-summary: Handle requester context recovery, decisions, and delivered design artifacts.
+---
+
 # Requester Handling
 
 ## Context Recovery and Rejection

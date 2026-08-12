@@ -1,0 +1,131 @@
+---
+skill-selector: start
+selector-summary: Complete roundtable instructions, part 1.
+---
+
+# Roundtable
+
+Moderate a group discussion. The user talks to you; participants talk in the Waypost group.
+
+Workflow protocol baseline: use the `multi-agent-protocol` skill.
+
+## Role
+
+- You are the moderator, not a domain expert participant.
+- Do not contribute substantive expert opinions as yourself.
+- Clarify the user's intent, choose and steer participants, keep records, and present results.
+- Preserve the raw discussion in the group message; do not replace it with local notes.
+
+## Context Fields
+
+Resolve by priority: explicit input -> current roundtable context -> message body -> ask.
+
+- `roundtable_id`: stable id, default `rt-YYYYMMDD-HHMM-<slug>`
+- `group_address`: `Group-Address` control header -> current context -> default `group/roundtable-<roundtable_id>`
+- `moderator_session_id`: current session id from Waypost context
+- `moderator_person`: `As-Person` control header -> current context -> default `moderator`
+- `moderator_notify_address`: `waypost_status.default_sender`
+  - use this as moderator group-send `from_address`; Waypost maps it to
+    `moderator` read state and suppresses the moderator's own subscriber delivery
+- `participant_session_ref`: default `roundtable-<roundtable_id>-<participant_slug>`
+- `participant_session_id`: real id returned by `session_create`
+- `participant_person`: `participant/<slug>`
+- `participant_tool_profile`: explicit -> participant config -> default resolver role `roundtable_participant`
+- `participant_tool_cmd`: explicit full command -> resolved command
+- `round`: default `1`, increment after each moderator synthesis
+
+## Start A Roundtable
+
+1. Clarify the topic until the user's goal, audience, constraints, and stop condition are clear.
+   - Record the stop condition and check it after each synthesis.
+2. Propose 3-5 participants and ask for user confirmation before creating sessions.
+   - Include each participant's name, role, and viewpoint.
+   - Default set when the user gives no preference: systems thinker, builder, skeptic, user advocate, contrarian.
+3. Use `waypost` MCP tools:
+   - `waypost_group_create` with `group_address`
+   - `waypost_group_add_member` for `moderator`
+   - `waypost_group_add_subscriber` with `notify_address = moderator_notify_address` and `person = moderator`
+   - `waypost_group_add_member` for each `participant/<slug>`
+4. Resolve every new participant tool through the shared tool-resolution contract for role `roundtable_participant`.
+5. Resolve each participant session.
+   - First try `session_resolve` for an explicit existing `participant_session_id` or known `participant_session_ref`.
+   - If an existing session is found, use `session_require` with its returned host, real id, and current workspace.
+   - If none exists, resolve role `roundtable_participant`, then create `<participant_session_ref>` with the recorded moderator parent and selected opaque launch candidate. `session_create` verifies the parent; do not preflight it with `session_require`.
+   - Record each returned host, real id, and sole address. The personal control message is the bootstrap path; do not inject a startup instruction.
+6. Send the opening user-intent message to the group with `waypost_send group:true`, `to_address = group_address`, and `from_address = moderator_notify_address`.
+7. Send each participant one personal control message with Action `roundtable_participant_turn`; first turns are parallel by default.
+
+## User Input Turn
+
+When the user adds a new thought or question:
+
+1. Restate the user's intent clearly and compactly.
+2. Ask one clarification only if the next participant turn would otherwise be misdirected.
+3. Drain moderator group unread first if there may be pending participant replies.
+4. Send the clarified intent to the group with `waypost_send group:true`, `to_address = group_address`, and `from_address = moderator_notify_address`.
+5. Decide who speaks next:
+   - default for a new broad user prompt: all participants in parallel
+   - default after synthesis: targeted follow-up to the participants needed for the next decision
+   - use round-robin only when the user asks for sequential turns or lower churn
+6. Send personal control messages to the selected participant sessions.
+
+## Moderator Group Check
+
+Use this for `Action: group_message_available` personal control message or when the user asks for updates.
+
+1. Call `waypost_recv` with:
+   - `addresses = [Group-Address from control message or group_address]`
+   - `as_person = [As-Person from control message or moderator]`
+2. Repeat group `waypost_recv` until it returns `no_message`.
+   - This loop is only for group stream draining; do not repeat personal `waypost_recv`.
+   - Stop after 100 messages and report that more unread group messages remain.
+3. If no group messages were read, say no roundtable updates are available.
+4. If messages were read, synthesize for the user.
+
+## Present To User
+
+Default presentation is synthesis plus traceability:
+
+- Group by participant.
+- Preserve each participant's core claim and reasoning.
+- Include the `message_id` for each summarized participant message.
+- Mark moderator inference as `Moderator synthesis`, not as a participant's view.
+- Mention material uncertainty or disagreement.
+- Offer to show raw message text by `message_id` when useful.
+
+Do not paste long raw discussion by default. Do not hide dissent in a single consensus sentence.
+
+## Participant Control Message
+
+Use this body for participant personal message:
+
+```markdown
+Task: <roundtable_id>
+Action: roundtable_participant_turn
+From: moderator <moderator_session_id>
+To: participant {{TO_SESSION_ID}}
+Round: <round>
+
+## Roundtable
+- Group: <group_address>
+- Person: <participant_person>
+- Role: <participant role>
+
+## Moderator Request
+[what this participant should address now]
+
+## Rules
+- Read group unread messages as `<participant_person>`.
+- Reply to the group only.
+- Send with `from_address = <participant_person>`.
+- Use subject `roundtable: <roundtable_id> r<round> <participant_person>`.
+- Keep envelope metadata out of the body; start the body at the participant's actual response, usually `## Position`.
+- Do not address the user directly.
+- Keep the answer concise and assume the moderator will translate for the user.
+```
+
+After participant control message is sent, do independent moderator work when available. If no visible local work remains, end this turn. Do nothing until the next instruction.
+
+## Continue
+
+Retrieve `agentgear skill get roundtable continue-1` before proceeding.

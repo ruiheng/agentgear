@@ -1,3 +1,8 @@
+---
+skill-selector: review-existing
+selector-summary: Review already committed design specifications on a recorded branch.
+---
+
 # Review Existing Specifications
 
 Require committed docs, `design_spec_branch`, `design_spec_base_branch`, complete requester context, and an explicit `design_specs_in_scope`. Never guess the base.

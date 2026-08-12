@@ -1,3 +1,8 @@
+---
+skill-selector: session-host
+selector-summary: Resolve, require, create, and close collaborator sessions through Waypost.
+---
+
 # Session Host Contract
 
 Waypost owns host detection, session dispatch, and wake hints. Common workflow

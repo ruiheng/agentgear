@@ -100,7 +100,7 @@ export function upstreamSkillDigest(rootDir) {
   return `${UPSTREAM_DIGEST_PREFIX}${hash.digest("hex")}`;
 }
 
-function pinnedUpstreamSkillIsValid(source, expectedDigest) {
+export function pinnedUpstreamSkillIsValid(source, expectedDigest) {
   try {
     const skillFile = path.join(source, "SKILL.md");
     const skillInfo = fs.lstatSync(skillFile, { throwIfNoEntry: false });
@@ -112,6 +112,154 @@ function pinnedUpstreamSkillIsValid(source, expectedDigest) {
   } catch {
     return false;
   }
+}
+
+function digestHex(source) {
+  return source.contentDigest.slice(UPSTREAM_DIGEST_PREFIX.length);
+}
+
+function upstreamPlanBySkill(catalog, skill) {
+  for (const plan of upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {}))) {
+    if (plan.name === skill) return plan;
+  }
+  return null;
+}
+
+function manifestPath(candidate) {
+  return path.join(candidate, ".agentgear-retrieved-skill.json");
+}
+
+function materializationRoot(dataRoot, plan) {
+  return path.join(dataRoot, "retrieved-skills", plan.name, digestHex(plan.source));
+}
+
+function materializationManifest(plan) {
+  return {
+    schemaVersion: 1,
+    name: plan.name,
+    repository: plan.source.repository,
+    ref: plan.source.ref,
+    commit: plan.source.commit,
+    contentDigest: plan.source.contentDigest,
+    payload: "payload/SKILL.md"
+  };
+}
+
+function materializationIsValid(candidate, plan) {
+  try {
+    const info = fs.lstatSync(candidate, { throwIfNoEntry: false });
+    if (!info?.isDirectory() || info.isSymbolicLink()) return false;
+    const manifestInfo = fs.lstatSync(manifestPath(candidate), { throwIfNoEntry: false });
+    if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) return false;
+    const expected = materializationManifest(plan);
+    const actual = JSON.parse(fs.readFileSync(manifestPath(candidate), "utf8"));
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) return false;
+    return pinnedUpstreamSkillIsValid(path.join(candidate, "payload"), plan.source.contentDigest);
+  } catch {
+    return false;
+  }
+}
+
+function copyValidatedTree(source, destination, plan) {
+  if (!pinnedUpstreamSkillIsValid(source, plan.source.contentDigest)) return false;
+  fs.cpSync(source, destination, { recursive: true, preserveTimestamps: true });
+  return pinnedUpstreamSkillIsValid(destination, plan.source.contentDigest);
+}
+
+function runtimeUpstreamSource(plan, runtimeRoots) {
+  for (const runtimeRoot of runtimeRoots ?? []) {
+    if (!runtimeRoot) continue;
+    const catalogFile = path.join(runtimeRoot, "catalog", "skills.json");
+    try {
+      const info = fs.lstatSync(catalogFile, { throwIfNoEntry: false });
+      if (!info?.isFile() || info.isSymbolicLink()) continue;
+      const catalog = JSON.parse(fs.readFileSync(catalogFile, "utf8"));
+      if (!samePinnedSource(catalog.upstreams?.[plan.upstream], plan.source)) continue;
+      const source = path.join(runtimeRoot, "skills", plan.name);
+      if (pinnedUpstreamSkillIsValid(source, plan.source.contentDigest)) return source;
+    } catch {
+      // An immutable runtime is merely an optional cache candidate.
+    }
+  }
+  return null;
+}
+
+export function retrieveUpstreamSkill({
+  catalog,
+  skill,
+  env = process.env,
+  runtimeRoots = [],
+  print = () => {},
+  provision = provisionUpstreamSkill
+}) {
+  const plan = upstreamPlanBySkill(catalog, skill);
+  if (!plan) return null;
+  const dataRoot = path.join(env.XDG_DATA_HOME || path.join(env.HOME || os.homedir(), ".local", "share"), "agentgear");
+  const finalRoot = materializationRoot(dataRoot, plan);
+  if (fs.existsSync(finalRoot) || fs.lstatSync(finalRoot, { throwIfNoEntry: false })) {
+    if (!materializationIsValid(finalRoot, plan)) {
+      fail(`Retrieved upstream skill is unverifiable: ${finalRoot}; remove it manually before retrying.`);
+    }
+    return { plan, payload: path.join(finalRoot, "payload"), materialized: false };
+  }
+
+  fs.mkdirSync(path.dirname(finalRoot), { recursive: true });
+  const temporary = `${finalRoot}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  try {
+    fs.mkdirSync(temporary);
+    const payload = path.join(temporary, "payload");
+    const cached = runtimeUpstreamSource(plan, runtimeRoots);
+    if (cached) {
+      if (!copyValidatedTree(cached, payload, plan)) fail(`Could not validate staged upstream skill: ${cached}`);
+    } else {
+      const runtime = { root: path.join(temporary, "runtime") };
+      fs.mkdirSync(runtime.root);
+      provision({ plan, runtime, previousRuntimeRoots: runtimeRoots, env, print });
+      const staged = path.join(runtime.root, "skills", plan.name);
+      if (!copyValidatedTree(staged, payload, plan)) fail(`Could not validate fetched upstream skill: ${plan.name}`);
+      fs.rmSync(runtime.root, { recursive: true, force: true });
+    }
+    fs.writeFileSync(manifestPath(temporary), `${JSON.stringify(materializationManifest(plan), null, 2)}\n`);
+    if (!materializationIsValid(temporary, plan)) fail(`Could not verify retrieved upstream skill: ${temporary}`);
+    try {
+      fs.renameSync(temporary, finalRoot);
+    } catch (error) {
+      if (!materializationIsValid(finalRoot, plan)) throw error;
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+    return { plan, payload: path.join(finalRoot, "payload"), materialized: true };
+  } catch (error) {
+    fs.rmSync(temporary, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export function retrievedUpstreamSkillPlans(catalog, env = process.env) {
+  const dataRoot = path.join(env.XDG_DATA_HOME || path.join(env.HOME || os.homedir(), ".local", "share"), "agentgear");
+  const root = path.join(dataRoot, "retrieved-skills");
+  const info = fs.lstatSync(root, { throwIfNoEntry: false });
+  if (!info) return { valid: [], preserved: [] };
+  if (!info.isDirectory() || info.isSymbolicLink()) return { valid: [], preserved: [root] };
+  const plans = new Map(upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {})).map(plan => [plan.name, plan]));
+  const valid = [];
+  const preserved = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const plan = plans.get(entry.name);
+    const nameRoot = path.join(root, entry.name);
+    if (!plan || !entry.isDirectory() || entry.isSymbolicLink()) {
+      preserved.push(nameRoot);
+      continue;
+    }
+    for (const candidate of fs.readdirSync(nameRoot, { withFileTypes: true })) {
+      const candidateRoot = path.join(nameRoot, candidate.name);
+      if (candidate.name === digestHex(plan) && candidate.isDirectory() && !candidate.isSymbolicLink() && materializationIsValid(candidateRoot, plan)) {
+        valid.push({ plan, root: candidateRoot });
+      } else {
+        preserved.push(candidateRoot);
+      }
+    }
+  }
+  return { valid, preserved };
 }
 
 function resolveSkillPath(checkout, skillPath) {
@@ -154,9 +302,9 @@ export function selectedUpstreamSkillPlans(catalog, selection, state, env = proc
   for (const plan of upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {}))) {
     all.set(plan.name, plan);
   }
-  for (const plan of upstreamSkillPlans(catalog, selection.requirements.sessionHosts)) {
-    if (isCommandAvailable(plan.command, env)) selected.set(plan.name, plan);
-  }
+  // Host documentation is optional and is retrieved explicitly through
+  // `agentgear skill get`; installation never fetches it just because a pack
+  // declares a compatible session host.
   for (const target of Object.values(state?.targets ?? {})) {
     for (const [name, record] of Object.entries(target.skills ?? {})) {
       if (record?.mode === "link" && all.has(name)) selected.set(name, all.get(name));

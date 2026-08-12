@@ -12,10 +12,12 @@ export function parseOptions(argumentsList) {
     targets: [],
     scope: "global",
     project: process.cwd(),
+    projectSpecified: false,
     destination: undefined,
     force: false,
     purge: false,
     noLauncher: false,
+    apply: false,
     json: false,
     positional: []
   };
@@ -43,6 +45,7 @@ export function parseOptions(argumentsList) {
         break;
       case "--project":
         options.project = next();
+        options.projectSpecified = true;
         break;
       case "--dest":
         options.destination = next();
@@ -56,6 +59,9 @@ export function parseOptions(argumentsList) {
       case "--no-launcher":
         options.noLauncher = true;
         break;
+      case "--apply":
+        options.apply = true;
+        break;
       case "--json":
         options.json = true;
         break;
@@ -64,6 +70,11 @@ export function parseOptions(argumentsList) {
         options.help = true;
         break;
       default:
+        if (argument === "--") {
+          options.positional.push(...argumentsList.slice(index + 1));
+          index = argumentsList.length;
+          break;
+        }
         if (argument.startsWith("-")) throw new Error("Unknown option: " + argument);
         options.positional.push(argument);
     }

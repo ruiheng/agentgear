@@ -1,3 +1,8 @@
+---
+skill-selector: signals
+selector-summary: Recognize systemic code-health signals and their likely causes.
+---
+
 # Signals
 
 Use these signals to decide whether the problem is local cleanup or systemic design trouble.

@@ -33,7 +33,20 @@ import {
   selectedInstallableSkills
 } from "./lib/installer.mjs";
 import { parseOptions } from "./lib/options.mjs";
-import { isCommandAvailable } from "./lib/upstreams.mjs";
+import {
+  isCommandAvailable,
+  retrieveUpstreamSkill,
+  retrievedUpstreamSkillPlans
+} from "./lib/upstreams.mjs";
+import {
+  SkillContentError,
+  buildSkillContentIndex,
+  formatSkillText,
+  listSkillSelectors,
+  resolveSkillOverview,
+  resolveSkillSelector
+} from "./lib/skill-content.mjs";
+import { migrateLegacySkills } from "./lib/legacy-skill-migration.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
@@ -56,6 +69,9 @@ function usage() {
     "",
     "Commands:",
     "  list [--json]",
+    "  skill get [--json] [--] SKILL [SELECTOR...]",
+    "  skill list [--json] [--] SKILL",
+    "  migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]",
     "  build",
     "  install [--pack NAME] [--skill NAME] [--target NAME[,NAME]] [--scope global|project]",
     "          [--project DIR] [--dest DIR] [--force] [--no-launcher]",
@@ -78,6 +94,7 @@ function usage() {
     "  --force false; --no-launcher false (skip the global command)",
     "",
     "With --dest and no --target, Agentgear uses the general target only.",
+    "Every installed bootstrap requires agentgear skill get from the matching release.",
     "",
     "Available packs:",
     ...listPacks(catalog).map(pack => `  ${pack.name.padEnd(10)} ${pack.description}`),
@@ -128,7 +145,16 @@ function uninstall(catalog, options) {
   }
   const selection = selected(catalog, options);
   const targets = resolveTargetRoots(catalog, options);
-  const skills = selectedInstallableSkills(catalog, selection);
+  const skills = options.packs.length > 0
+    ? [...new Set(selection.capabilitySkills)]
+    : selectedInstallableSkills(catalog, selection);
+  if (options.packs.length > 0) {
+    for (const hostName of selection.requirements.sessionHosts) {
+      const upstream = catalog.skills.sessionHosts?.[hostName]?.upstream;
+      const source = upstream ? catalog.skills.upstreams?.[upstream] : null;
+      if (source?.skillPath) skills.push(path.basename(source.skillPath));
+    }
+  }
   const state = readInstallState();
   const grammar = validateStateGrammar(state);
   if (!grammar.valid) {
@@ -214,8 +240,22 @@ function purge(catalog, options) {
   if (!grammar.valid) {
     fail(`Invalid installation state ${computePaths().stateFile}: ${grammar.reason}`);
   }
-  if (state === null) {
+  const targetLimited = options.targets.length > 0 || options.destination || options.scope === "project";
+  const retrieved = targetLimited ? { valid: [], preserved: [] } : retrievedUpstreamSkillPlans(catalog);
+  if (state === null && retrieved.valid.length === 0 && retrieved.preserved.length === 0) {
     print("No agentgear installation state recorded; nothing to purge.");
+    notifyPermissionMigration(false);
+    return;
+  }
+  if (state === null) {
+    for (const item of retrieved.valid) fs.rmSync(item.root, { recursive: true, force: true });
+    for (const candidate of retrieved.preserved) print("preserved unverifiable retrieved skill: " + candidate);
+    if (retrieved.preserved.length > 0) {
+      process.exitCode = 1;
+      print("Purge incomplete: retrieved skill materialization requires manual cleanup");
+    } else {
+      print("Purge complete.");
+    }
     notifyPermissionMigration(false);
     return;
   }
@@ -265,12 +305,25 @@ function purge(catalog, options) {
     const tornDown = purgeManagedRuntime({ state, env: process.env, print });
     if (tornDown) {
       removeInstallStateFile({ print });
-      print("Purge complete.");
+      for (const item of retrieved.valid) fs.rmSync(item.root, { recursive: true, force: true });
+      for (const candidate of retrieved.preserved) print("preserved unverifiable retrieved skill: " + candidate);
+      if (retrieved.preserved.length > 0) {
+        process.exitCode = 1;
+        print("Purge incomplete: retrieved skill materialization requires manual cleanup");
+      } else {
+        print("Purge complete.");
+      }
       notifyPermissionMigration(retiresPermissionCommand);
     } else {
       process.exitCode = 1;
       notifyPermissionMigration(false);
     }
+  }
+
+  if (!targetLimited && Object.keys(state.targets).length > 0) {
+    // A full purge that keeps managed targets due to changed artifacts must
+    // leave globally retrieved documentation alone; it remains usable until
+    // a successful full teardown can establish the normal purge ordering.
   }
 }
 
@@ -284,12 +337,12 @@ function sessionHostReady(catalog, hostName, targets) {
   if (host.upstream) {
     const source = catalog.skills.upstreams[host.upstream];
     if (source?.skillPath) {
-      const skillName = path.basename(source.skillPath);
-      for (const target of targets) {
-        const skillFile = path.join(target.root, skillName, "SKILL.md");
-        const found = fs.existsSync(skillFile);
-        print((found ? "ok      " : "provision ") + "upstream skill " + host.upstream + " for " + target.name);
-      }
+      const retrieved = retrievedUpstreamSkillPlans(catalog);
+      const verified = retrieved.valid.some(item => item.plan.upstream === host.upstream);
+      const corrupt = retrieved.preserved.find(candidate => candidate.includes(path.sep + path.basename(source.skillPath) + path.sep));
+      if (verified) print(`ok      optional documentation ${host.upstream} (verified local resource)`);
+      else if (corrupt) print(`warning optional documentation ${host.upstream} (unverifiable local resource: ${corrupt})`);
+      else print(`available optional documentation ${host.upstream} (run: agentgear skill get ${path.basename(source.skillPath)})`);
     }
     if (source?.repository) print("upstream " + host.upstream + ": " + source.repository);
   }
@@ -305,18 +358,6 @@ function doctor(catalog, options) {
     const found = isCommandAvailable(command);
     print((found ? "ok      " : "missing ") + command);
     if (!found) missing += 1;
-  }
-  for (const upstream of selection.requirements.upstreams) {
-    const source = catalog.skills.upstreams[upstream];
-    if (!source) continue;
-    const skillName = path.basename(source.skillPath);
-    for (const target of targets) {
-      const skillFile = path.join(target.root, skillName, "SKILL.md");
-      const found = fs.existsSync(skillFile);
-      print((found ? "ok      " : "missing ") + "upstream skill " + upstream + " for " + target.name);
-      if (!found) missing += 1;
-    }
-    print("upstream " + upstream + ": " + source.repository);
   }
   if (selection.requirements.sessionHosts.length > 0) {
     const readyHosts = selection.requirements.sessionHosts.filter(host => sessionHostReady(catalog, host, targets));
@@ -347,11 +388,22 @@ function build(catalog) {
     recursive: true,
     preserveTimestamps: true
   });
+  fs.writeFileSync(path.join(stagingRoot, "universal", "README.md"), [
+    "# Agentgear universal source material",
+    "",
+    "The skills tree is non-runnable source material. Its compact bootstraps require the matching same-release agentgear launcher and managed runtime.",
+    "Install the npm package or use the normal Agentgear installer; do not copy this tree into a harness discovery directory."
+  ].join("\n") + "\n");
+  const selection = selected(catalog, parseOptions([]));
   for (const target of Object.values(catalog.targets.targets)) {
-    fs.cpSync(skillsRoot, path.join(stagingRoot, target.dist), {
-      recursive: true,
-      preserveTimestamps: true
-    });
+    const destination = path.join(stagingRoot, target.dist);
+    fs.mkdirSync(destination, { recursive: true });
+    for (const skill of selectedInstallableSkills(catalog, selection)) {
+      fs.cpSync(path.join(skillsRoot, skill), path.join(destination, skill), {
+        recursive: true,
+        preserveTimestamps: true
+      });
+    }
   }
   fs.writeFileSync(path.join(stagingRoot, "build.json"), JSON.stringify({
     schemaVersion: 1,
@@ -422,6 +474,121 @@ function list(catalog, options) {
   print("Skills (" + payload.skills.length + "): " + payload.skills.map(skill => skill.name).join(", "));
 }
 
+function skillUsage() {
+  return [
+    "Usage:",
+    "  agentgear skill get [--json] [--] SKILL [SELECTOR...]",
+    "  agentgear skill list [--json] [--] SKILL"
+  ].join("\n");
+}
+
+function skill(catalog, argumentsList) {
+  const [operation, ...rawArguments] = argumentsList;
+  if (!operation || operation === "--help" || operation === "-h") {
+    print(skillUsage());
+    return;
+  }
+  const options = parseOptions(rawArguments);
+  if (options.help) {
+    print(skillUsage());
+    return;
+  }
+  if (options.packs.length || options.skills.length || options.targets.length || options.destination || options.force || options.purge || options.noLauncher || options.apply) {
+    fail("skill accepts only --json and positional skill selectors");
+  }
+  const [skillName, ...selectors] = options.positional;
+  if (!skillName) fail(`skill ${operation} requires SKILL`);
+  const index = buildSkillContentIndex(rootDir, catalog);
+  const upstream = catalog.skills.upstreams?.[skillName];
+  if (upstream) {
+    if (operation !== "get") fail(`Unknown skill: ${skillName}. Run agentgear list for known skills.`);
+    if (selectors.length > 0) throw new SkillContentError(`Unknown selector ${skillName}/${selectors[0]}. Run agentgear skill list ${skillName}.`, { kind: "unknown" });
+    const paths = computePaths();
+    const resource = retrieveUpstreamSkill({
+      catalog,
+      skill: skillName,
+      runtimeRoots: [paths.currentPath, ...((readInstallState()?.releases ?? []).map(id => path.join(paths.releasesRoot, id)))]
+    });
+    if (!resource) throw new SkillContentError(`Unknown skill: ${skillName}. Run agentgear list for known skills.`, { kind: "unknown" });
+    const overview = fs.readFileSync(path.join(resource.payload, "SKILL.md"), "utf8").replace(/\r\n/g, "\n").replace(/\n*$/, "") + "\n";
+    if (options.json) {
+      print(JSON.stringify({
+        skill: skillName,
+        overview,
+        resourceBase: resource.payload,
+        repository: resource.plan.source.repository,
+        ref: resource.plan.source.ref,
+        commit: resource.plan.source.commit,
+        contentDigest: resource.plan.source.contentDigest
+      }, null, 2));
+    } else {
+      process.stdout.write(`Base directory for this skill: ${resource.payload}\n${overview}`);
+    }
+    return;
+  }
+  if (operation === "list") {
+    if (selectors.length) fail("skill list accepts exactly one SKILL");
+    const records = listSkillSelectors(index, skillName);
+    if (options.json) {
+      print(JSON.stringify(records.map(record => ({
+        skill: skillName,
+        selector: record.selector,
+        owner: record.owner,
+        canonicalSelector: record.canonicalSelector,
+        aliases: record.aliases,
+        summary: record.summary
+      })), null, 2));
+    } else if (records.length > 0) {
+      process.stdout.write(records.map(record => record.selector).join("\n") + "\n");
+    }
+    return;
+  }
+  if (operation !== "get") fail(`Unknown skill command: ${operation}`);
+  const overview = selectors.length === 0 ? resolveSkillOverview(index, skillName) : null;
+  const selections = selectors.map(selector => ({ ...resolveSkillSelector(index, skillName, selector), requestedSelector: selector }));
+  if (options.json) {
+    const payload = overview
+      ? { skill: skillName, overview: overview.body }
+      : {
+        skill: skillName,
+        selections: selections.map(record => ({
+          requestedSelector: record.requestedSelector,
+          owner: record.owner,
+          selector: record.canonicalSelector,
+          aliases: record.aliases,
+          summary: record.summary,
+          body: record.body
+        }))
+      };
+    print(JSON.stringify(payload, null, 2));
+  } else {
+    process.stdout.write(formatSkillText({ skill: skillName, overview, selections }));
+  }
+}
+
+function migrate(catalog, argumentsList) {
+  const [operation, ...rawArguments] = argumentsList;
+  if (operation !== "legacy-skills") fail("migrate supports only legacy-skills");
+  const options = parseOptions(rawArguments);
+  if (options.help) {
+    print("Usage: agentgear migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]");
+    return;
+  }
+  if (options.packs.length || options.skills.length || options.force || options.purge || options.noLauncher || options.json || options.positional.length) {
+    fail("legacy-skills accepts only target, destination, scope, project, and --apply options");
+  }
+  if (options.destination && (options.targets.length > 0 || options.scope !== "global" || options.projectSpecified)) {
+    fail("--dest cannot be combined with --target, --scope project, or --project");
+  }
+  let roots;
+  if (options.targets.length === 0 && !options.destination && options.scope === "global") {
+    roots = ["general", "claude", "kiro"].map(name => resolveTargetRoots(catalog, { ...options, targets: [name] })[0].root);
+  } else {
+    roots = resolveTargetRoots(catalog, options).map(target => target.root);
+  }
+  migrateLegacySkills({ roots, apply: options.apply, print });
+}
+
 export function main(commandArguments = process.argv.slice(2)) {
   const [command, ...argumentsList] = commandArguments;
   if (!command || command === "--help" || command === "-h") {
@@ -430,6 +597,24 @@ export function main(commandArguments = process.argv.slice(2)) {
   }
   if (command === "run") {
     run(argumentsList);
+    return;
+  }
+  if (command === "skill") {
+    const catalog = loadCatalog(rootDir);
+    try {
+      skill(catalog, argumentsList);
+    } catch (error) {
+      if (error instanceof SkillContentError && error.kind === "unknown") {
+        process.stderr.write(`agentgear: ${error.message}\n`);
+        process.exitCode = 2;
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+  if (command === "migrate") {
+    migrate(loadCatalog(rootDir), argumentsList);
     return;
   }
   if (command === "resolve-tool-command") {

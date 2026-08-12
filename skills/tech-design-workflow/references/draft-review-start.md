@@ -1,3 +1,8 @@
+---
+skill-selector: draft-review
+selector-summary: Start a new draft-round technical design review.
+---
+
 # Draft-Review Start
 
 ## Inputs and Round

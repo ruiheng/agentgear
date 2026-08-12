@@ -39,7 +39,8 @@ export function loadCatalog(rootDir) {
 
 export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
   const selectedPacks = [];
-  const selectedSkills = [];
+  const capabilitySkills = [];
+  const explicitSkills = [];
   const commands = [];
   const upstreams = [];
   const sessionHosts = [];
@@ -65,7 +66,7 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
       if (!catalog.skills.skills[skill]) {
         throw new Error(`Pack ${name} references an unknown skill: ${skill}`);
       }
-      selectedSkills.push(skill);
+      capabilitySkills.push(skill);
     }
   }
 
@@ -75,12 +76,22 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
   for (const pack of requestedPacks) addPack(pack);
   for (const skill of skills) {
     if (!catalog.skills.skills[skill]) throw new Error(`Unknown skill: ${skill}`);
-    selectedSkills.push(skill);
+    explicitSkills.push(skill);
   }
+
+  const uniqueCapabilitySkills = unique([...capabilitySkills, ...explicitSkills]);
+  const exposedSkills = unique([
+    ...capabilitySkills.filter(skill => catalog.skills.skills[skill].exposure === "entry"),
+    ...explicitSkills
+  ]);
 
   return {
     packs: selectedPacks,
-    skills: unique(selectedSkills),
+    // `skills` is retained as a compatibility alias for capability selection.
+    skills: uniqueCapabilitySkills,
+    explicitSkills: unique(explicitSkills),
+    capabilitySkills: uniqueCapabilitySkills,
+    exposedSkills,
     requirements: {
       commands: unique(commands),
       upstreams: unique(upstreams),
@@ -163,6 +174,15 @@ export function validateCatalog(rootDir, catalog) {
   for (const name of directoryNames) {
     if (!catalog.skills.skills[name]) errors.push(`skills/${name} is missing from catalog/skills.json`);
   }
+  for (const [name, skill] of Object.entries(catalog.skills.skills)) {
+    if (!isPlainObject(skill)) {
+      errors.push(`catalog skill ${name} must be an object`);
+      continue;
+    }
+    if (!new Set(["entry", "prompt-only"]).has(skill.exposure)) {
+      errors.push(`catalog skill ${name} must declare exposure entry or prompt-only`);
+    }
+  }
   for (const name of catalogNames) {
     if (!directoryNames.includes(name)) errors.push(`catalog skill ${name} has no skills/${name} directory`);
   }
@@ -205,6 +225,7 @@ export function listPacks(catalog) {
 export function listSkills(catalog) {
   return Object.entries(catalog.skills.skills).map(([name, skill]) => ({
     name,
-    tags: skill.tags ?? []
+    tags: skill.tags ?? [],
+    exposure: skill.exposure
   }));
 }

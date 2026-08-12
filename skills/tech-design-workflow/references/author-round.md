@@ -1,3 +1,9 @@
+---
+skill-selector: author-round
+selector-summary: Draft or revise one immutable technical design round and request review.
+selector-aliases: check-waypost-messages/action:design_spec_draft_requested, check-waypost-messages/action:design_spec_context_corrected
+---
+
 # Author Round
 
 ## Route Corrections and Recovery

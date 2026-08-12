@@ -1,3 +1,8 @@
+---
+skill-selector: shared-protocol
+selector-summary: Apply shared message envelopes, receiver claims, and workflow lifecycle rules.
+---
+
 # Multi-Agent Collaboration Protocol
 
 Use this contract for session identity, message boundaries, and delivery lifecycle.
@@ -41,7 +46,7 @@ Use this header when the action needs shared routing metadata:
 
 ```markdown
 Task: <task_id_or_N/A>
-Action: <action_name>
+[a stable Action header chosen by the owning workflow]
 From: <role_or_sender_label> <from_session_id>
 To: <role_or_receiver_label> <to_session_id>
 ```

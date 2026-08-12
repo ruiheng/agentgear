@@ -1,3 +1,8 @@
+---
+skill-selector: diagnostics
+selector-summary: Diagnose shared multi-agent workflow transport and session failures.
+---
+
 # Error Handling and Diagnostics
 
 Use this shared checklist after listener, send, worker-start, or closeout failure.

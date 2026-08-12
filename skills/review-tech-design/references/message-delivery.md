@@ -1,3 +1,8 @@
+---
+skill-selector: message-delivery
+selector-summary: Deliver a technical-design review report and handle context failures.
+---
+
 # Review Report and Delivery
 
 ## Report Form

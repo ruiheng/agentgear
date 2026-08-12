@@ -7,7 +7,6 @@ import {
 import { resolveSelection } from "./catalog.mjs";
 import {
   provisionUpstreamSkill as defaultProvisionUpstreamSkill,
-  selectedUpstreamSkillNames,
   selectedUpstreamSkillPlans
 } from "./upstreams.mjs";
 import {
@@ -38,7 +37,8 @@ import {
   targetState,
   updateTargetState,
   validateSharedRuntimeConsumers,
-  validateStateGrammar
+  validateStateGrammar,
+  writeInstalledSkillMarker
 } from "./runtime.mjs";
 
 export const DEFAULT_TARGETS = ["general", "claude"];
@@ -122,10 +122,7 @@ export function selected(catalog, options) {
 }
 
 export function selectedInstallableSkills(catalog, selection) {
-  return [...new Set([
-    ...selection.skills,
-    ...selectedUpstreamSkillNames(catalog, selection)
-  ])];
+  return [...selection.exposedSkills];
 }
 
 export function resolveTargetRoots(catalog, options, env = process.env) {
@@ -147,7 +144,7 @@ export function resolveTargetRoots(catalog, options, env = process.env) {
 }
 
 function ensureSourceSkills(sourceRoot, selection) {
-  for (const skill of selection.skills) {
+  for (const skill of selection.capabilitySkills) {
     const skillFile = path.join(sourceRoot, "skills", skill, "SKILL.md");
     if (!fs.existsSync(skillFile)) fail("Missing canonical skill: " + skillFile);
   }
@@ -195,6 +192,32 @@ function retiredSkillPlan(catalog, state) {
   return plan;
 }
 
+function withdrawnSkillPlan(state, targets, desiredSkills, authoritative) {
+  if (!authoritative || state === null) return [];
+  const desired = new Set(desiredSkills);
+  const plan = [];
+  for (const target of targets) {
+    const record = targetState(state, target.root);
+    for (const [skill, item] of Object.entries(record.skills)) {
+      if (desired.has(skill)) continue;
+      const destination = path.join(target.root, skill);
+      const destinationExists = exists(destination);
+      if (destinationExists && !destinationMatchesRecord(destination, item)) {
+        // A historical development link can be pinned to an immutable
+        // physical release after `current` advances. It is no longer an
+        // active managed link, so preserve it and its state record rather
+        // than treating it as an editable destination to withdraw.
+        if (item.mode === "link" && fs.lstatSync(destination, { throwIfNoEntry: false })?.isSymbolicLink()) {
+          continue;
+        }
+        fail(`Refusing to withdraw locally changed skill: ${destination}`);
+      }
+      plan.push({ targetRoot: target.root, skill, destination, destinationExists });
+    }
+  }
+  return plan;
+}
+
 export function installSelection({
   catalog,
   options,
@@ -217,15 +240,15 @@ export function installSelection({
   checkChannelGate(state, requestedChannel);
   checkStateCoherence(state, env);
   const upstreamPlans = selectedUpstreamSkillPlans(catalog, selection, state, env);
-  const selectedUpstreamNames = new Set(
-    selectedUpstreamSkillNames(catalog, selection)
-  );
-  const installedSkills = [...selection.skills];
-  for (const plan of upstreamPlans) {
-    if (selectedUpstreamNames.has(plan.name)) installedSkills.push(plan.name);
-  }
+  const installedSkills = selectedInstallableSkills(catalog, selection);
   const installLauncher = !options.noLauncher;
   const retiredSkills = retiredSkillPlan(catalog, state);
+  const withdrawnSkills = withdrawnSkillPlan(
+    state,
+    targets,
+    installedSkills,
+    selection.packs.length > 0
+  );
   const retiredCommands = retiredCommandEntries(env)
     .filter(entry => state?.commands?.[entry.destination]);
   const detectedPermissionScopes = permissionMigrationScopes(options, env);
@@ -248,6 +271,18 @@ export function installSelection({
   try {
     print("Staging runtime snapshot...");
     runtime = stageRuntime({ sourceRoot, env });
+    // Mark the immutable/copy source before any target is linked. A shared
+    // development link may point at `current` before publication, so writing
+    // through its destination would follow a dangling link. The marker is
+    // therefore part of the staged payload seen by both copied and linked
+    // installed skill directories.
+    for (const skill of installedSkills) {
+      const stagedSource = path.join(runtime.root, "skills", skill);
+      writeInstalledSkillMarker(stagedSource, skill, {
+        mode: development ? "link" : "copy",
+        source: stagedSource
+      });
+    }
     const paths = computePaths(env);
     const previousRuntimeRoots = [
       paths.currentPath,
@@ -308,6 +343,18 @@ export function installSelection({
       updateTargetState(currentState, item.targetRoot, record);
     }
 
+    for (const item of withdrawnSkills) {
+      if (item.destinationExists) {
+        transaction.replace([item.destination], () => undefined);
+        print(`withdrawn skill: ${item.skill}`);
+      } else {
+        print(`removed stale skill record: ${item.skill}`);
+      }
+      const record = targetState(currentState, item.targetRoot);
+      delete record.skills[item.skill];
+      updateTargetState(currentState, item.targetRoot, record);
+    }
+
     for (const target of targets) {
       const record = targetState(currentState, target.root);
       for (const item of plan.filter(candidate => candidate.target.name === target.name)) {
@@ -316,6 +363,7 @@ export function installSelection({
           && item.record?.mode === "link"
           && item.destinationExists
           && resolvedLinkTarget(item.destination) === source;
+        let deploymentRecord;
         if (!keepsLink) {
           const deployment = transaction.replace([item.destination], () => copyOrLinkSkill({
             source,
@@ -330,8 +378,13 @@ export function installSelection({
             record.skills[item.skill] = { mode: "copy", fingerprint: directoryFingerprint(item.destination) };
             if (shared) copiedSkillTargets += 1;
           }
+          deploymentRecord = record.skills[item.skill];
+          if (deploymentRecord.mode === "copy") {
+            deploymentRecord.fingerprint = directoryFingerprint(item.destination);
+          }
         } else {
           record.skills[item.skill] = { mode: "link", source };
+          deploymentRecord = record.skills[item.skill];
         }
       }
       updateTargetState(currentState, target.root, record);
@@ -376,6 +429,12 @@ export function installSelection({
       ? (shared ? "shared development link" : "development copy fallback")
       : "release snapshot";
     print("Installed " + installedSkills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
+    if (selection.packs.length > 0) {
+      print("Pack selection reconciled managed discovery entries; restart existing agent sessions to reload skill discovery.");
+    }
+    if (options.noLauncher && installedSkills.length > 0) {
+      print("Warning: exposed skill bootstraps require a compatible agentgear skill get launcher.");
+    }
     if (copiedSkillTargets > 0) {
       print("Copied " + copiedSkillTargets + " skill(s) because links are unavailable at their destination.");
     }

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { buildSkillContentIndex } from "./skill-content.mjs";
 
 const RUNTIME_MARKER = ".agentgear-runtime.json";
 const MARKER_VERSION = 1;
@@ -10,6 +11,8 @@ const FINGERPRINT_PREFIX = "sha256-v1:";
 const FINGERPRINT_HEADER = "agentgear-fingerprint-v1\0";
 const FINGERPRINT_PATTERN = /^sha256-v1:[0-9a-f]{64}$/;
 const SKILL_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const INSTALLED_SKILL_MARKER = ".agentgear";
+const INSTALLED_SKILL_MARKER_VERSION = 0;
 const LINK_UNAVAILABLE_CODES = new Set(["EACCES", "EINVAL", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM"]);
 let temporarySequence = 0;
 // Exact historical command names retained only so managed artifacts can be removed safely.
@@ -1179,6 +1182,33 @@ export function validateSharedRuntimeConsumers({
     requiredRuntimeCommand(commands, path.join("bin", "agentgear.mjs"), `planned launcher: ${paths.launcher}`);
   }
 
+  // Every canonical selector is independently retrievable through the staged
+  // launcher, including prompt-only skills. Validate its documented runtime
+  // scripts before publishing instead of tracing only from exposed entries.
+  try {
+    const catalog = JSON.parse(fs.readFileSync(path.join(snapshotRoot, "catalog", "skills.json"), "utf8"));
+    const index = buildSkillContentIndex(snapshotRoot, { skills: catalog }, { validateBootstraps: true });
+    for (const documented of index.documentedScripts) {
+      if (path.isAbsolute(documented.script) || documented.script.split(/[\\/]/).includes("..")) {
+        commands.set(`invalid:${documented.filePath}`, new Set([`invalid documented script ${documented.script}`]));
+        continue;
+      }
+      requiredRuntimeCommand(
+        commands,
+        path.join("skills", documented.skill, "scripts", documented.script),
+        `selector ${documented.filePath}`
+      );
+    }
+  } catch (error) {
+    // Preserve the established runtime-consumer diagnostic for a selected
+    // entrypoint while still indexing all canonical selectors in normal use.
+    if (/Canonical (SKILL\.md|skills directory) is not a real directory|Canonical SKILL\.md is missing or is not a regular file/.test(error.message)) {
+      // The ordinary requirement pass below supplies the exact consumer path.
+    } else {
+      return [`Cannot publish shared runtime: selector index is invalid: ${error.message}`];
+    }
+  }
+
   const errors = [];
   for (const [relativePath, consumers] of requirements) {
     if (regularFileStatusUnderRoot(snapshotRoot, relativePath) === "file") continue;
@@ -1187,6 +1217,10 @@ export function validateSharedRuntimeConsumers({
     );
   }
   for (const [entryRelativePath, consumers] of commands) {
+    if (entryRelativePath.startsWith("invalid:")) {
+      errors.push(`Cannot publish shared runtime: ${[...consumers].join(", ")}.`);
+      continue;
+    }
     for (const error of moduleDependencyErrors(snapshotRoot, entryRelativePath)) {
       errors.push(
         `Cannot publish shared runtime: ${[...consumers].join(", ")} requires ${entryRelativePath}, but ${error}.`
@@ -1209,6 +1243,45 @@ export function copyOrLinkSkill({ source, copySource = source, destination, link
   }
   fs.cpSync(copySource, destination, { recursive: true, preserveTimestamps: true });
   return { mode: "copy" };
+}
+
+function installedSkillMarkerPath(destination) {
+  return path.join(destination, INSTALLED_SKILL_MARKER);
+}
+
+// The marker is deliberately small and local to the managed directory. State
+// remains the deletion authority; this gives humans and diagnostics an
+// auditable v0 provenance record without broadening ordinary ownership.
+export function writeInstalledSkillMarker(destination, skill, { mode, source }) {
+  const markerPath = installedSkillMarkerPath(destination);
+  const info = fs.lstatSync(markerPath, { throwIfNoEntry: false });
+  if (info && (!info.isFile() || info.isSymbolicLink())) {
+    throw new Error(`Refusing unsafe installed-skill marker path: ${markerPath}`);
+  }
+  writeJsonAtomic(markerPath, {
+    schemaVersion: INSTALLED_SKILL_MARKER_VERSION,
+    skill,
+    mode,
+    source
+  });
+}
+
+export function installedSkillMarkerMatches(destination, skill, record) {
+  const markerPath = installedSkillMarkerPath(destination);
+  const info = fs.lstatSync(markerPath, { throwIfNoEntry: false });
+  if (!info?.isFile() || info.isSymbolicLink()) return false;
+  try {
+    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+    return isPlainObject(marker)
+      && Object.keys(marker).length === 4
+      && marker.schemaVersion === INSTALLED_SKILL_MARKER_VERSION
+      && marker.skill === skill
+      && marker.mode === record.mode
+      && typeof marker.source === "string"
+      && marker.source.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export function destinationMatchesRecord(destination, record) {

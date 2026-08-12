@@ -432,6 +432,7 @@ function generatedClaudePermissions(waypost) {
     jsonPermission("agent-deck"), jsonPermission("agent-deck *"),
     "Bash(git diff)", "Bash(git diff *)", "Bash(git show)", "Bash(git show *)", "Bash(git status)", "Bash(git status *)", "Bash(git log)", "Bash(git log *)", "Bash(git rev-parse)", "Bash(git rev-parse *)",
     ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill => jsonPermission(`${command} run ${skill} *`))),
+    ...launcherForms().map(command => jsonPermission(`${command} skill get *`)),
     ...launcherForms().map(command => jsonPermission(`${command} resolve-tool-command *`)),
     "Write(/.agent-artifacts/**)"
   ];
@@ -775,6 +776,7 @@ function codexRulesSource(waypost) {
     codexRule(["agent-deck"], "Agent Deck session-host commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck workflow dispatch",\n    ]'),
     codexRule(["printf"], "Shell formatting helper commands"),
     ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill => codexRule([command, "run", skill], "Workflow scripts through the managed agentgear launcher"))),
+    ...launcherForms().map(command => codexRule([command, "skill", "get"], "Read canonical Agentgear skill instructions through the managed launcher")),
     ...launcherForms().map(command => codexRule([command, "resolve-tool-command"], "Workflow launch-candidate resolver through Agentgear")),
     ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Waypost query; host permission required")),
     "# Waypost reads and writes require host permission.\n"
@@ -854,6 +856,7 @@ function geminiPolicySource(waypost) {
     ...launcherForms().flatMap((command, commandIndex) => workflowLauncherSkills.map((skill, skillIndex) =>
       geminiRule(`allow_workflow_launcher_${commandIndex}_${skillIndex}`, [command, "run", skill])
     )),
+    ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_skill_get_${index}`, [command, "skill", "get"])),
     ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_resolve_tool_command_${index}`, [command, "resolve-tool-command"])),
     ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
     "# Waypost reads and writes require host permission.\n"

@@ -1,3 +1,8 @@
+---
+skill-selector: tool-resolution
+selector-summary: Resolve opaque launch candidates for a collaborator role.
+---
+
 # Launch Candidate Resolution
 
 Use this reference only when a workflow creates a new collaborator session.

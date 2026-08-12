@@ -1,3 +1,8 @@
+---
+skill-selector: closeout
+selector-summary: Close out an accepted technical-design workflow.
+---
+
 # Design Workflow Closeout
 
 The requester that receives the terminal delivery or review report owns successful closeout. Run cleanup only after the accepted design is authoritative: after the archive commit for draft-review, or after the accepted design branch merge for review-existing. Never clean up while revision, decision, commit, merge, or conflict work remains.

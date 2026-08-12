@@ -7,7 +7,7 @@
       "ref": "v1.11.0",
       "commit": "2f586c5ca97d0e783bb16213d388bcce9e675e67",
       "contentDigest": "sha256-v1:27d8d28f213c859fa5c3872e660b9b5faef5a5589f164566eac017979e6cd85b",
-      "reason": "When Agent Deck is available, the workflow installer stages its official skill from this pinned upstream revision."
+      "reason": "Optional documentation retrievable with agentgear skill get agent-deck; selected workflows may stage the verified payload inside their immutable runtime."
     }
   },
   "sessionHosts": {
@@ -84,37 +84,37 @@
       ]
     },
     "all": {
-      "description": "Every maintained skill in this repository.",
+      "description": "Every maintained capability in this repository.",
       "includes": ["core", "workflow", "browser"]
     }
   },
   "skills": {
-    "assess-tech-design": {"tags": ["design", "standalone"]},
-    "browser-test": {"tags": ["browser", "workflow"]},
-    "browser-test-request": {"tags": ["browser", "workflow"]},
-    "check-waypost-messages": {"tags": ["workflow", "receiver"]},
-    "code-health-review": {"tags": ["review", "workflow"]},
-    "commit-staged": {"tags": ["git", "standalone"]},
-    "tech-design-workflow": {"tags": ["design", "workflow"]},
-    "delegate-code-task": {"tags": ["delegation", "workflow"]},
-    "delegate-task": {"tags": ["delegation", "workflow"]},
-    "dispatch-plan": {"tags": ["planning", "workflow"]},
-    "execute-plan": {"tags": ["planning", "workflow"]},
-    "explain-for-me": {"tags": ["communication", "standalone"]},
-    "explore-defects": {"tags": ["analysis", "standalone"]},
-    "fix-strategy": {"tags": ["analysis", "planning", "standalone"]},
-    "handoff": {"tags": ["communication", "standalone"]},
-    "multi-agent-protocol": {"tags": ["workflow", "protocol"]},
-    "plan-report": {"tags": ["planning", "workflow"]},
-    "planner-closeout": {"tags": ["planning", "workflow"]},
-    "refactor-review": {"tags": ["review", "workflow"]},
-    "refactor-review-request": {"tags": ["review", "workflow"]},
-    "review-closeout": {"tags": ["review", "workflow"]},
-    "review-code": {"tags": ["review", "workflow"]},
-    "review-request": {"tags": ["review", "workflow"]},
-    "roundtable": {"tags": ["discussion", "workflow"]},
-    "roundtable-participant": {"tags": ["discussion", "workflow"]},
-    "simplify-review": {"tags": ["review", "workflow"]},
-    "review-tech-design": {"tags": ["design", "workflow"]}
+    "assess-tech-design": {"tags": ["design", "standalone"], "exposure": "entry"},
+    "browser-test": {"tags": ["browser", "workflow"], "exposure": "prompt-only"},
+    "browser-test-request": {"tags": ["browser", "workflow"], "exposure": "prompt-only"},
+    "check-waypost-messages": {"tags": ["workflow", "receiver"], "exposure": "entry"},
+    "code-health-review": {"tags": ["review", "workflow"], "exposure": "entry"},
+    "commit-staged": {"tags": ["git", "standalone"], "exposure": "entry"},
+    "tech-design-workflow": {"tags": ["design", "workflow"], "exposure": "entry"},
+    "delegate-code-task": {"tags": ["delegation", "workflow"], "exposure": "prompt-only"},
+    "delegate-task": {"tags": ["delegation", "workflow"], "exposure": "entry"},
+    "dispatch-plan": {"tags": ["planning", "workflow"], "exposure": "entry"},
+    "execute-plan": {"tags": ["planning", "workflow"], "exposure": "prompt-only"},
+    "explain-for-me": {"tags": ["communication", "standalone"], "exposure": "entry"},
+    "explore-defects": {"tags": ["analysis", "standalone"], "exposure": "entry"},
+    "fix-strategy": {"tags": ["analysis", "planning", "standalone"], "exposure": "entry"},
+    "handoff": {"tags": ["communication", "standalone"], "exposure": "entry"},
+    "multi-agent-protocol": {"tags": ["workflow", "protocol"], "exposure": "prompt-only"},
+    "plan-report": {"tags": ["planning", "workflow"], "exposure": "prompt-only"},
+    "planner-closeout": {"tags": ["planning", "workflow"], "exposure": "prompt-only"},
+    "refactor-review": {"tags": ["review", "workflow"], "exposure": "entry"},
+    "refactor-review-request": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
+    "review-closeout": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
+    "review-code": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
+    "review-request": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
+    "roundtable": {"tags": ["discussion", "workflow"], "exposure": "entry"},
+    "roundtable-participant": {"tags": ["discussion", "workflow"], "exposure": "prompt-only"},
+    "simplify-review": {"tags": ["review", "workflow"], "exposure": "entry"},
+    "review-tech-design": {"tags": ["design", "workflow"], "exposure": "prompt-only"}
   }
 }
