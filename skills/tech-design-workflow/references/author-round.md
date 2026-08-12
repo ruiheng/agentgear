@@ -6,6 +6,8 @@ selector-aliases: check-waypost-messages/action:design_spec_draft_requested, che
 
 # Author Round
 
+This is the first executable author stage. Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host` before transport or session operations.
+
 ## Route Corrections and Recovery
 
 On `design_spec_context_corrected`, update only named shared lane fields. Keep the current artifact unchanged. Authority or design-content changes require a new `design_spec_draft_requested` round.

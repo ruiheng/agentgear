@@ -14,6 +14,8 @@ import { directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/l
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
 import {
   provisionUpstreamSkill as provisionPinnedUpstreamSkill,
+  retrieveUpstreamSkill,
+  retrievedSkillMaterializationRoot,
   upstreamSkillDigest
 } from "../cli/lib/upstreams.mjs";
 
@@ -915,7 +917,7 @@ test("release update removes owned retired copies and preserves changed ones", (
   }
 });
 
-test("workflow installation does not expose the optional Agent Deck upstream skill", () => {
+test("workflow installation stages usable Agent Deck documentation without exposing it", () => {
   const fixture = environmentFixture();
   const bin = path.join(fixture.temporary, "bin");
   const installed = [];
@@ -940,7 +942,8 @@ test("workflow installation does not expose the optional Agent Deck upstream ski
       }
     });
 
-    assert.deepEqual(installed.map(plan => plan.name), []);
+    assert.deepEqual(installed.map(plan => plan.name), ["agent-deck"]);
+    assert.equal(fs.existsSync(path.join(fixture.dataRoot, "current", "skills", "agent-deck", "SKILL.md")), true);
     const skill = path.join(fixture.home, ".agents", "skills", "agent-deck", "SKILL.md");
     assert.equal(fs.existsSync(skill), false);
     assert.equal(readState(fixture).targets[path.join(fixture.home, ".agents", "skills")].skills["agent-deck"], undefined);
@@ -961,6 +964,90 @@ test("workflow installation does not expose the optional Agent Deck upstream ski
 
     run(["uninstall", "--pack", "workflow", "--target", "general"], fixture.environment);
     assert.equal(fs.existsSync(skill), false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Agent Deck retrieval materializes verified content without target exposure and reuses it offline", () => {
+  const fixture = environmentFixture();
+  const sourceTree = path.join(fixture.temporary, "agent-deck-source");
+  try {
+    fs.mkdirSync(path.join(sourceTree, "references"), { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\nRead `references/guide.md`.\n");
+    fs.writeFileSync(path.join(sourceTree, "references", "guide.md"), "# Guide\n");
+    const catalog = structuredClone(loadCatalog(rootDir));
+    const source = catalog.skills.upstreams["agent-deck"];
+    source.contentDigest = upstreamSkillDigest(sourceTree);
+    const plan = { upstream: "agent-deck", name: "agent-deck", source };
+    let provisions = 0;
+    const provision = ({ runtime }) => {
+      provisions += 1;
+      fs.mkdirSync(path.join(runtime.root, "skills"), { recursive: true });
+      fs.cpSync(sourceTree, path.join(runtime.root, "skills", "agent-deck"), { recursive: true });
+    };
+
+    const first = retrieveUpstreamSkill({
+      catalog,
+      skill: "agent-deck",
+      env: fixture.environment,
+      runtimeRoots: [],
+      provision
+    });
+    const materialized = retrievedSkillMaterializationRoot(path.join(fixture.environment.XDG_DATA_HOME, "agentgear"), plan);
+    assert.equal(provisions, 1);
+    assert.equal(first.materialized, true);
+    assert.equal(first.payload, path.join(materialized, "payload"));
+    assert.equal(fs.readFileSync(path.join(first.payload, "references", "guide.md"), "utf8"), "# Guide\n");
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "agent-deck")), false);
+    assert.equal(fs.existsSync(fixture.stateFile), false);
+
+    const second = retrieveUpstreamSkill({
+      catalog,
+      skill: "agent-deck",
+      env: fixture.environment,
+      runtimeRoots: [],
+      provision: () => {
+        throw new Error("offline fetch must not run");
+      }
+    });
+    assert.equal(second.materialized, false);
+    assert.equal(second.payload, first.payload);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Agent Deck retrieval reuses a verified immutable runtime copy and rejects corrupt materialization", () => {
+  const fixture = environmentFixture();
+  const runtime = path.join(fixture.temporary, "runtime");
+  const sourceTree = path.join(runtime, "skills", "agent-deck");
+  try {
+    fs.mkdirSync(path.join(runtime, "catalog"), { recursive: true });
+    fs.mkdirSync(path.join(sourceTree, "assets"), { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+    fs.writeFileSync(path.join(sourceTree, "assets", "example.txt"), "resource\n");
+    const catalog = structuredClone(loadCatalog(rootDir));
+    const source = catalog.skills.upstreams["agent-deck"];
+    source.contentDigest = upstreamSkillDigest(sourceTree);
+    fs.writeFileSync(path.join(runtime, "catalog", "skills.json"), `${JSON.stringify({ upstreams: { "agent-deck": source } })}\n`);
+    const plan = { upstream: "agent-deck", name: "agent-deck", source };
+    const retrieved = retrieveUpstreamSkill({
+      catalog,
+      skill: "agent-deck",
+      env: fixture.environment,
+      runtimeRoots: [runtime],
+      provision: () => {
+        throw new Error("verified runtime copy should win");
+      }
+    });
+    assert.equal(fs.readFileSync(path.join(retrieved.payload, "assets", "example.txt"), "utf8"), "resource\n");
+    const root = retrievedSkillMaterializationRoot(path.join(fixture.environment.XDG_DATA_HOME, "agentgear"), plan);
+    fs.appendFileSync(path.join(root, "payload", "SKILL.md"), "changed\n");
+    assert.throws(
+      () => retrieveUpstreamSkill({ catalog, skill: "agent-deck", env: fixture.environment, runtimeRoots: [runtime] }),
+      /Retrieved upstream skill is unverifiable/
+    );
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

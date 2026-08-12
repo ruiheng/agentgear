@@ -1,13 +1,14 @@
 ---
-skill-selector: start
+skill-selector: run
 selector-summary: Complete planner-closeout instructions, part 1.
+selector-aliases: planner-closeout/start, check-waypost-messages/action:closeout_delivered, check-waypost-messages/action:code_delivery_complete
 ---
 
 # Planner Closeout
 
 Handle accepted-review `closeout_delivered` or coder `code_delivery_complete`.
 
-Workflow protocol baseline: use the `multi-agent-protocol` skill.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
 
 ## Input
 
@@ -16,7 +17,7 @@ Use this skill only after that terminal handoff is actually received.
 
 ## Multi-Agent Mode
 
-Use the `multi-agent-protocol` skill for shared protocol:
+Retrieve `agentgear skill get multi-agent-protocol shared-protocol diagnostics` for shared protocol:
 - `Multi-Agent Mode Detection`
 - `Context Resolution Priority`
 - `Error Handling and Diagnostics`

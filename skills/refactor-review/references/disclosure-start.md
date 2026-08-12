@@ -1,6 +1,7 @@
 ---
-skill-selector: start
+skill-selector: review
 selector-summary: Complete refactor-review instructions, part 1.
+selector-aliases: refactor-review/start, check-waypost-messages/action:refactor_review_requested
 ---
 
 # Refactor Review
@@ -9,7 +10,7 @@ Review existing code for duplication, unnecessary abstraction, and simplificatio
 
 This skill is advisory only.
 
-Workflow protocol baseline: use the `multi-agent-protocol` skill.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
 
 ## Hard Boundary
 
@@ -132,7 +133,7 @@ When invoked directly by the user instead of Waypost message workflow:
 
 ## Multi-Agent Mode
 
-Use the `multi-agent-protocol` skill for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host` for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`

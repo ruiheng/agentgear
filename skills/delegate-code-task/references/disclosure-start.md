@@ -5,7 +5,7 @@ selector-summary: Complete delegate-code-task instructions, part 1.
 
 # Delegate Code Task
 
-Use `multi-agent-protocol` for shared transport, lifecycle, and tool resolution.
+Use `agentgear skill get multi-agent-protocol start shared-protocol` for shared transport and lifecycle; retrieve `agentgear skill get multi-agent-protocol session-host tool-resolution` when session lifecycle work is needed.
 Use `delegate-task` in Selection-Only Use first when another action owns surface selection. A direct Code Gate transfer may enter here without generic dispatch. This skill owns the workflow code lane; do not dispatch a generic worker first.
 
 ## Code Scope
@@ -88,4 +88,4 @@ Write one canonical brief under `.agent-artifacts/message/`. The wrapper embeds 
 
 ## Continue
 
-Retrieve `agentgear skill get delegate-code-task continue-1` before proceeding.
+Retrieve `agentgear skill get delegate-code-task execute` before proceeding.

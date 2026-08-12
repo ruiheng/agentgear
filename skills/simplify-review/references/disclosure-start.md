@@ -1,6 +1,7 @@
 ---
-skill-selector: start
+skill-selector: review
 selector-summary: Complete simplify-review instructions, part 1.
+selector-aliases: simplify-review/start, check-waypost-messages/action:simplify_review_requested
 ---
 
 # Simplify Review
@@ -9,7 +10,7 @@ Find what can be deleted, merged, inlined, or made more direct without changing 
 
 This skill is advisory only. Do not edit files, apply patches, or produce commit-ready diffs unless the user explicitly asks later.
 
-Workflow protocol baseline: use the `multi-agent-protocol` skill.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
 
 ## Input
 
@@ -122,7 +123,7 @@ Direct-use mode skips the message header block and starts at `## Simplification 
 
 ## Multi-Agent Mode
 
-Use the `multi-agent-protocol` skill for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host` for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`

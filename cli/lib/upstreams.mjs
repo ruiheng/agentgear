@@ -343,10 +343,13 @@ export function selectedUpstreamSkillPlans(catalog, selection, state, env = proc
   const selected = new Map();
   const all = new Map(upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {}))
     .map(plan => [plan.name, plan]));
-  // Host documentation is deliberately materialized only by explicit skill
-  // retrieval. Staging remains able to retain a historical linked upstream
-  // while it is an active runtime consumer, but pack selection alone never
-  // makes an installation fetch optional documentation.
+  // A locally usable selected host may retain a verified copy in the staged
+  // runtime. It remains prompt-only: no target exposure is implied.
+  for (const plan of upstreamSkillPlans(catalog, selection?.requirements?.sessionHosts ?? [])) {
+    if (isCommandAvailable(plan.command, env)) selected.set(plan.name, plan);
+  }
+  // Preserve an existing runtime consumer independently of current host
+  // selection so a linked historical payload is never dropped unexpectedly.
   for (const target of Object.values(state?.targets ?? {})) {
     for (const [name, record] of Object.entries(target.skills ?? {})) {
       if (record?.mode === "link" && all.has(name)) selected.set(name, all.get(name));

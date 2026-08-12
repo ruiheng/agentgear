@@ -6,4 +6,6 @@ selector-aliases: check-waypost-messages/action:rework_required, check-waypost-m
 
 # Review Result Route
 
-Use the received lane and matching active plan context to select rework, requester handoff, or review closeout. Retrieve `agentgear skill get review-code start` for the full review contract.
+Use the received lane and matching active plan context to select rework, requester handoff, or review closeout. This is a declared discriminator route; retrieve the complete review contract in order:
+
+`agentgear skill get review-code review continue-1 continue-2 continue-3`

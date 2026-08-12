@@ -29,7 +29,7 @@ For a target ref:
 2. If it is found, call `session_require` with its returned `host`, exact
    `session_id`, and expected `workdir`. Continue only when `status = ready`.
 3. If it is not found, retain the recorded workflow-owned parent's exact id.
-   Resolve the workflow role by `tool-resolution.md`, then call
+   Resolve the workflow role by `agentgear skill get multi-agent-protocol tool-resolution`, then call
    `session_create` with the parent host when known, `session_name`, `workdir`,
    `parent_session_id`, and the selected candidate's `full_command_line` /
    `thurbox_agent_key`. `session_create` verifies that parent and its workdir;

@@ -496,7 +496,12 @@ function list(catalog, options) {
   }
   print("");
   print("Targets: " + payload.targets.map(target => target.name).join(", "));
-  print("Skills (" + payload.skills.length + "): " + payload.skills.map(skill => skill.name).join(", "));
+  const canonicalSkills = payload.skills.filter(skill => skill.kind === "canonical");
+  const upstreamSkills = payload.skills.filter(skill => skill.kind === "upstream");
+  print("Skills (" + canonicalSkills.length + "): " + canonicalSkills.map(skill => skill.name).join(", "));
+  if (upstreamSkills.length > 0) {
+    print("Upstream retrievable skills: " + upstreamSkills.map(skill => skill.name).join(", "));
+  }
 }
 
 function skillUsage() {

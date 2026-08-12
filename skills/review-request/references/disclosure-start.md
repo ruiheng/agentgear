@@ -7,7 +7,7 @@ selector-summary: Complete review-request instructions, part 1.
 
 Generate a copy/paste-friendly Waypost message for code review.
 
-Workflow protocol baseline: use the `multi-agent-protocol` skill.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
 
 ## Required Scope Selection
 

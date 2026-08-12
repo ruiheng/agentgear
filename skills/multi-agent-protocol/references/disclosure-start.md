@@ -19,7 +19,7 @@ For any workflow turn:
 3. use any extra references that skill requires
 
 Interpret references to the shared workflow protocol as:
-- use the `multi-agent-protocol` skill as the entry point
+- use `agentgear skill get multi-agent-protocol start` as the entry point
 - then follow the returned shared protocol
 
 ## Session Hosts

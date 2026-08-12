@@ -1,6 +1,7 @@
 ---
-skill-selector: continue-1
+skill-selector: execute
 selector-summary: Complete delegate-task instructions, part 2.
+selector-aliases: check-waypost-messages/action:execute_delegated_task
 ---
 
 ## Context

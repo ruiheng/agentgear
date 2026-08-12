@@ -23,4 +23,4 @@ On the later draft review, require matching identities, host, maximum, and task.
 
 During recovery, accept exact requester-owned replays. `Recovery Complete: yes` on the last replay resumes the recorded pending review only after every effective delta is present.
 
-For valid intake, retain context and settle the claimed delivery under the shared Receiver Contract, then wait without replying. For missing, unsupported, or mismatched context, read `message-delivery.md` and send Context Rejection to the actual inbound sender. Do not retain rejected context.
+For valid intake, retain context and settle the claimed delivery under the shared Receiver Contract, then wait without replying. For missing, unsupported, or mismatched context, retrieve `agentgear skill get review-tech-design message-delivery` and send Context Rejection to the actual inbound sender. Do not retain rejected context.

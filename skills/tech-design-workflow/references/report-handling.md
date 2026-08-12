@@ -6,6 +6,8 @@ selector-aliases: check-waypost-messages/action:design_spec_review_report
 
 # Review Report Handling
 
+This is the first executable report-handling stage. Retrieve supporting owner slices only when needed: `agentgear skill get tech-design-workflow requester-handling` for requester-owned decisions, or `agentgear skill get tech-design-workflow closeout` after accepted review-existing work.
+
 The session that sent the review request handles the returned report. Preserve Max Review Rounds, including user-approved extensions.
 
 - `NEEDS_INPUT`: correct review input and resend the same valid target.
@@ -28,7 +30,7 @@ After acceptance:
   2. require the design branch tip to equal it;
   3. rerun the path gate;
   4. require committed specifications, switch to the recorded base, and merge normally;
-  5. read `closeout.md` and clean up the reviewer;
+  5. retrieve `agentgear skill get tech-design-workflow closeout` and clean up the reviewer;
   6. report final paths and resulting base HEAD.
 
 For review-existing, do not squash, rebase, cherry-pick, or guess through dirty state, conflicts, detached HEAD, or base uncertainty.

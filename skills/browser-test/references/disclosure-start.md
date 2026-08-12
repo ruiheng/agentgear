@@ -1,13 +1,14 @@
 ---
-skill-selector: start
+skill-selector: check-request
 selector-summary: Complete browser-test instructions, part 1.
+selector-aliases: browser-test/start, check-waypost-messages/action:browser_check_requested
 ---
 
 # Browser Test
 
 Handle `browser_check_requested` and its setup round trip; report the result to requester.
 
-Workflow protocol baseline: use the `multi-agent-protocol` skill.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
 
 ## Input
 
@@ -65,7 +66,7 @@ PASS / FAIL / UNKNOWN
 
 ## Multi-Agent Mode
 
-Use the `multi-agent-protocol` skill for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host` for shared protocol.
 
 Resolve by `Action:` before generic fields:
 - all actions: `browser_check_id`: required `Browser Check` header; if absent, fail and request a fresh message; never infer it from Task/Round

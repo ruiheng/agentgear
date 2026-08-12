@@ -205,6 +205,54 @@ test("permission migration detects managed workflow rules missing the design lau
   }
 });
 
+test("permission migration detects every prior launcher form missing skill get and retires review-tech-design grants", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-skill-get-permission-upgrade-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const environment = { HOME: home, PATH: "" };
+  const paths = permissionPaths("user", project, environment);
+  const absolute = path.join(home, ".local", "bin", "agentgear");
+  const forms = ["agentgear", "~/.local/bin/agentgear", absolute];
+  try {
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(path.dirname(paths.claudeSettings), { recursive: true });
+    fs.writeFileSync(paths.claudeSettings, `${JSON.stringify({
+      permissions: {
+        allow: forms.flatMap(command => [
+          `Bash(${command} run multi-agent-protocol *)`,
+          `Bash(${command} run tech-design-workflow *)`,
+          `Bash(${command} run review-tech-design *)`
+        ])
+      }
+    }, null, 2)}\n`);
+    fs.mkdirSync(path.dirname(paths.codexRules), { recursive: true });
+    fs.writeFileSync(paths.codexRules, forms.map(command => [
+      `prefix_rule(\n    pattern = [${JSON.stringify(command)}, "run", "multi-agent-protocol"],\n)`,
+      `prefix_rule(\n    pattern = [${JSON.stringify(command)}, "run", "tech-design-workflow"],\n)`
+    ].join("\n")).join("\n"));
+    fs.mkdirSync(path.dirname(paths.geminiPolicy), { recursive: true });
+    fs.writeFileSync(paths.geminiPolicy, forms.map(command => [
+      `commandPrefix = [${JSON.stringify(command)}, "run", "multi-agent-protocol"]`,
+      `commandPrefix = [${JSON.stringify(command)}, "run", "tech-design-workflow"]`
+    ].join("\n")).join("\n"));
+
+    const stale = findMissingWorkflowLauncherApprovals({ scope: "user", project, env: environment });
+    assert.equal(stale.required, true);
+    assert.equal(stale.issues.length, 3);
+    assert.equal(stale.issues.every(issue => /3 workflow launcher approval/.test(issue)), true);
+
+    withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
+    const claude = JSON.parse(fs.readFileSync(paths.claudeSettings, "utf8"));
+    for (const command of forms) {
+      assert.equal(claude.permissions.allow.includes(`Bash(${command} skill get *)`), true);
+      assert.equal(claude.permissions.allow.includes(`Bash(${command} run review-tech-design *)`), false);
+    }
+    assert.equal(findMissingWorkflowLauncherApprovals({ scope: "user", project, env: environment }).required, false);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow permissions add explicit Waypost MCP approvals for Claude and Codex", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-mcp-permissions-test-"));
   const home = path.join(temporary, "home");

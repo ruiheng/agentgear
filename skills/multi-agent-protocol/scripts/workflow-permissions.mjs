@@ -271,10 +271,14 @@ function launcherForms(env = process.env) {
 }
 
 function retiredClaudePermissions(env = process.env) {
-  const absolute = path.join(getHome(env), ".local", "bin", "adwf-send-and-wake");
+  const sendAndWake = path.join(getHome(env), ".local", "bin", "adwf-send-and-wake");
+  const agentgear = path.join(getHome(env), ".local", "bin", "agentgear");
   return [
     "Bash(~/.local/bin/adwf-send-and-wake *)",
-    `Bash(${absolute} *)`
+    `Bash(${sendAndWake} *)`,
+    "Bash(agentgear run review-tech-design *)",
+    "Bash(~/.local/bin/agentgear run review-tech-design *)",
+    `Bash(${agentgear} run review-tech-design *)`
   ];
 }
 
@@ -310,9 +314,12 @@ function retiredClaudePermissionIssue(filePath, env) {
   }
   const allowed = Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : [];
   const retired = new Set(retiredClaudePermissions(env));
-  return allowed.some(permission => retired.has(permission))
-    ? `Claude settings retain an approval for retired command adwf-send-and-wake: ${filePath}`
-    : null;
+  const retained = [...allowed].filter(permission => retired.has(permission));
+  if (retained.length === 0) return null;
+  const detail = retained.some(permission => permission.includes("review-tech-design"))
+    ? "retired Agentgear review-tech-design launcher"
+    : "retired command adwf-send-and-wake";
+  return `Claude settings retain an approval for ${detail}: ${filePath}`;
 }
 
 function retiredGeneratedPermissionIssue(filePath, label) {
@@ -368,9 +375,12 @@ function missingClaudeWorkflowLauncherIssue(filePath, env) {
   const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
   const prior = launcherForms(env).map(command => jsonPermission(`${command} run multi-agent-protocol *`));
   if (!prior.some(permission => allowed.has(permission))) return null;
-  const missing = launcherForms(env).flatMap(command => workflowLauncherSkills
-    .filter(skill => skill !== "multi-agent-protocol")
-    .map(skill => jsonPermission(`${command} run ${skill} *`)))
+  const missing = launcherForms(env).flatMap(command => [
+    ...workflowLauncherSkills
+      .filter(skill => skill !== "multi-agent-protocol")
+      .map(skill => jsonPermission(`${command} run ${skill} *`)),
+    jsonPermission(`${command} skill get *`)
+  ])
     .filter(permission => !allowed.has(permission));
   return missing.length > 0
     ? `Claude settings are missing ${missing.length} workflow launcher approval(s): ${filePath}`
@@ -387,13 +397,21 @@ function missingGeneratedWorkflowLauncherIssue(filePath, label, format, env) {
   if (inspected.issue || inspected.source === null) return null;
   const prior = launcherForms(env).map(command => generatedLauncherPattern(command, "multi-agent-protocol", format));
   if (!prior.some(pattern => inspected.source.includes(pattern))) return null;
-  const missing = launcherForms(env).flatMap(command => workflowLauncherSkills
-    .filter(skill => skill !== "multi-agent-protocol")
-    .map(skill => generatedLauncherPattern(command, skill, format)))
+  const missing = launcherForms(env).flatMap(command => [
+    ...workflowLauncherSkills
+      .filter(skill => skill !== "multi-agent-protocol")
+      .map(skill => generatedLauncherPattern(command, skill, format)),
+    generatedSkillGetPattern(command, format)
+  ])
     .filter(pattern => !inspected.source.includes(pattern));
   return missing.length > 0
     ? `${label} is missing ${missing.length} workflow launcher approval(s): ${filePath}`
     : null;
+}
+
+function generatedSkillGetPattern(command, format) {
+  const words = [command, "skill", "get"].map(JSON.stringify).join(", ");
+  return format === "codex" ? `pattern = [${words}]` : `commandPrefix = [${words}]`;
 }
 
 export function findMissingWorkflowLauncherApprovals({

@@ -5,7 +5,7 @@ selector-summary: Complete review-code instructions, part 3.
 
 ## Multi-Agent Mode
 
-Use the `multi-agent-protocol` skill for shared protocol:
+Retrieve `agentgear skill get multi-agent-protocol shared-protocol diagnostics` for shared protocol:
 - `Multi-Agent Mode Detection`
 - `Context Resolution Priority`
 - `Error Handling and Diagnostics`

@@ -6,4 +6,11 @@ selector-aliases: check-waypost-messages/action:user_requested_iteration
 
 # User Requested Iteration
 
-Retrieve `agentgear skill get delegate-code-task start` and continue only within the recorded task and branch plan.
+On `user_requested_iteration`, treat the body as the recorded code-task continuation. Own the recorded branch, implementation, validation, and commit; keep the session legible for user steering.
+
+- Keep the recorded Branch Plan fixed for this dispatch. If the user requests a branch-plan change, do not send a review request; report it to planner for a new dispatch context.
+- Keep all user decisions and copy the accumulated list into the next review request or terminal handoff under `## User Decisions`; omit the section when no decision exists.
+- Follow workflow policy. After a delivery commit, run `review-request` when per-task review is required and reuse the recorded reviewer. The coder request does not need task background, goals, constraints, workflow policy, or other task-content description; reviewer gets them from planner context.
+- For a material scope change or uncertainty, ask the user immediately and wait before applying or committing it. A user instruction that resolves it is the decision.
+
+Retrieve `agentgear skill get delegate-code-task execute continue-2` only if the recorded coder contract is not already available.

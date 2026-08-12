@@ -96,7 +96,7 @@ When invoked directly by the user instead of Waypost message workflow:
 
 ## Multi-Agent Mode
 
-Use the `multi-agent-protocol` skill for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host` for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`

@@ -9,7 +9,6 @@ const MAX_BOOTSTRAP_BYTES = 2 * 1024;
 const MAX_SLICE_BYTES = 8 * 1024;
 const RUNTIME_SCRIPT_REFERENCE = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9.][A-Za-z0-9._/-]*\.(?:mjs|cjs|js))(?![A-Za-z0-9._/-])/g;
 const INLINE_CODE = /`([^`\r\n]+)`/g;
-const ACTION_LINE = /^Action: ([^\r\n]*)$/gm;
 
 export const skillContentLimits = Object.freeze({
   bootstrapBytes: MAX_BOOTSTRAP_BYTES,
@@ -386,7 +385,59 @@ export function validateSkillContentIndex(index) {
   return errors;
 }
 
-function validateActionTemplates(index, aliases) {
+function actionTemplateLines(filePath, source) {
+  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  const markdown = filePath.endsWith(".md");
+  const candidates = [];
+  let fence = null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const lineNumber = index + 1;
+    if (markdown) {
+      const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+      if (fenceMatch) {
+        const marker = fenceMatch[1][0];
+        if (fence === null) fence = marker;
+        else if (fence === marker) fence = null;
+        continue;
+      }
+      // A header-shaped line is a producer whether it is in a fenced message
+      // template or in an indented template that is trimmed before sending.
+      // Generic prose should refer to the header inline (for example,
+      // `Action:`), rather than spelling a placeholder header line.
+      if (fence !== null || /^\s*Action:/.test(line)) {
+        const actionMatch = /^\s*(Action:.*)$/.exec(line);
+        if (actionMatch) candidates.push({ line: actionMatch[1], lineNumber });
+      }
+      continue;
+    }
+
+    const trimmed = line.trimStart();
+    if (/^(?:\/\/|\/\*|\*|\*\/)/.test(trimmed)) continue;
+    let offset = 0;
+    while (true) {
+      const actionIndex = line.indexOf("Action:", offset);
+      if (actionIndex === -1) break;
+      candidates.push({ line: line.slice(actionIndex), lineNumber });
+      offset = actionIndex + "Action:".length;
+    }
+  }
+  return candidates;
+}
+
+function actionValueFromTemplateLine(line) {
+  const match = /^Action:[\t ]*(.*?)[\t ]*$/.exec(line);
+  if (!match) return null;
+  let value = match[1];
+  // Permit a literal source line that closes a JavaScript string/template or
+  // carries an escaped line ending. Anything else after the token is part of
+  // the emitted header and must be rejected rather than normalized away.
+  value = value.replace(/(?:\\[rn])?(?:[`'"])?;?$/, "");
+  return value.trimEnd();
+}
+
+export function validateActionTemplates(index, aliases) {
   const errors = [];
   const sources = [];
   for (const record of index.byCanonicalAddress.values()) {
@@ -400,18 +451,12 @@ function validateActionTemplates(index, aliases) {
     }
   }
   for (const { filePath, source } of sources) {
-    // Only emitted/template headings participate. Generic protocol prose may
-    // describe the Action header, but it is not a producer declaration.
-    const templateSource = source
-      .split(/\r?\n/)
-      .filter(line => !/^\s*(?:[-*]|\d+\.)\s+.*`?Action:`?/.test(line) && !/`Action:`/.test(line))
-      .join("\n");
-    for (const match of templateSource.matchAll(ACTION_LINE)) {
-      const token = match[1];
+    for (const candidate of actionTemplateLines(filePath, source)) {
+      const token = actionValueFromTemplateLine(candidate.line);
       if (!ACTION_TOKEN.test(token)) {
-        errors.push(`${filePath}: dynamic or placeholder Action value is invalid`);
+        errors.push(`${filePath}:${candidate.lineNumber}: dynamic or placeholder Action value is invalid`);
       } else if (!aliases.has(token)) {
-        errors.push(`${filePath}: unregistered Action token ${token}`);
+        errors.push(`${filePath}:${candidate.lineNumber}: unregistered Action token ${token}`);
       }
     }
   }

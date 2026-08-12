@@ -6,4 +6,8 @@ selector-aliases: check-waypost-messages/action:simplify_review_report
 
 # Simplify Review Report
 
-Retrieve `agentgear skill get simplify-review start` and handle the received result in context.
+On `simplify_review_report`, treat the received advisory report as the completed review result. Continue requester-owned work from its findings; do not infer a code-delivery, commit, review-closeout, or new workflow action from the report.
+
+For a terminal advisory result, surface only the concise assessment, material findings, and open questions. Keep tool commands, addresses, raw JSON, and routine transport details internal.
+
+Retrieve `agentgear skill get simplify-review review` only when the report's context requires the complete advisory-review contract.

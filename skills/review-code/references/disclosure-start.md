@@ -1,13 +1,14 @@
 ---
-skill-selector: start
+skill-selector: review
 selector-summary: Complete review-code instructions, part 1.
+selector-aliases: review-code/start, check-waypost-messages/action:review_requested
 ---
 
 # Review Code
 
 Review code changes for logical correctness, design quality, and security.
 
-Workflow protocol baseline: use the `multi-agent-protocol` skill.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
 
 ## Input
 

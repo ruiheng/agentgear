@@ -223,9 +223,23 @@ export function listPacks(catalog) {
 }
 
 export function listSkills(catalog) {
-  return Object.entries(catalog.skills.skills).map(([name, skill]) => ({
+  const canonical = Object.entries(catalog.skills.skills).map(([name, skill]) => ({
     name,
     tags: skill.tags ?? [],
-    exposure: skill.exposure
+    exposure: skill.exposure,
+    kind: "canonical",
+    installable: true,
+    retrievable: true
   }));
+  const upstream = Object.entries(catalog.skills.upstreams ?? {}).map(([upstreamName, source]) => ({
+    name: upstreamSkillName(source),
+    tags: [],
+    exposure: "upstream",
+    kind: "upstream",
+    installable: false,
+    retrievable: true,
+    upstream: upstreamName,
+    description: source.reason ?? "Explicitly retrievable upstream skill."
+  }));
+  return [...canonical, ...upstream].sort((left, right) => left.name.localeCompare(right.name));
 }

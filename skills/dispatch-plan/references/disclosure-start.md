@@ -8,7 +8,7 @@ selector-summary: Complete dispatch-plan instructions, part 1.
 Send one supervisor-assigned goal to a planner session.
 This creates one planner lane or resumes one existing lane by real `planner_session_id`.
 
-Workflow protocol baseline: use the `multi-agent-protocol` skill.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
 
 ## Inputs
 
@@ -44,7 +44,7 @@ When allocating a new planner lane:
 - do not silently reuse an existing planner integration branch from an earlier run; reuse is allowed only when the user explicitly says this dispatch is resuming that same unfinished plan
 - if the requested or derived `integration_branch` already exists and resume was not explicit, choose a new branch name or ask; do not dispatch onto an old branch tip
 - create the planner integration branch without switching the supervisor worktree; start from the recorded `review_base` OID
-- if `planner_tool` is omitted, honor an explicit `planner_tool_profile` first; otherwise use recorded workflow continuity or resolve the planner role default through the shared tool-resolution contract
+- if `planner_tool` is omitted, honor an explicit `planner_tool_profile` first; otherwise use recorded workflow continuity or resolve the planner role default through `agentgear skill get multi-agent-protocol tool-resolution`
 - when `planner_session_id` is already known, treat the planner session as existing and carry forward its recorded launch metadata; do not resolve a replacement
 - default `per_task_review = required`
 - default `final_review = skip`

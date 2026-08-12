@@ -5,7 +5,7 @@ selector-summary: Complete review-request instructions, part 2.
 
 ## Multi-Agent Mode
 
-Use the `multi-agent-protocol` skill for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host tool-resolution` for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> branch `task/<task_id>` -> delegated context -> ask
@@ -21,9 +21,9 @@ Skill-specific context resolution:
 - `special_requirements`: delegated task from coder -> planner context; do not include in coder request; other lanes -> explicit -> context -> omit
 - `user_decisions` (optional): explicit -> delegated context -> omit
 - `coder_tool_profile`: explicit -> delegated context -> omit when `coder_tool` is already a full command -> default current-tool continuity or resolver role default `coder`
-- `coder_tool_cmd`: explicit full command -> delegated context resolved command -> current AI tool when continuity is intended -> shared tool-resolution contract for role `coder`
+- `coder_tool_cmd`: explicit full command -> delegated context resolved command -> current AI tool when continuity is intended -> `agentgear skill get multi-agent-protocol tool-resolution` for role `coder`
 - `reviewer_tool_profile`: explicit -> delegated context -> omit when `reviewer_tool` is already a full command -> default resolver role default `reviewer`
-- `reviewer_tool_cmd`: explicit full command -> delegated context resolved command -> shared tool-resolution contract for role `reviewer`
+- `reviewer_tool_cmd`: explicit full command -> delegated context resolved command -> `agentgear skill get multi-agent-protocol tool-resolution` for role `reviewer`
 - `round`: explicit -> infer from context -> default `1`
 - `workspace_handoff`: task -> explicit/delegated complete handoff -> preserve; missing/partial -> ask; `integration_final` / `standalone` -> omit
 - `start_branch`, `integration_branch`, `task_branch` (task only): explicit -> delegated context -> ask; otherwise omit
