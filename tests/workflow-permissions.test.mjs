@@ -79,13 +79,17 @@ test("workflow permissions use the stable launcher and never an old source path"
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run multi-agent-protocol *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear run tech-design-workflow *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run tech-design-workflow *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear run review-tech-design *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run review-tech-design *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear resolve-tool-command *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear resolve-tool-command *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear install *)"), false);
     assert.match(generated[1], /pattern = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[1], /pattern = \["agentgear", "run", "tech-design-workflow"\]/);
+    assert.match(generated[1], /pattern = \["agentgear", "run", "review-tech-design"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "run", "tech-design-workflow"\]/);
+    assert.match(generated[2], /commandPrefix = \["agentgear", "run", "review-tech-design"\]/);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -558,7 +562,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     fs.mkdirSync(project, { recursive: true });
     withEnvironment(environment, () => initializePermissions({ scope: "project", project }));
 
-    const expectedRead = `Bash(${waypost} --state-dir ${stateDir} read)`;
+    const expectedRead = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} read)`;
     const expectedReadWildcard = `${expectedRead.slice(0, -1)} *)`;
     const claude = JSON.parse(fs.readFileSync(claudeSettings, "utf8"));
     assert.equal(claude.permissions.allow.includes(expectedRead), true);
@@ -749,7 +753,7 @@ test("workflow permissions migrate a verified legacy v1 Waypost manifest", () =>
     const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
     assert.equal(settings.permissions.allow.includes(legacyPermission), false);
     assert.equal(settings.permissions.allow.includes(userPermission), true);
-    assert.equal(settings.permissions.allow.includes(`Bash(${waypost} --state-dir ${stateDir} read)`), true);
+    assert.equal(settings.permissions.allow.includes(`Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} read)`), true);
     const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
     assert.equal(manifest.version, 3);
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));

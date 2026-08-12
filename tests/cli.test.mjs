@@ -2639,7 +2639,7 @@ test("install and update refuse an unmanaged current directory", () => {
       /Refusing to replace unmanaged runtime path/
     );
     assert.equal(fs.lstatSync(launcher).isSymbolicLink(), true);
-    assert.equal(fs.realpathSync(launcher), userLauncher);
+    assert.equal(fs.realpathSync(launcher), fs.realpathSync(userLauncher));
     assert.equal(fs.readFileSync(userLauncher, "utf8"), "// user-managed launcher\n");
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });

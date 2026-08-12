@@ -281,6 +281,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) {
     fail(`workdir does not exist: ${options.workdir}`);
   }
+  const requestedWorkdir = path.resolve(options.workdir);
+  const requestedArtifactRoot = options.artifactRoot ? path.resolve(options.artifactRoot) : null;
   options.workdir = fs.realpathSync(options.workdir);
   const contract = readContract(options.contractFile);
   options.contractFile = fs.realpathSync(options.contractFile);
@@ -290,6 +292,12 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   }
   if (!options.artifactRoot) {
     options.artifactRoot = path.join(options.workdir, ".agent-artifacts", "design-spec-dispatch");
+  } else {
+    const relativeArtifactRoot = path.relative(requestedWorkdir, requestedArtifactRoot);
+    if (relativeArtifactRoot === ".." || relativeArtifactRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeArtifactRoot)) {
+      fail("--artifact-root must be inside --workdir");
+    }
+    options.artifactRoot = path.join(options.workdir, relativeArtifactRoot);
   }
   options.artifactRoot = path.resolve(options.artifactRoot);
   requireSymlinkFreeContainedPath(options.workdir, options.artifactRoot, "--artifact-root");

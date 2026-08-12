@@ -96,7 +96,7 @@ export const workflowWaypostMcpTools = [
   "waypost_status"
 ];
 
-const workflowLauncherSkills = ["multi-agent-protocol", "tech-design-workflow"];
+const workflowLauncherSkills = ["multi-agent-protocol", "tech-design-workflow", "review-tech-design"];
 
 const CODEX_OWNERSHIP_VERSION = 1;
 const CODEX_BLOCK_BEGIN = "# BEGIN Agentgear Waypost MCP approvals";
@@ -368,11 +368,12 @@ function missingClaudeWorkflowLauncherIssue(filePath, env) {
   const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
   const prior = launcherForms(env).map(command => jsonPermission(`${command} run multi-agent-protocol *`));
   if (!prior.some(permission => allowed.has(permission))) return null;
-  const missing = launcherForms(env)
-    .map(command => jsonPermission(`${command} run tech-design-workflow *`))
+  const missing = launcherForms(env).flatMap(command => workflowLauncherSkills
+    .filter(skill => skill !== "multi-agent-protocol")
+    .map(skill => jsonPermission(`${command} run ${skill} *`)))
     .filter(permission => !allowed.has(permission));
   return missing.length > 0
-    ? `Claude settings are missing ${missing.length} tech-design-workflow launcher approval(s): ${filePath}`
+    ? `Claude settings are missing ${missing.length} workflow launcher approval(s): ${filePath}`
     : null;
 }
 
@@ -386,11 +387,12 @@ function missingGeneratedWorkflowLauncherIssue(filePath, label, format, env) {
   if (inspected.issue || inspected.source === null) return null;
   const prior = launcherForms(env).map(command => generatedLauncherPattern(command, "multi-agent-protocol", format));
   if (!prior.some(pattern => inspected.source.includes(pattern))) return null;
-  const missing = launcherForms(env)
-    .map(command => generatedLauncherPattern(command, "tech-design-workflow", format))
+  const missing = launcherForms(env).flatMap(command => workflowLauncherSkills
+    .filter(skill => skill !== "multi-agent-protocol")
+    .map(skill => generatedLauncherPattern(command, skill, format)))
     .filter(pattern => !inspected.source.includes(pattern));
   return missing.length > 0
-    ? `${label} is missing ${missing.length} tech-design-workflow launcher approval(s): ${filePath}`
+    ? `${label} is missing ${missing.length} workflow launcher approval(s): ${filePath}`
     : null;
 }
 
