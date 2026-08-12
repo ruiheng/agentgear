@@ -106,9 +106,14 @@ ${brief}${terminator}
 ${footer}`;
 }
 
+// Action headers are intentionally exact literals so skill-content validation
+// can audit every executable Waypost producer without evaluating runtime data.
+const REVIEW_TASK_CONTEXT_ACTION = "Action: review_task_context";
+const EXECUTE_DELEGATE_TASK_ACTION = "Action: execute_delegate_task";
+
 function reviewerBody(options, brief) {
   const header = `Task: ${options.taskId}
-Action: review_task_context
+${REVIEW_TASK_CONTEXT_ACTION}
 From: planner ${options.plannerSessionId}
 To: reviewer ${options.reviewerSessionId}
 Planner: ${options.plannerSessionId}
@@ -133,7 +138,7 @@ ${workspaceHandoff(options)}
 
 function coderBody(options, brief) {
   const header = `Task: ${options.taskId}
-Action: execute_delegate_task
+${EXECUTE_DELEGATE_TASK_ACTION}
 From: planner ${options.plannerSessionId}
 To: coder ${options.coderSessionId}
 Planner: ${options.plannerSessionId}

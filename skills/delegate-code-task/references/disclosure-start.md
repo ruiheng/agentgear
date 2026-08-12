@@ -88,4 +88,4 @@ Write one canonical brief under `.agent-artifacts/message/`. The wrapper embeds 
 
 ## Continue
 
-Retrieve `agentgear skill get delegate-code-task execute` before proceeding.
+Retrieve `agentgear skill get delegate-code-task dispatch` before dispatching.

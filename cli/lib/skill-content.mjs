@@ -385,42 +385,28 @@ export function validateSkillContentIndex(index) {
   return errors;
 }
 
-function actionTemplateLines(filePath, source) {
+function markdownActionTemplateLines(filePath, source) {
   const lines = source.replace(/\r\n/g, "\n").split("\n");
-  const markdown = filePath.endsWith(".md");
   const candidates = [];
   let fence = null;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const lineNumber = index + 1;
-    if (markdown) {
-      const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
-      if (fenceMatch) {
-        const marker = fenceMatch[1][0];
-        if (fence === null) fence = marker;
-        else if (fence === marker) fence = null;
-        continue;
-      }
-      // A header-shaped line is a producer whether it is in a fenced message
-      // template or in an indented template that is trimmed before sending.
-      // Generic prose should refer to the header inline (for example,
-      // `Action:`), rather than spelling a placeholder header line.
-      if (fence !== null || /^\s*Action:/.test(line)) {
-        const actionMatch = /^\s*(Action:.*)$/.exec(line);
-        if (actionMatch) candidates.push({ line: actionMatch[1], lineNumber });
-      }
+    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (fence === null) fence = marker;
+      else if (fence === marker) fence = null;
       continue;
     }
-
-    const trimmed = line.trimStart();
-    if (/^(?:\/\/|\/\*|\*|\*\/)/.test(trimmed)) continue;
-    let offset = 0;
-    while (true) {
-      const actionIndex = line.indexOf("Action:", offset);
-      if (actionIndex === -1) break;
-      candidates.push({ line: line.slice(actionIndex), lineNumber });
-      offset = actionIndex + "Action:".length;
+    // A header-shaped line is a producer whether it is in a fenced message
+    // template or in an indented template that is trimmed before sending.
+    // Generic prose should refer to the header inline (for example,
+    // `Action:`), rather than spelling a placeholder header line.
+    if (fence !== null || /^\s*Action:/.test(line)) {
+      const actionMatch = /^\s*(Action:.*)$/.exec(line);
+      if (actionMatch) candidates.push({ line: actionMatch[1], lineNumber });
     }
   }
   return candidates;
@@ -437,7 +423,537 @@ function actionValueFromTemplateLine(line) {
   return value.trimEnd();
 }
 
-export function validateActionTemplates(index, aliases) {
+function isIdentifierStart(character) {
+  return /[A-Za-z_$]/.test(character);
+}
+
+function isIdentifierPart(character) {
+  return /[A-Za-z0-9_$]/.test(character);
+}
+
+function newlineLength(source, offset) {
+  return source[offset] === "\r" && source[offset + 1] === "\n" ? 2 : 1;
+}
+
+function readJavaScriptString(source, offset, line) {
+  const quote = source[offset];
+  let cursor = offset + 1;
+  let value = "";
+  let currentLine = line;
+  while (cursor < source.length) {
+    const character = source[cursor];
+    if (character === quote) {
+      return { cursor: cursor + 1, line: currentLine, value, terminated: true };
+    }
+    if (character === "\\") {
+      const escaped = source[cursor + 1];
+      if (escaped === undefined) break;
+      if (escaped === "\r" || escaped === "\n") {
+        const length = newlineLength(source, cursor + 1);
+        currentLine += 1;
+        cursor += length + 1;
+        continue;
+      }
+      if (escaped === "x" && /^[0-9A-Fa-f]{2}$/.test(source.slice(cursor + 2, cursor + 4))) {
+        value += String.fromCharCode(Number.parseInt(source.slice(cursor + 2, cursor + 4), 16));
+        cursor += 4;
+        continue;
+      }
+      if (escaped === "u") {
+        const brace = /^\{([0-9A-Fa-f]+)\}/.exec(source.slice(cursor + 2));
+        const hex = brace?.[1] ?? source.slice(cursor + 2, cursor + 6);
+        if (/^[0-9A-Fa-f]{4}$/.test(hex) || brace) {
+          value += String.fromCodePoint(Number.parseInt(hex, 16));
+          cursor += brace ? brace[0].length + 2 : 6;
+          continue;
+        }
+      }
+      const decoded = {
+        n: "\n",
+        r: "\r",
+        t: "\t",
+        b: "\b",
+        f: "\f",
+        v: "\v",
+        0: "\0"
+      }[escaped];
+      value += decoded ?? escaped;
+      cursor += 2;
+      continue;
+    }
+    if (character === "\r" || character === "\n") {
+      currentLine += 1;
+      cursor += newlineLength(source, cursor);
+      continue;
+    }
+    value += character;
+    cursor += 1;
+  }
+  return { cursor, line: currentLine, value, terminated: false };
+}
+
+function skipJavaScriptLineComment(source, offset, line) {
+  let cursor = offset + 2;
+  while (cursor < source.length && source[cursor] !== "\r" && source[cursor] !== "\n") cursor += 1;
+  return { cursor, line };
+}
+
+function skipJavaScriptBlockComment(source, offset, line) {
+  let cursor = offset + 2;
+  let currentLine = line;
+  while (cursor < source.length) {
+    if (source[cursor] === "*" && source[cursor + 1] === "/") {
+      return { cursor: cursor + 2, line: currentLine };
+    }
+    if (source[cursor] === "\r" || source[cursor] === "\n") {
+      currentLine += 1;
+      cursor += newlineLength(source, cursor);
+      continue;
+    }
+    cursor += 1;
+  }
+  return { cursor, line: currentLine };
+}
+
+function skipJavaScriptRegex(source, offset, line) {
+  let cursor = offset + 1;
+  let currentLine = line;
+  let characterClass = false;
+  while (cursor < source.length) {
+    const character = source[cursor];
+    if (character === "\\") {
+      cursor += 2;
+      continue;
+    }
+    if (character === "\r" || character === "\n") break;
+    if (character === "[") characterClass = true;
+    else if (character === "]") characterClass = false;
+    else if (character === "/" && !characterClass) {
+      cursor += 1;
+      while (/[A-Za-z]/.test(source[cursor] ?? "")) cursor += 1;
+      return { cursor, line: currentLine };
+    }
+    cursor += 1;
+  }
+  return { cursor, line: currentLine };
+}
+
+function templateExpressionEnd(source, offset, line) {
+  let cursor = offset;
+  let currentLine = line;
+  let depth = 1;
+  let canStartRegex = true;
+  while (cursor < source.length) {
+    const character = source[cursor];
+    if (/\s/.test(character)) {
+      if (character === "\r" || character === "\n") {
+        currentLine += 1;
+        cursor += newlineLength(source, cursor);
+      } else {
+        cursor += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      const result = readJavaScriptString(source, cursor, currentLine);
+      cursor = result.cursor;
+      currentLine = result.line;
+      canStartRegex = false;
+      continue;
+    }
+    if (character === "`") {
+      const result = readJavaScriptTemplate(source, cursor, currentLine);
+      cursor = result.cursor;
+      currentLine = result.line;
+      canStartRegex = false;
+      continue;
+    }
+    if (character === "/" && source[cursor + 1] === "/") {
+      const result = skipJavaScriptLineComment(source, cursor, currentLine);
+      cursor = result.cursor;
+      currentLine = result.line;
+      continue;
+    }
+    if (character === "/" && source[cursor + 1] === "*") {
+      const result = skipJavaScriptBlockComment(source, cursor, currentLine);
+      cursor = result.cursor;
+      currentLine = result.line;
+      continue;
+    }
+    if (character === "/" && canStartRegex) {
+      const result = skipJavaScriptRegex(source, cursor, currentLine);
+      cursor = result.cursor;
+      currentLine = result.line;
+      canStartRegex = false;
+      continue;
+    }
+    if (character === "{") {
+      depth += 1;
+      canStartRegex = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return { cursor, line: currentLine };
+      canStartRegex = false;
+      cursor += 1;
+      continue;
+    }
+    if (isIdentifierStart(character)) {
+      cursor += 1;
+      while (isIdentifierPart(source[cursor] ?? "")) cursor += 1;
+      canStartRegex = false;
+      continue;
+    }
+    if (/[0-9]/.test(character)) {
+      cursor += 1;
+      while (/[A-Za-z0-9._]/.test(source[cursor] ?? "")) cursor += 1;
+      canStartRegex = false;
+      continue;
+    }
+    canStartRegex = ![")", "]", "}"].includes(character);
+    cursor += 1;
+  }
+  return { cursor, line: currentLine };
+}
+
+function readJavaScriptTemplate(source, offset, line) {
+  let cursor = offset + 1;
+  let currentLine = line;
+  let piece = "";
+  const pieces = [];
+  const expressions = [];
+  while (cursor < source.length) {
+    const character = source[cursor];
+    if (character === "`") {
+      pieces.push(piece);
+      return {
+        cursor: cursor + 1,
+        line: currentLine,
+        value: pieces.join(""),
+        pieces,
+        expressions,
+        terminated: true
+      };
+    }
+    if (character === "\\") {
+      const escaped = source[cursor + 1];
+      if (escaped === undefined) break;
+      if (escaped === "\r" || escaped === "\n") {
+        currentLine += 1;
+        cursor += newlineLength(source, cursor + 1) + 1;
+        continue;
+      }
+      if (escaped === "x" && /^[0-9A-Fa-f]{2}$/.test(source.slice(cursor + 2, cursor + 4))) {
+        piece += String.fromCharCode(Number.parseInt(source.slice(cursor + 2, cursor + 4), 16));
+        cursor += 4;
+        continue;
+      }
+      if (escaped === "u") {
+        const brace = /^\{([0-9A-Fa-f]+)\}/.exec(source.slice(cursor + 2));
+        const hex = brace?.[1] ?? source.slice(cursor + 2, cursor + 6);
+        if (/^[0-9A-Fa-f]{4}$/.test(hex) || brace) {
+          piece += String.fromCodePoint(Number.parseInt(hex, 16));
+          cursor += brace ? brace[0].length + 2 : 6;
+          continue;
+        }
+      }
+      const decoded = {
+        n: "\n",
+        r: "\r",
+        t: "\t",
+        b: "\b",
+        f: "\f",
+        v: "\v",
+        0: "\0"
+      }[escaped];
+      piece += decoded ?? escaped;
+      cursor += 2;
+      continue;
+    }
+    if (character === "$" && source[cursor + 1] === "{") {
+      pieces.push(piece);
+      piece = "";
+      const expressionStart = cursor + 2;
+      const result = templateExpressionEnd(source, expressionStart, currentLine);
+      expressions.push({ source: source.slice(expressionStart, result.cursor), line: currentLine });
+      cursor = result.cursor + 1;
+      currentLine = result.line;
+      continue;
+    }
+    if (character === "\r" || character === "\n") {
+      piece += "\n";
+      currentLine += 1;
+      cursor += newlineLength(source, cursor);
+      continue;
+    }
+    piece += character;
+    cursor += 1;
+  }
+  pieces.push(piece);
+  return {
+    cursor,
+    line: currentLine,
+    value: pieces.join(""),
+    pieces,
+    expressions,
+    terminated: false
+  };
+}
+
+function tokenCanEndExpression(token) {
+  return token.type === "identifier" || token.type === "string" || token.type === "template"
+    || [")", "]", "}", "++", "--"].includes(token.value);
+}
+
+function lexJavaScript(source) {
+  const tokens = [];
+  let cursor = 0;
+  let line = 1;
+  let canStartRegex = true;
+  const push = token => {
+    tokens.push(token);
+    canStartRegex = !tokenCanEndExpression(token);
+    if (token.type === "identifier" && ["return", "throw", "case", "delete", "void", "typeof", "new", "in", "of", "yield", "await", "else", "do"].includes(token.value)) {
+      canStartRegex = true;
+    }
+  };
+  while (cursor < source.length) {
+    const character = source[cursor];
+    if (/\s/.test(character)) {
+      if (character === "\r" || character === "\n") {
+        line += 1;
+        cursor += newlineLength(source, cursor);
+      } else {
+        cursor += 1;
+      }
+      continue;
+    }
+    if (character === "/" && source[cursor + 1] === "/") {
+      const result = skipJavaScriptLineComment(source, cursor, line);
+      cursor = result.cursor;
+      line = result.line;
+      continue;
+    }
+    if (character === "/" && source[cursor + 1] === "*") {
+      const result = skipJavaScriptBlockComment(source, cursor, line);
+      cursor = result.cursor;
+      line = result.line;
+      continue;
+    }
+    if (character === "/" && canStartRegex) {
+      const result = skipJavaScriptRegex(source, cursor, line);
+      cursor = result.cursor;
+      line = result.line;
+      canStartRegex = false;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      const startLine = line;
+      const result = readJavaScriptString(source, cursor, line);
+      cursor = result.cursor;
+      line = result.line;
+      push({ type: "string", value: result.value, line: startLine });
+      continue;
+    }
+    if (character === "`") {
+      const startLine = line;
+      const result = readJavaScriptTemplate(source, cursor, line);
+      cursor = result.cursor;
+      line = result.line;
+      push({
+        type: "template",
+        value: result.value,
+        pieces: result.pieces,
+        expressions: result.expressions,
+        line: startLine
+      });
+      continue;
+    }
+    if (isIdentifierStart(character)) {
+      const start = cursor;
+      cursor += 1;
+      while (isIdentifierPart(source[cursor] ?? "")) cursor += 1;
+      push({ type: "identifier", value: source.slice(start, cursor), line });
+      continue;
+    }
+    if (/[0-9]/.test(character)) {
+      const start = cursor;
+      cursor += 1;
+      while (/[A-Za-z0-9._]/.test(source[cursor] ?? "")) cursor += 1;
+      push({ type: "number", value: source.slice(start, cursor), line });
+      continue;
+    }
+    const punctuator = source.slice(cursor, cursor + 3).match(/^(===|!==|>>>|\*\*=|&&=|\|\|=|\?\?=)/)?.[0]
+      ?? source.slice(cursor, cursor + 2).match(/^(=>|==|!=|<=|>=|&&|\|\||\?\?|\+\+|--|\*\*|\+=|-=|\*=|\/=|%=|\?\.)/)?.[0]
+      ?? character;
+    push({ type: "punctuator", value: punctuator, line });
+    cursor += punctuator.length;
+  }
+  return tokens;
+}
+
+function exactLiteralValue(token) {
+  if (token?.type === "string") return token.value;
+  if (token?.type === "template" && token.expressions.length === 0) return token.value;
+  return null;
+}
+
+function staticTemplateValue(token, constants) {
+  if (token?.type !== "template") return exactLiteralValue(token);
+  let value = token.pieces[0] ?? "";
+  for (let index = 0; index < token.expressions.length; index += 1) {
+    const expression = token.expressions[index];
+    const resolved = staticTemplateExpressionValue(expression.source, constants);
+    if (resolved === null) return null;
+    value += resolved;
+    value += token.pieces[index + 1] ?? "";
+  }
+  return value;
+}
+
+function declaredStringConstants(tokens) {
+  const values = new Map();
+  for (let index = 0; index + 3 < tokens.length; index += 1) {
+    if (!new Set(["const", "let"]).has(tokens[index].value) || tokens[index + 1].type !== "identifier" || tokens[index + 2].value !== "=") continue;
+    const value = staticTemplateValue(tokens[index + 3], values);
+    if (value !== null) values.set(tokens[index + 1].value, value);
+  }
+  return values;
+}
+
+function staticTemplateExpressionValue(source, constants) {
+  const tokens = lexJavaScript(source.trim());
+  if (tokens.length !== 1) return null;
+  return staticTemplateValue(tokens[0], constants) ?? (tokens[0].type === "identifier" ? constants.get(tokens[0].value) ?? null : null);
+}
+
+function actionLinesInLiteral(value, line) {
+  const result = [];
+  let offset = 0;
+  for (const current of value.split("\n")) {
+    const match = /^[\t ]*(Action:.*)$/.exec(current);
+    if (match) result.push({ line: match[1], lineNumber: line + offset });
+    offset += 1;
+  }
+  return result;
+}
+
+function templateActionCandidates(template, constants) {
+  let rendered = template.pieces[0] ?? "";
+  for (let index = 0; index < template.expressions.length; index += 1) {
+    rendered += `\0${index}\0`;
+    rendered += template.pieces[index + 1] ?? "";
+  }
+  const result = [];
+  const marker = /\0(\d+)\0/g;
+  const lines = rendered.split("\n");
+  for (let offset = 0; offset < lines.length; offset += 1) {
+    const line = lines[offset];
+    const header = line.trimStart();
+    const lineNumber = template.line + offset;
+    if (header.startsWith("Action:")) {
+      if (marker.test(header)) result.push({ dynamic: true, lineNumber });
+      else result.push(...actionLinesInLiteral(header, lineNumber));
+      marker.lastIndex = 0;
+      continue;
+    }
+    marker.lastIndex = 0;
+    const startsWithAction = /^Action\0\d+\0/.test(header);
+    const beginsWithMarker = /^\0(\d+)\0:/.exec(header);
+    if (startsWithAction) {
+      result.push({ dynamic: true, lineNumber });
+      continue;
+    }
+    if (beginsWithMarker) {
+      const expression = template.expressions[Number(beginsWithMarker[1])];
+      const staticValue = expression && staticTemplateExpressionValue(expression.source, constants);
+      if (staticValue === "Action" || /\baction\b/i.test(expression?.source ?? "")) {
+        result.push({ dynamic: true, lineNumber });
+      }
+    }
+  }
+  return result;
+}
+
+function findMatching(tokens, start, open, close) {
+  let depth = 0;
+  for (let index = start; index < tokens.length; index += 1) {
+    if (tokens[index].value === open) depth += 1;
+    else if (tokens[index].value === close) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function joinedActionCandidates(tokens, constants) {
+  const result = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].value !== "[") continue;
+    const end = findMatching(tokens, index, "[", "]");
+    if (end === -1 || tokens[end + 1]?.value !== "." || tokens[end + 2]?.value !== "join" || tokens[end + 3]?.value !== "(") continue;
+    const close = findMatching(tokens, end + 3, "(", ")");
+    if (close === -1) continue;
+    const delimiter = exactLiteralValue(tokens[end + 4]);
+    if (delimiter === null) continue;
+    const values = [];
+    let valid = true;
+    for (let cursor = index + 1; cursor < end; cursor += 2) {
+      const value = exactLiteralValue(tokens[cursor]) ?? (tokens[cursor]?.type === "identifier" ? constants.get(tokens[cursor].value) ?? null : null);
+      if (value === null || (cursor + 1 < end && tokens[cursor + 1].value !== ",")) {
+        valid = false;
+        break;
+      }
+      values.push(value);
+    }
+    if (valid && /^Action:[\t ]*[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(values.join(delimiter))) {
+      result.push({ dynamic: true, lineNumber: tokens[index].line });
+    }
+  }
+  return result;
+}
+
+function concatenatedActionCandidates(tokens, constants) {
+  const result = [];
+  for (let index = 1; index + 1 < tokens.length; index += 1) {
+    if (tokens[index].value !== "+") continue;
+    const left = staticTemplateValue(tokens[index - 1], constants)
+      ?? (tokens[index - 1].type === "identifier" ? constants.get(tokens[index - 1].value) ?? null : null);
+    const right = staticTemplateValue(tokens[index + 1], constants)
+      ?? (tokens[index + 1].type === "identifier" ? constants.get(tokens[index + 1].value) ?? null : null);
+    if (left !== null && right !== null && /^Action:[\t ]*[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(left + right)) {
+      result.push({ dynamic: true, lineNumber: tokens[index].line });
+    }
+  }
+  return result;
+}
+
+// JavaScript message bodies are a small, deliberately restricted static
+// language: each Action header must occur in one exact string/template
+// literal.  The lexer below ignores comments and regex literals, records all
+// exact headers, and rejects the supported computed forms rather than trying
+// to evaluate arbitrary JavaScript.  Conditional output is safe because each
+// branch still carries its own exact literal header.
+function javascriptActionTemplateLines(source) {
+  const tokens = lexJavaScript(source);
+  const constants = declaredStringConstants(tokens);
+  const candidates = [];
+  for (const token of tokens) {
+    if (token.type === "template") candidates.push(...templateActionCandidates(token, constants));
+    else {
+      const literal = exactLiteralValue(token);
+      if (literal !== null) candidates.push(...actionLinesInLiteral(literal, token.line));
+    }
+  }
+  candidates.push(...joinedActionCandidates(tokens, constants));
+  candidates.push(...concatenatedActionCandidates(tokens, constants));
+  return candidates;
+}
+
+export function validateActionTemplates(index, aliases, { additionalSources = [] } = {}) {
   const errors = [];
   const sources = [];
   for (const record of index.byCanonicalAddress.values()) {
@@ -450,8 +966,16 @@ export function validateActionTemplates(index, aliases) {
       sources.push({ filePath, source: fs.readFileSync(filePath, "utf8") });
     }
   }
+  sources.push(...additionalSources);
   for (const { filePath, source } of sources) {
-    for (const candidate of actionTemplateLines(filePath, source)) {
+    const candidates = filePath.endsWith(".md")
+      ? markdownActionTemplateLines(filePath, source)
+      : javascriptActionTemplateLines(source);
+    for (const candidate of candidates) {
+      if (candidate.dynamic) {
+        errors.push(`${filePath}:${candidate.lineNumber}: dynamic or placeholder Action value is invalid`);
+        continue;
+      }
       const token = actionValueFromTemplateLine(candidate.line);
       if (!ACTION_TOKEN.test(token)) {
         errors.push(`${filePath}:${candidate.lineNumber}: dynamic or placeholder Action value is invalid`);

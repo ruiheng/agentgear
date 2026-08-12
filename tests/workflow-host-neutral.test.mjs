@@ -78,6 +78,7 @@ test("closeout documents exact task-session cleanup ownership", () => {
   const plannerCloseout = read("skills/planner-closeout/references/disclosure-start.md");
   const delegateCode = [
     read("skills/delegate-code-task/references/disclosure-start.md"),
+    read("skills/delegate-code-task/references/dispatch.md"),
     read("skills/delegate-code-task/references/disclosure-continue-1.md"),
     read("skills/delegate-code-task/references/disclosure-continue-2.md")
   ].join("\n");

@@ -128,9 +128,14 @@ function messageWithContract(header, contract, footer) {
   return `${header}\n\n# Design Task Contract\n${contract}${terminator}\n${footer}`;
 }
 
+// Action headers are intentionally exact literals so skill-content validation
+// can audit every executable Waypost producer without evaluating runtime data.
+const DESIGN_SPEC_REVIEW_CONTEXT_ACTION = "Action: design_spec_review_context";
+const DESIGN_SPEC_DRAFT_REQUESTED_ACTION = "Action: design_spec_draft_requested";
+
 function reviewerBody(options, contract) {
   const header = `Task: ${options.taskId}
-Action: design_spec_review_context
+${DESIGN_SPEC_REVIEW_CONTEXT_ACTION}
 Context: initial
 From: ${options.requesterRole} ${options.requesterSessionId}
 To: architect_reviewer ${options.reviewerSessionId}
@@ -149,7 +154,7 @@ Max Review Rounds: ${options.maxReviewRounds}`;
 
 function authorBody(options, contract) {
   const header = `Task: ${options.taskId}
-Action: design_spec_draft_requested
+${DESIGN_SPEC_DRAFT_REQUESTED_ACTION}
 From: ${options.requesterRole} ${options.requesterSessionId}
 To: architect_author ${options.authorSessionId}
 Reviewer: architect_reviewer ${options.reviewerSessionId}

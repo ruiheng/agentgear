@@ -238,6 +238,23 @@ test("action aliases are complete, direct, and selector validation resolves mult
     assert.doesNotMatch(result.stdout, /Retrieve `agentgear skill get [^`]+ start` and (?:follow|conduct|perform|process|apply|use)/, token);
     assert.doesNotMatch(result.stdout, /This is the first executable [^.]+\. Retrieve the complete /, token);
   }
+  const directStages = {
+    execute_delegate_task: ["## Coder Receive", "On `Action: execute_delegate_task`"],
+    execute_delegated_task: ["## Worker Receive", "On `Action: execute_delegated_task`"],
+    browser_setup_requested: ["## Setup Request Receive", "tester_workspace"],
+    browser_setup_provided: ["## Setup Reply Receive", "matching check history"],
+    browser_check_report: ["# Browser Check Report Route", "review-code review continue-1 continue-2 continue-3"]
+  };
+  for (const [token, [stage, requiredText]] of Object.entries(directStages)) {
+    const result = command(["skill", "get", "--", "check-waypost-messages", `action:${token}`]);
+    assert.equal(result.status, 0, `${token}: ${result.stderr}`);
+    assert.match(result.stdout, new RegExp(stage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(result.stdout, new RegExp(requiredText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  const coder = command(["skill", "get", "--", "check-waypost-messages", "action:execute_delegate_task"]);
+  const worker = command(["skill", "get", "--", "check-waypost-messages", "action:execute_delegated_task"]);
+  assert.equal(coder.stdout.trimStart().startsWith("## Coder Receive"), true);
+  assert.equal(worker.stdout.trimStart().startsWith("## Worker Receive"), true);
   assert.equal(index.referencedSelectors.some(item => item.filePath.endsWith("multi-agent-protocol/references/disclosure-start.md") && item.selector === "tool-resolution"), true);
 });
 
@@ -271,6 +288,31 @@ test("action-template validation rejects indented and dynamic emitted headers", 
       }]])
     };
     assert.equal(validateActionTemplates(fixture, aliases).length, 1, body);
+  }
+});
+
+test("action-template validation analyzes JavaScript producers without scanning inert text", () => {
+  const catalog = loadCatalog(rootDir);
+  const index = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+  const aliases = actionAliases(index);
+  const cases = [
+    ["const key = 'Action'; const body = `${key}: review_requested`;", 1],
+    ["const body = ['Action', 'review_requested'].join(': ');", 1],
+    ["const body = `Action${':' } review_requested`;", 1],
+    ["const body = `Action` + `: review_requested`;", 1],
+    ["const body = `\\x41ction: review_requested`;", 0],
+    ["const body = `\\u0041ction: review_requested`;", 0],
+    ["const header = 'Action: review_requested'; const body = `${header}`;", 0],
+    ["const body = condition ? `Action: review_requested` : `Action: stop_recommended`;", 0],
+    ["const x = 1; /* Action: not_registered */", 0],
+    [String.raw`const pattern = /Action: ([^\\n]+)/;`, 0],
+    ["const body = `Action: review_requested`;", 0]
+  ];
+  for (const [source, expectedErrors] of cases) {
+    const errors = validateActionTemplates(index, aliases, {
+      additionalSources: [{ filePath: path.join(rootDir, "skills", "fixture", "scripts", "producer.mjs"), source }]
+    });
+    assert.equal(errors.filter(error => error.includes("fixture/scripts/producer.mjs")).length, expectedErrors, source);
   }
 });
 

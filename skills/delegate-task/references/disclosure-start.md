@@ -103,4 +103,4 @@ Use this as the direct task contract. Prepend the Waypost envelope below for a W
 
 ## Continue
 
-Retrieve `agentgear skill get delegate-task execute` before proceeding.
+Retrieve `agentgear skill get delegate-task dispatch` before dispatching.
