@@ -481,6 +481,8 @@ test("receiver bootstrap separates ordinary messages from safe one-lookup Action
     path.join(rootDir, "skills", "check-waypost-messages", "references", "disclosure-start.md"),
     "utf8"
   );
+  assert.match(source, /Call `waypost_status` once to initialize MCP tool discovery/);
+  assert.match(source, /If unavailable,\s+use the Waypost CLI/);
   assert.match(source, /Normalize CRLF|normalize CRLF/i);
   assert.equal(source.includes("`^\\s*Action\\s*:`"), true);
   assert.equal(source.includes("`^\\\\s*Action\\\\s*:`"), false);

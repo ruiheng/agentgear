@@ -5,9 +5,11 @@ selector-summary: Complete check-waypost-messages instructions, part 1.
 
 ## Receiver algorithm
 
-1. Follow the active Waypost tool contract. Call `waypost_status` first only
-   when that contract requires it, then call `waypost_recv` to claim one
-   personal delivery. If no delivery is returned, report that and stop.
+Call `waypost_status` once to initialize MCP tool discovery. If unavailable,
+use the Waypost CLI.
+
+1. Claim one personal delivery with `waypost_recv`, or `waypost recv` when
+   using the CLI. If none is returned, report that and stop.
 2. Parse the received `body` without sending any of it to a shell:
    - normalize CRLF to LF for parsing only;
    - take the consecutive non-empty lines from byte zero through the first
