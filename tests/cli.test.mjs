@@ -743,48 +743,101 @@ test("workflow installation exposes only its approved entries and provisions the
   }
 });
 
-test("schema-v2 historical full-pack links reconcile install, update, and workflow/browser/all uninstall", t => {
+test("schema-v2 historical full-pack links reconcile install, update, and workflow/browser/all uninstall", async t => {
   if (process.platform === "win32") {
     t.skip("historical link records are POSIX-specific");
     return;
   }
   const historicalCases = [
-    ["install", ["--pack", "workflow"]],
-    ["update", ["--pack", "workflow"]],
-    ["uninstall", ["--pack", "workflow"]],
-    ["uninstall", ["--pack", "browser"]],
-    ["uninstall", ["--pack", "all"]]
+    ["install workflow", "install", ["--pack", "workflow"]],
+    ["update workflow", "update", ["--pack", "workflow"]],
+    ["uninstall workflow", "uninstall", ["--pack", "workflow"]],
+    ["uninstall browser", "uninstall", ["--pack", "browser"]],
+    ["uninstall all", "uninstall", ["--pack", "all"]]
   ];
-  for (const [operation, commandArguments] of historicalCases) {
-    const fixture = environmentFixture();
-    try {
-      run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
-      const target = path.join(fixture.home, ".agents", "skills");
-      const current = path.join(fixture.dataRoot, "current");
-      const state = readState(fixture);
-      const legacySkills = ["multi-agent-protocol", "delegate-code-task"];
-      for (const skill of legacySkills) {
-        const destination = path.join(target, skill);
-        const source = path.join(current, "skills", skill);
-        fs.rmSync(destination, { recursive: true, force: true });
-        if (skill === "agent-deck") fs.mkdirSync(source, { recursive: true });
-        fs.symlinkSync(source, destination, "dir");
-        state.targets[target].skills[skill] = {
-          mode: "link",
-          source
-        };
-      }
-      craftState(fixture, state);
+  for (const [name, operation, commandArguments] of historicalCases) {
+    await t.test(name, () => {
+      const fixture = environmentFixture();
+      const payload = path.join(fixture.temporary, "pinned-agent-deck");
+      const bin = path.join(fixture.temporary, "bin");
+      const provisioned = [];
+      try {
+        fs.mkdirSync(payload, { recursive: true });
+        fs.writeFileSync(path.join(payload, "SKILL.md"), "# Agent Deck fixture\n");
+        fs.mkdirSync(bin, { recursive: true });
+        writeExecutable(bin, "agent-deck");
+        fixture.environment.PATH = bin;
 
-      const result = spawnAgentgear([operation, ...commandArguments, "--target", "general"], fixture, fixture.environment);
-      assert.equal(result.status, 0, `${operation} ${commandArguments.join(" ")}: ${result.stderr}`);
-      for (const skill of legacySkills) {
-        assert.equal(fs.existsSync(path.join(target, skill)), false, `${operation} must withdraw ${skill}`);
+        const catalog = structuredClone(loadCatalog(rootDir));
+        const pinnedDigest = upstreamSkillDigest(payload);
+        catalog.skills.upstreams["agent-deck"].contentDigest = pinnedDigest;
+        const provisionUpstreamSkill = ({ plan, runtime }) => {
+          assert.equal(plan.name, "agent-deck");
+          assert.equal(plan.source.contentDigest, pinnedDigest);
+          assert.equal(upstreamSkillDigest(payload), pinnedDigest);
+          const destination = path.join(runtime.root, "skills", plan.name);
+          fs.cpSync(payload, destination, { recursive: true });
+          assert.equal(upstreamSkillDigest(destination), plan.source.contentDigest);
+          provisioned.push(plan.name);
+        };
+        const install = argumentsList => installSelection({
+          catalog,
+          options: parseOptions(argumentsList),
+          sourceRoot: rootDir,
+          env: fixture.environment,
+          provisionUpstreamSkill
+        });
+
+        install(["--pack", "workflow", "--target", "general"]);
+        const target = path.join(fixture.home, ".agents", "skills");
+        const current = path.join(fixture.dataRoot, "current");
+        const state = readState(fixture);
+        const legacySkills = ["multi-agent-protocol", "delegate-code-task"];
+        const historicalSkills = [...legacySkills, "agent-deck"];
+        for (const skill of historicalSkills) {
+          const destination = path.join(target, skill);
+          const source = path.join(current, "skills", skill);
+          fs.rmSync(destination, { recursive: true, force: true });
+          if (skill === "agent-deck") {
+            assert.equal(fs.lstatSync(source).isDirectory(), true);
+            assert.equal(fs.existsSync(path.join(source, "SKILL.md")), true);
+          }
+          fs.symlinkSync(source, destination, "dir");
+          state.targets[target].skills[skill] = {
+            mode: "link",
+            source
+          };
+        }
+        craftState(fixture, state);
+
+        const before = readState(fixture);
+        const agentDeckDestination = path.join(target, "agent-deck");
+        const agentDeckSource = path.join(current, "skills", "agent-deck");
+        assert.equal(fs.existsSync(agentDeckDestination), true);
+        assert.equal(fs.realpathSync(agentDeckDestination), fs.realpathSync(agentDeckSource));
+        assert.deepEqual(before.targets[target].skills["agent-deck"], {
+          mode: "link",
+          source: agentDeckSource
+        });
+
+        if (operation === "install" || operation === "update") {
+          install([...commandArguments, "--target", "general"]);
+          assert.equal(provisioned.length, 2, `${operation} must provision the verified pinned fixture`);
+        } else {
+          run([operation, ...commandArguments, "--target", "general"], fixture.environment);
+        }
+
+        const after = readState(fixture);
+        for (const skill of historicalSkills) {
+          assert.equal(fs.existsSync(path.join(target, skill)), false, `${operation} must withdraw ${skill}`);
+          assert.equal(after.targets[target]?.skills[skill], undefined, `${operation} must remove ${skill} state`);
+        }
+        assert.equal(fs.existsSync(agentDeckDestination), false, `${operation} must not expose agent-deck`);
+        assert.equal(after.targets[target]?.skills["agent-deck"], undefined, `${operation} must remove agent-deck state`);
+      } finally {
+        fs.rmSync(fixture.temporary, { recursive: true, force: true });
       }
-      assert.equal(fs.existsSync(path.join(target, "agent-deck")), false, `${operation} must not expose agent-deck`);
-    } finally {
-      fs.rmSync(fixture.temporary, { recursive: true, force: true });
-    }
+    });
   }
 });
 
