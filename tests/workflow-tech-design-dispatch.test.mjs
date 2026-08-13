@@ -5,8 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   DEFAULT_SEND_TIMEOUT_MS,
-  main as sendDesignDraft,
-  sendWaypost
+  main as sendDesignDraft
 } from "../skills/tech-design-workflow/scripts/send-design-draft-with-review-context.mjs";
 
 function exists(filePath) {
@@ -52,28 +51,32 @@ function args(temporary, artifactRoot, contractFile, extra = []) {
   ];
 }
 
-function fakeSender(mode, records) {
-  return (options, toAddress, subject, body) => {
+function fakeWaypost(mode, records) {
+  return (command, commandArgs, options) => {
+    assert.equal(command, "waypost");
+    const body = options.input;
     const reviewer = body.includes("Action: design_spec_review_context");
     const author = body.includes("Action: design_spec_draft_requested");
-    records.push({ options, toAddress, subject, body });
-    if (mode === "fail-reviewer" && reviewer) return { status: "failed", detail: "simulated reviewer failure" };
-    if (mode === "fail-author" && author) return { status: "failed", detail: "simulated author failure" };
+    records.push({ commandArgs, body });
+    if (mode === "fail-reviewer" && reviewer) return { status: 7, stdout: "", stderr: "simulated reviewer failure", error: null, signal: null, timedOut: false };
+    if (mode === "fail-author" && author) return { status: 8, stdout: "", stderr: "simulated author failure", error: null, signal: null, timedOut: false };
     if (mode === "interrupt-reviewer" && reviewer) {
-      return { status: "interrupted", signal: "SIGTERM", timedOut: true };
+      return { status: null, stdout: "", stderr: "", error: { code: "ETIMEDOUT" }, signal: "SIGTERM", timedOut: true };
     }
     const notifyFailed = mode === "notify-fail";
     return {
-      status: "sent",
-      receipt: {
+      status: 0,
+      stdout: `${JSON.stringify({
         delivery_id: reviewer ? "review-context-1" : "author-1",
-        message_id: reviewer ? "review-message-1" : "author-message-1"
-      },
-      notification: {
-        status: notifyFailed ? "failed" : "sent",
-        scheme: "agent-deck",
-        error: notifyFailed ? "simulated wake failure" : null
-      }
+        message_id: reviewer ? "review-message-1" : "author-message-1",
+        notify_status: notifyFailed ? "failed" : "sent",
+        notify_scheme: "agent-deck",
+        notify_error: notifyFailed ? "simulated wake failure" : null
+      })}\n`,
+      stderr: "",
+      error: null,
+      signal: null,
+      timedOut: false
     };
   };
 }
@@ -81,37 +84,12 @@ function fakeSender(mode, records) {
 function dependencies(mode, records) {
   return {
     requireCommand() {},
-    sendWaypost: fakeSender(mode, records)
+    runWaypost: fakeWaypost(mode, records)
   };
 }
 
 test("design dispatch leaves Waypost notify timeout ownership by default", () => {
   assert.equal(DEFAULT_SEND_TIMEOUT_MS, 0);
-});
-
-test("design dispatch Waypost send requests a durable receipt and immediate wake", () => {
-  let invocation;
-  const result = sendWaypost({
-    fromAddress: "agent-deck/planner-1",
-    contentType: "text/markdown",
-    schemaVersion: "1",
-    sendTimeoutMs: 0
-  }, "agent-deck/reviewer-1", "design context", "body", (command, commandArgs, options) => {
-    invocation = { command, commandArgs, options };
-    return {
-      status: 0,
-      stdout: `${JSON.stringify({ delivery_id: "delivery-1", notify_status: "sent" })}\n`,
-      stderr: "",
-      error: null,
-      signal: null,
-      timedOut: false
-    };
-  });
-  assert.equal(invocation.command, "waypost");
-  assert.deepEqual(invocation.commandArgs.slice(-2), ["--notify", "--json"]);
-  assert.equal(invocation.options.input, "body");
-  assert.equal(result.status, "sent");
-  assert.equal(result.receipt.delivery_id, "delivery-1");
 });
 
 test("design dispatch rejects artifact paths outside the exact author round contract", async () => {
@@ -186,8 +164,9 @@ test("design dispatch sends one unchanged contract to reviewer before author", a
     assert.match(records[0].body, /Do not inspect or judge a design from this context message alone/);
     assert.doesNotMatch(records[0].body, /acknowledge/i);
     assert.match(records[1].body, /Do not restate task content in the later review request/);
-    assert.equal(records[0].toAddress, "agent-deck/reviewer-1");
-    assert.equal(records[1].toAddress, "agent-deck/author-1");
+    assert.equal(records[0].commandArgs[2], "agent-deck/reviewer-1");
+    assert.equal(records[1].commandArgs[2], "agent-deck/author-1");
+    for (const record of records) assert.deepEqual(record.commandArgs.slice(-2), ["--notify", "--json"]);
 
     const state = JSON.parse(fs.readFileSync(path.join(artifactRoot, "20260811-design-context.lock", "state.json"), "utf8"));
     assert.equal(state.state, "sent");

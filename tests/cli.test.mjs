@@ -572,7 +572,7 @@ test("session delete rejects percent expansion through Windows command shims", (
   }
 });
 
-test("workflow doctor accepts either declared session host", () => {
+test("workflow doctor keeps optional Agent Deck documentation non-blocking across local states", () => {
   const fixture = environmentFixture();
   try {
     const bin = path.join(fixture.temporary, "bin");
@@ -591,11 +591,80 @@ test("workflow doctor accepts either declared session host", () => {
     assert.equal(agentDeckReady.status, 0, agentDeckReady.stderr);
     assert.match(agentDeckReady.stdout, /available\s+optional documentation agent-deck \(run: agentgear skill get agent-deck\)/);
     assert.match(agentDeckReady.stdout, /Supported session host: agent-deck\./);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "agent-deck", "SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(fixture.dataRoot, "retrieved-skills")), false, "doctor must not fetch documentation");
+
+    const catalog = structuredClone(loadCatalog(rootDir));
+    const sourceTree = path.join(fixture.temporary, "agent-deck-docs");
+    fs.mkdirSync(sourceTree, { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+    const source = catalog.skills.upstreams["agent-deck"];
+    source.contentDigest = upstreamSkillDigest(sourceTree);
+    const digest = source.contentDigest.slice("sha256-v1:".length);
+    const retrieved = path.join(fixture.dataRoot, "retrieved-skills", "agent-deck", digest);
+    fs.mkdirSync(path.join(retrieved, "payload"), { recursive: true });
+    fs.copyFileSync(path.join(sourceTree, "SKILL.md"), path.join(retrieved, "payload", "SKILL.md"));
+    fs.writeFileSync(path.join(retrieved, ".agentgear-retrieved-skill.json"), `${JSON.stringify({
+      schemaVersion: 1,
+      name: "agent-deck",
+      repository: source.repository,
+      ref: source.ref,
+      commit: source.commit,
+      contentDigest: source.contentDigest,
+      payload: "payload/SKILL.md"
+    })}\n`);
+    const catalogFile = path.join(rootDir, "catalog", "skills.json");
+    const originalCatalog = fs.readFileSync(catalogFile, "utf8");
+    try {
+      fs.writeFileSync(catalogFile, `${JSON.stringify(catalog.skills, null, 2)}\n`);
+      const retrievedReady = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+      assert.equal(retrievedReady.status, 0, retrievedReady.stderr);
+      assert.match(retrievedReady.stdout, /verified local resource/);
+      assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "agent-deck", "SKILL.md")), false);
+      fs.writeFileSync(path.join(retrieved, "payload", "SKILL.md"), "corrupt\n");
+      const corruptReady = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+      assert.equal(corruptReady.status, 0, corruptReady.stderr);
+      assert.match(corruptReady.stdout, /unverifiable local resource/);
+    } finally {
+      fs.writeFileSync(catalogFile, originalCatalog);
+    }
 
     fs.rmSync(path.join(bin, "agent-deck"));
     const noHost = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
     assert.equal(noHost.status, 1);
     assert.match(noHost.stdout, /Missing one supported session host: agent-deck or thurbox\./);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("workflow doctor recognizes verified immutable Agent Deck documentation without retrieval or target mutation", () => {
+  const fixture = environmentFixture();
+  try {
+    const bin = path.join(fixture.temporary, "bin");
+    fs.mkdirSync(bin, { recursive: true });
+    for (const command of ["git", "node", "waypost", "agent-deck"]) writeExecutable(bin, command);
+    const environment = { ...fixture.environment, PATH: bin };
+    const runtime = path.join(fixture.dataRoot, "current");
+    const sourceTree = path.join(runtime, "skills", "agent-deck");
+    fs.mkdirSync(path.join(runtime, "catalog"), { recursive: true });
+    fs.mkdirSync(sourceTree, { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+    const catalog = structuredClone(loadCatalog(rootDir));
+    catalog.skills.upstreams["agent-deck"].contentDigest = upstreamSkillDigest(sourceTree);
+    fs.writeFileSync(path.join(runtime, "catalog", "skills.json"), `${JSON.stringify({ upstreams: catalog.skills.upstreams })}\n`);
+    const catalogFile = path.join(rootDir, "catalog", "skills.json");
+    const originalCatalog = fs.readFileSync(catalogFile, "utf8");
+    try {
+      fs.writeFileSync(catalogFile, `${JSON.stringify(catalog.skills, null, 2)}\n`);
+      const result = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /verified local resource/);
+      assert.equal(fs.existsSync(path.join(fixture.dataRoot, "retrieved-skills")), false);
+      assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "agent-deck", "SKILL.md")), false);
+    } finally {
+      fs.writeFileSync(catalogFile, originalCatalog);
+    }
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -671,6 +740,51 @@ test("workflow installation exposes only its approved entries and provisions the
     assert.equal(pathExists(path.join(fixture.localBin, "adwf-send-and-wake")), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("schema-v2 historical full-pack links reconcile install, update, and workflow/browser/all uninstall", t => {
+  if (process.platform === "win32") {
+    t.skip("historical link records are POSIX-specific");
+    return;
+  }
+  const historicalCases = [
+    ["install", ["--pack", "workflow"]],
+    ["update", ["--pack", "workflow"]],
+    ["uninstall", ["--pack", "workflow"]],
+    ["uninstall", ["--pack", "browser"]],
+    ["uninstall", ["--pack", "all"]]
+  ];
+  for (const [operation, commandArguments] of historicalCases) {
+    const fixture = environmentFixture();
+    try {
+      run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
+      const target = path.join(fixture.home, ".agents", "skills");
+      const current = path.join(fixture.dataRoot, "current");
+      const state = readState(fixture);
+      const legacySkills = ["multi-agent-protocol", "delegate-code-task"];
+      for (const skill of legacySkills) {
+        const destination = path.join(target, skill);
+        const source = path.join(current, "skills", skill);
+        fs.rmSync(destination, { recursive: true, force: true });
+        if (skill === "agent-deck") fs.mkdirSync(source, { recursive: true });
+        fs.symlinkSync(source, destination, "dir");
+        state.targets[target].skills[skill] = {
+          mode: "link",
+          source
+        };
+      }
+      craftState(fixture, state);
+
+      const result = spawnAgentgear([operation, ...commandArguments, "--target", "general"], fixture, fixture.environment);
+      assert.equal(result.status, 0, `${operation} ${commandArguments.join(" ")}: ${result.stderr}`);
+      for (const skill of legacySkills) {
+        assert.equal(fs.existsSync(path.join(target, skill)), false, `${operation} must withdraw ${skill}`);
+      }
+      assert.equal(fs.existsSync(path.join(target, "agent-deck")), false, `${operation} must not expose agent-deck`);
+    } finally {
+      fs.rmSync(fixture.temporary, { recursive: true, force: true });
+    }
   }
 });
 

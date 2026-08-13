@@ -112,7 +112,14 @@ export function validateLegacySkillNames() {
   }
 }
 
-export function migrateLegacySkills({ roots, apply = false, env = process.env, print = () => {} }) {
+export function migrateLegacySkills({
+  roots,
+  apply = false,
+  env = process.env,
+  print = () => {},
+  rename = fs.renameSync,
+  remove = fs.rmSync
+}) {
   validateLegacySkillNames();
   absentStateOnly(env);
   const uniqueRoots = [...new Set(roots.map(root => path.resolve(root)))].sort(compareUtf8);
@@ -134,14 +141,14 @@ export function migrateLegacySkills({ roots, apply = false, env = process.env, p
   try {
     for (const [index, candidate] of candidates.entries()) {
       const backup = backupPath(candidate, index);
-      fs.renameSync(candidate, backup);
+      rename(candidate, backup);
       moved.push({ candidate, backup });
     }
   } catch (error) {
     const rollbackErrors = [];
     for (const item of moved.reverse()) {
       try {
-        fs.renameSync(item.backup, item.candidate);
+        rename(item.backup, item.candidate);
       } catch (rollbackError) {
         rollbackErrors.push(`${item.candidate}: ${rollbackError.message}`);
       }
@@ -152,7 +159,7 @@ export function migrateLegacySkills({ roots, apply = false, env = process.env, p
   const residual = [];
   for (const item of moved) {
     try {
-      fs.rmSync(item.backup, { recursive: true, force: true });
+      remove(item.backup, { recursive: true, force: true });
       print(`removed legacy skill: ${item.candidate}`);
     } catch (error) {
       residual.push(`${item.backup}: ${error.message}`);

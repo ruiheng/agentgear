@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "module": "action-producers.mjs",
+  "actions": {
+    "DESIGN_SPEC_REVIEW_CONTEXT": {
+      "token": "design_spec_review_context",
+      "script": "send-design-draft-with-review-context.mjs",
+      "export": "DESIGN_SPEC_REVIEW_CONTEXT",
+      "factory": "designSpecReviewContextMessage"
+    },
+    "DESIGN_SPEC_DRAFT_REQUESTED": {
+      "token": "design_spec_draft_requested",
+      "script": "send-design-draft-with-review-context.mjs",
+      "export": "DESIGN_SPEC_DRAFT_REQUESTED",
+      "factory": "designSpecDraftRequestedMessage"
+    }
+  }
+}

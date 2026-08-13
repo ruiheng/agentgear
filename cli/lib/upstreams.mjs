@@ -233,7 +233,8 @@ export function retrieveUpstreamSkill({
   env = process.env,
   runtimeRoots = [],
   print = () => {},
-  provision = provisionUpstreamSkill
+  provision = provisionUpstreamSkill,
+  rename = fs.renameSync
 }) {
   const plan = upstreamPlanBySkill(catalog, skill);
   if (!plan) return null;
@@ -265,7 +266,7 @@ export function retrieveUpstreamSkill({
     fs.writeFileSync(manifestPath(temporary), `${JSON.stringify(materializationManifest(plan), null, 2)}\n`);
     if (!retrievedSkillMaterializationIsValid(temporary, plan)) fail(`Could not verify retrieved upstream skill: ${temporary}`);
     try {
-      fs.renameSync(temporary, finalRoot);
+      rename(temporary, finalRoot);
     } catch (error) {
       if (!retrievedSkillMaterializationIsValid(finalRoot, plan)) throw error;
       fs.rmSync(temporary, { recursive: true, force: true });
@@ -377,7 +378,7 @@ function pruneEmptyRetrievedParents(candidate, root) {
 
 // Retrieved resources live in a separate ownership domain from installation
 // state. Quarantine first so a failed deletion restores the exact candidate.
-export function purgeRetrievedUpstreamSkills({ catalog, env = process.env, print = () => {} }) {
+export function purgeRetrievedUpstreamSkills({ catalog, env = process.env, print = () => {}, rename = fs.renameSync, remove = removePath } = {}) {
   const plans = retrievedUpstreamSkillPlans(catalog, env);
   const root = path.join(dataRootFor(env), "retrieved-skills");
   const failures = [];
@@ -387,12 +388,12 @@ export function purgeRetrievedUpstreamSkills({ catalog, env = process.env, print
       `.${path.basename(candidate.root)}.agentgear-purge-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`
     );
     try {
-      fs.renameSync(candidate.root, quarantine);
+      rename(candidate.root, quarantine);
       try {
-        removePath(quarantine);
+        remove(quarantine);
       } catch (error) {
         try {
-          fs.renameSync(quarantine, candidate.root);
+          rename(quarantine, candidate.root);
         } catch (restoreError) {
           failures.push(`${candidate.root}: ${error.message}; restore failed: ${restoreError.message}`);
           continue;

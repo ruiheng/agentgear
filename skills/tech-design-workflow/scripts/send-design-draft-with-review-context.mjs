@@ -15,6 +15,8 @@ import {
   stringField,
   writeJsonAtomic
 } from "../../multi-agent-protocol/scripts/workflow-lib.mjs";
+import { sendActionMessage } from "../../multi-agent-protocol/scripts/action-producer.mjs";
+import { designSpecDraftRequestedMessage, designSpecReviewContextMessage } from "./action-producers.mjs";
 
 const usage = `Send one canonical design task contract to reviewer first, then author.
 
@@ -123,19 +125,17 @@ export function readContract(contractFile, readFileSync = fs.readFileSync) {
   return contract;
 }
 
-function messageWithContract(header, contract, footer) {
+function messageWithContract(messageFactory, beforeHeader, afterHeader, contract, footer) {
   const terminator = contract.endsWith("\n") ? "" : "\n";
-  return `${header}\n\n# Design Task Contract\n${contract}${terminator}\n${footer}`;
+  return messageFactory(
+    beforeHeader,
+    `${afterHeader}\n\n# Design Task Contract\n${contract}${terminator}\n${footer}`
+  );
 }
 
-// Action headers are intentionally exact literals so skill-content validation
-// can audit every executable Waypost producer without evaluating runtime data.
-const DESIGN_SPEC_REVIEW_CONTEXT_ACTION = "Action: design_spec_review_context";
-const DESIGN_SPEC_DRAFT_REQUESTED_ACTION = "Action: design_spec_draft_requested";
-
 function reviewerBody(options, contract) {
-  const header = `Task: ${options.taskId}
-${DESIGN_SPEC_REVIEW_CONTEXT_ACTION}
+  const beforeHeader = `Task: ${options.taskId}\n`;
+  const afterHeader = `
 Context: initial
 From: ${options.requesterRole} ${options.requesterSessionId}
 To: architect_reviewer ${options.reviewerSessionId}
@@ -149,12 +149,12 @@ Max Review Rounds: ${options.maxReviewRounds}`;
 - Do not inspect or judge a design from this context message alone
 - Before opening the review target, reconstruct the goal, constraints, explicit non-goals, and smallest acceptable change from this contract
 `;
-  return messageWithContract(header, contract, footer);
+  return messageWithContract(designSpecReviewContextMessage, beforeHeader, afterHeader, contract, footer);
 }
 
 function authorBody(options, contract) {
-  const header = `Task: ${options.taskId}
-${DESIGN_SPEC_DRAFT_REQUESTED_ACTION}
+  const beforeHeader = `Task: ${options.taskId}\n`;
+  const afterHeader = `
 From: ${options.requesterRole} ${options.requesterSessionId}
 To: architect_author ${options.authorSessionId}
 Reviewer: architect_reviewer ${options.reviewerSessionId}
@@ -173,20 +173,19 @@ Max Review Rounds: ${options.maxReviewRounds}`;
 - Draft the smallest complete design that satisfies it
 - Do not restate task content in the later review request; the reviewer already has this contract
 `;
-  return messageWithContract(header, contract, footer);
+  return messageWithContract(designSpecDraftRequestedMessage, beforeHeader, afterHeader, contract, footer);
 }
 
-export function sendWaypost(options, toAddress, subject, body, runCommand = run) {
-  const sent = runCommand("waypost", [
-    "send", "--to", toAddress,
-    "--from", options.fromAddress,
-    "--subject", subject,
-    "--content-type", options.contentType,
-    "--schema-version", options.schemaVersion,
-    "--body-file", "-",
-    "--notify",
-    "--json"
-  ], { input: body, timeoutMs: options.sendTimeoutMs });
+export function sendWaypost(options, toAddress, subject, message, runCommand = run) {
+  const sent = sendActionMessage(message, import.meta.url, {
+    toAddress,
+    fromAddress: options.fromAddress,
+    subject,
+    contentType: options.contentType,
+    schemaVersion: options.schemaVersion,
+    sendTimeoutMs: options.sendTimeoutMs,
+    runCommand
+  });
   if (sent.timedOut || sent.signal) {
     return { status: "interrupted", signal: sent.signal || "SIGTERM", timedOut: sent.timedOut };
   }
@@ -231,7 +230,7 @@ function rollbackPendingState(stateFile, stateDir, taskId) {
 
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const requireWaypost = dependencies.requireCommand || requireCommand;
-  const send = dependencies.sendWaypost || sendWaypost;
+  const runWaypost = dependencies.runWaypost || run;
   const writeInitialState = dependencies.writeJsonAtomic || writeJsonAtomic;
   const options = parseArgs(argv, {
     values: [
@@ -365,7 +364,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   };
 
   try {
-    const reviewerSent = send(options, options.reviewerToAddress, reviewerSubject, reviewerBody(options, contract));
+    const reviewerSent = sendWaypost(options, options.reviewerToAddress, reviewerSubject, reviewerBody(options, contract), runWaypost);
     if (reviewerSent.status === "interrupted") {
       retainInterrupted("reviewer", reviewerSent);
       fail("reviewer context send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
@@ -386,7 +385,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       recordNotification(state, "review_context", reviewerSent.notification);
     });
 
-    const authorSent = send(options, options.authorToAddress, authorSubject, authorBody(options, contract));
+    const authorSent = sendWaypost(options, options.authorToAddress, authorSubject, authorBody(options, contract), runWaypost);
     if (authorSent.status === "interrupted") {
       retainInterrupted("author", authorSent);
       fail("author draft send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");

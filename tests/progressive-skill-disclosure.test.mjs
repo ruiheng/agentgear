@@ -4,11 +4,12 @@ import path from "node:path";
 import childProcess from "node:child_process";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadCatalog, resolveSelection } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
 import { actionAliases, buildSkillContentIndex, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
-import { purgeRetrievedUpstreamSkills, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
+import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
+import { actionHeader, loadActionProducerManifest, sendActionMessage } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entrySkills = [
@@ -58,6 +59,29 @@ function actionLookup(body) {
   if (actionLines.length !== 1) return null;
   if (lines.some(line => /^action:/i.test(line) && !/^Action: /.test(line))) return null;
   return `action:${actionLines[0].slice("Action: ".length)}`;
+}
+
+function pinnedCatalogWithPayload(catalog, payload) {
+  const pinned = { ...catalog.skills.upstreams["agent-deck"], contentDigest: upstreamSkillDigest(payload) };
+  const result = structuredClone(catalog);
+  result.skills.upstreams["agent-deck"] = pinned;
+  result.upstreams = { "agent-deck": pinned };
+  return { catalog: result, plan: { upstream: "agent-deck", name: "agent-deck", source: pinned } };
+}
+
+function materializeRetrievedSkill(root, plan, contents = "# Agent Deck\n") {
+  const payload = path.join(root, "payload");
+  fs.mkdirSync(payload, { recursive: true });
+  fs.writeFileSync(path.join(payload, "SKILL.md"), contents);
+  fs.writeFileSync(path.join(root, ".agentgear-retrieved-skill.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    name: plan.name,
+    repository: plan.source.repository,
+    ref: plan.source.ref,
+    commit: plan.source.commit,
+    contentDigest: plan.source.contentDigest,
+    payload: "payload/SKILL.md"
+  })}\n`);
 }
 
 test("catalog exposes exactly the approved entry surface", () => {
@@ -163,6 +187,39 @@ test("upstream skill get returns resourceBase from a verified runtime and reject
     const unknown = runtimeCommand(["skill", "get", "agent-deck", "not-real"]);
     assert.equal(unknown.status, 2);
     assert.equal(unknown.stdout, "");
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("skill get works through source, staged release, shared current, and copy-fallback launchers", () => {
+  const item = fixture();
+  try {
+    const source = command(["skill", "get", "handoff"], item.env);
+    assert.equal(source.status, 0, source.stderr);
+    const runtime = path.join(item.env.XDG_DATA_HOME, "agentgear", "releases", "fixture-release");
+    fs.cpSync(rootDir, runtime, {
+      recursive: true,
+      filter: sourcePath => ![".git", "dist", "node_modules"].includes(path.basename(sourcePath))
+    });
+    const invokeRuntime = executable => childProcess.spawnSync(
+      process.execPath,
+      [executable, "skill", "get", "handoff"],
+      { cwd: runtime, env: { ...process.env, ...item.env }, encoding: "utf8" }
+    );
+    const staged = invokeRuntime(path.join(runtime, "bin", "agentgear.mjs"));
+    assert.equal(staged.status, 0, staged.stderr);
+    fs.mkdirSync(path.dirname(path.join(item.env.XDG_DATA_HOME, "agentgear", "current")), { recursive: true });
+    fs.symlinkSync(runtime, path.join(item.env.XDG_DATA_HOME, "agentgear", "current"), "dir");
+    const shared = invokeRuntime(path.join(item.env.XDG_DATA_HOME, "agentgear", "current", "bin", "agentgear.mjs"));
+    assert.equal(shared.status, 0, shared.stderr);
+    const fallback = path.join(runtime, "fallback", "bin", "agentgear.mjs");
+    fs.mkdirSync(path.dirname(fallback), { recursive: true });
+    fs.symlinkSync(path.join(runtime, "cli"), path.join(runtime, "fallback", "cli"), "dir");
+    fs.copyFileSync(path.join(runtime, "bin", "agentgear.mjs"), fallback);
+    const copied = invokeRuntime(fallback);
+    assert.equal(copied.status, 0, copied.stderr);
+    for (const result of [staged, shared, copied]) assert.equal(result.stdout, source.stdout);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }
@@ -291,28 +348,110 @@ test("action-template validation rejects indented and dynamic emitted headers", 
   }
 });
 
-test("action-template validation analyzes JavaScript producers without scanning inert text", () => {
+test("declared Action producer boundary rejects dynamic tokens and forged declarations", () => {
+  const declarations = loadActionProducerManifest(
+    pathToFileURL(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "action-producers.mjs")).href
+  );
+  const action = declarations.actions.REVIEW_TASK_CONTEXT;
+  assert.equal(actionHeader(action), "Action: review_task_context");
+  assert.throws(() => actionHeader("review_requested"), /declared Action value/);
+  assert.throws(() => actionHeader({ token: "review_requested" }), /declared Action value/);
+  assert.throws(() => actionHeader({}), /declared Action value/);
+  assert.throws(() => loadActionProducerManifest(import.meta.url), /may only load/);
+  const message = declarations.factories.REVIEW_TASK_CONTEXT("Task: t\n", "\n\nbody");
+  const senderUrl = pathToFileURL(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "send-delegate-with-active-task-lock.mjs")).href;
+  let sent;
+  const result = sendActionMessage(message, senderUrl, {
+    toAddress: "agent-deck/reviewer-1",
+    fromAddress: "agent-deck/planner-1",
+    subject: "review",
+    contentType: "text/markdown",
+    schemaVersion: "1",
+    runCommand(command, commandArgs, options) {
+      sent = { command, commandArgs, options };
+      return { status: 0 };
+    }
+  });
+  assert.equal(result.status, 0);
+  assert.equal(sent.command, "waypost");
+  assert.equal(sent.options.input, "Task: t\nAction: review_task_context\n\nbody");
+  assert.throws(() => sendActionMessage({}, senderUrl, {}), /Waypost Action destination is required/);
+  assert.throws(() => sendActionMessage(message, import.meta.url, {
+    toAddress: "to", fromAddress: "from", subject: "subject", contentType: "text/markdown", schemaVersion: "1"
+  }), /not declared for sender/);
+});
+
+test("action-template validation checks every declared Waypost sender without parsing inert JavaScript", () => {
   const catalog = loadCatalog(rootDir);
   const index = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
   const aliases = actionAliases(index);
-  const cases = [
-    ["const key = 'Action'; const body = `${key}: review_requested`;", 1],
-    ["const body = ['Action', 'review_requested'].join(': ');", 1],
-    ["const body = `Action${':' } review_requested`;", 1],
-    ["const body = `Action` + `: review_requested`;", 1],
-    ["const body = `\\x41ction: review_requested`;", 0],
-    ["const body = `\\u0041ction: review_requested`;", 0],
-    ["const header = 'Action: review_requested'; const body = `${header}`;", 0],
-    ["const body = condition ? `Action: review_requested` : `Action: stop_recommended`;", 0],
-    ["const x = 1; /* Action: not_registered */", 0],
-    [String.raw`const pattern = /Action: ([^\\n]+)/;`, 0],
-    ["const body = `Action: review_requested`;", 0]
-  ];
-  for (const [source, expectedErrors] of cases) {
-    const errors = validateActionTemplates(index, aliases, {
-      additionalSources: [{ filePath: path.join(rootDir, "skills", "fixture", "scripts", "producer.mjs"), source }]
-    });
-    assert.equal(errors.filter(error => error.includes("fixture/scripts/producer.mjs")).length, expectedErrors, source);
+  const declaration = path.join(rootDir, "skills", "multi-agent-protocol", "action-producers.json");
+  const original = fs.readFileSync(declaration, "utf8");
+  try {
+    const cleanProducerSyntax = [
+      "const body = \"Act\" + \"ion: \" + \"not_registered\";",
+      "const body = [\"Action\", runtimeValue].join(\": \");",
+      "let header = \"Action: review_requested\"; header = runtimeValue; const body = `${header}`;",
+      "const header = \"Action: review_requested\"; function emit(header) { return `${header}`; }",
+      "const example = \"Action: not_registered\";",
+      "/* Action: not_registered */",
+      String.raw`const pattern = /Action: ([^\\n]+)/;`
+    ].join("\n");
+    fs.writeFileSync(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "producer-fixture.mjs"), cleanProducerSyntax);
+    const cleanIndex = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+    assert.deepEqual(validateActionTemplates(cleanIndex, aliases), []);
+
+    const invalid = JSON.parse(original);
+    invalid.actions.REVIEW_TASK_CONTEXT.token = "not_registered";
+    fs.writeFileSync(declaration, `${JSON.stringify(invalid, null, 2)}\n`);
+    const invalidIndex = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+    assert.equal(validateActionTemplates(invalidIndex, aliases).some(error => /action-producers\.json: unregistered Action token not_registered/.test(error)), true);
+
+    const missingBoundary = JSON.parse(original);
+    missingBoundary.actions.REVIEW_TASK_CONTEXT.script = "producer-fixture.mjs";
+    fs.writeFileSync(declaration, `${JSON.stringify(missingBoundary, null, 2)}\n`);
+    const boundaryIndex = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+    assert.equal(validateActionTemplates(boundaryIndex, aliases).some(error => /Action producer script does not use the declared Action message boundary: producer-fixture\.mjs/.test(error)), true);
+  } finally {
+    fs.writeFileSync(declaration, original);
+    fs.rmSync(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "producer-fixture.mjs"), { force: true });
+  }
+});
+
+test("Action producer manifests cover every actual sender exactly once", () => {
+  const catalog = loadCatalog(rootDir);
+  const index = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+  const aliases = actionAliases(index);
+  const expected = new Map([
+    [
+      path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "send-delegate-with-active-task-lock.mjs"),
+      ["review_task_context", "execute_delegate_task"]
+    ],
+    [
+      path.join(rootDir, "skills", "tech-design-workflow", "scripts", "send-design-draft-with-review-context.mjs"),
+      ["design_spec_review_context", "design_spec_draft_requested"]
+    ]
+  ]);
+  const actual = new Map();
+  for (const skill of index.names) {
+    const declarationPath = path.join(rootDir, "skills", skill, "action-producers.json");
+    if (!fs.existsSync(declarationPath)) continue;
+    const declaration = JSON.parse(fs.readFileSync(declarationPath, "utf8"));
+    for (const value of Object.values(declaration.actions)) {
+      const script = path.join(rootDir, "skills", skill, "scripts", value.script);
+      const tokens = actual.get(script) ?? [];
+      tokens.push(value.token);
+      actual.set(script, tokens);
+    }
+  }
+  assert.deepEqual(
+    [...actual.entries()].map(([script, tokens]) => [script, [...tokens].sort()]).sort(([left], [right]) => left.localeCompare(right)),
+    [...expected.entries()].map(([script, tokens]) => [script, [...tokens].sort()]).sort(([left], [right]) => left.localeCompare(right))
+  );
+  for (const [script, tokens] of actual) {
+    const source = fs.readFileSync(script, "utf8");
+    assert.match(source, /sendActionMessage\s*\(/, script);
+    for (const token of tokens) assert.equal(aliases.has(token), true, token);
   }
 });
 
@@ -448,6 +587,111 @@ test("retrieval-only full purge quarantines verified resources and preserves cor
   }
 });
 
+test("retrieved skill creation is atomic under a concurrent winning materialization", () => {
+  const item = fixture();
+  try {
+    const sourceTree = path.join(item.temporary, "source");
+    fs.mkdirSync(sourceTree, { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+    const { catalog, plan } = pinnedCatalogWithPayload(loadCatalog(rootDir), sourceTree);
+    const finalRoot = retrievedSkillMaterializationRoot(path.join(item.env.XDG_DATA_HOME, "agentgear"), plan);
+    const result = retrieveUpstreamSkill({
+      catalog,
+      skill: "agent-deck",
+      env: item.env,
+      provision: ({ runtime }) => {
+        fs.mkdirSync(path.join(runtime.root, "skills"), { recursive: true });
+        fs.cpSync(sourceTree, path.join(runtime.root, "skills", "agent-deck"), { recursive: true });
+      },
+      rename(temporary, destination) {
+        assert.equal(destination, finalRoot);
+        materializeRetrievedSkill(destination, plan);
+        const error = new Error("destination exists");
+        error.code = "EEXIST";
+        throw error;
+      }
+    });
+    assert.equal(result.payload, path.join(finalRoot, "payload"));
+    assert.equal(fs.readFileSync(path.join(result.payload, "SKILL.md"), "utf8"), "# Agent Deck\n");
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("retrieved skill materializations reject symlink and unexpected shapes without affecting normal commands", () => {
+  if (process.platform === "win32") return;
+  const item = fixture();
+  try {
+    const sourceTree = path.join(item.temporary, "source");
+    fs.mkdirSync(sourceTree, { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+    const { catalog, plan } = pinnedCatalogWithPayload(loadCatalog(rootDir), sourceTree);
+    const root = retrievedSkillMaterializationRoot(path.join(item.env.XDG_DATA_HOME, "agentgear"), plan);
+    fs.mkdirSync(path.dirname(root), { recursive: true });
+    fs.symlinkSync(sourceTree, root, "dir");
+    assert.throws(
+      () => retrieveUpstreamSkill({ catalog, skill: "agent-deck", env: item.env }),
+      /Retrieved upstream skill is unverifiable/
+    );
+    assert.equal(fs.lstatSync(root).isSymbolicLink(), true);
+    const normal = command(["install", "--skill", "handoff", "--target", "general"], item.env);
+    assert.equal(normal.status, 0, normal.stderr);
+    assert.equal(fs.lstatSync(root).isSymbolicLink(), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("retrieved-skill purge preserves old pins and rolls a failed quarantine removal back", () => {
+  const item = fixture();
+  try {
+    const sourceTree = path.join(item.temporary, "source");
+    fs.mkdirSync(sourceTree, { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+    const { catalog, plan } = pinnedCatalogWithPayload(loadCatalog(rootDir), sourceTree);
+    const dataRoot = path.join(item.env.XDG_DATA_HOME, "agentgear");
+    const root = retrievedSkillMaterializationRoot(dataRoot, plan);
+    materializeRetrievedSkill(root, plan);
+    const oldPin = path.join(path.dirname(root), "0".repeat(64));
+    fs.mkdirSync(oldPin, { recursive: true });
+    fs.writeFileSync(path.join(oldPin, "legacy"), "keep\n");
+    const purged = purgeRetrievedUpstreamSkills({
+      catalog,
+      env: item.env,
+      remove() {
+        throw new Error("simulated removal failure");
+      }
+    });
+    assert.equal(purged.incomplete, true);
+    assert.equal(fs.existsSync(root), true, "failed removal restored the verified materialization");
+    assert.equal(fs.existsSync(oldPin), true, "older pin is preserved");
+    assert.equal(purged.preserved.includes(oldPin), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("target-limited purge retains retrieved materializations", () => {
+  const item = fixture();
+  try {
+    const sourceTree = path.join(item.temporary, "source");
+    fs.mkdirSync(sourceTree, { recursive: true });
+    fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+    const { catalog, plan } = pinnedCatalogWithPayload(loadCatalog(rootDir), sourceTree);
+    const dataRoot = path.join(item.env.XDG_DATA_HOME, "agentgear");
+    const materialization = retrievedSkillMaterializationRoot(dataRoot, plan);
+    materializeRetrievedSkill(materialization, plan);
+
+    const installed = command(["install", "--skill", "handoff", "--target", "general"], item.env);
+    assert.equal(installed.status, 0, installed.stderr);
+    const purge = command(["uninstall", "--purge", "--target", "general"], item.env);
+    assert.equal(purge.status, 0, purge.stderr);
+    assert.equal(fs.existsSync(materialization), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
 test("legacy migration is dry-run by default and removes only whitelisted immediate children", () => {
   const item = fixture();
   try {
@@ -492,6 +736,88 @@ test("legacy migration refuses recorded state, symlink roots, and remains idempo
     const second = migrateLegacySkills({ roots: [target], apply: true, env: item.env, print: () => {} });
     assert.deepEqual(first.removed, [path.join(target, "handoff")]);
     assert.deepEqual(second.removed, []);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("legacy migration removes a whitelisted symlink child without traversing it", () => {
+  if (process.platform === "win32") return;
+  const item = fixture();
+  try {
+    const target = path.join(item.temporary, "skills");
+    const outside = path.join(item.temporary, "outside");
+    fs.mkdirSync(target, { recursive: true });
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "preserve.txt"), "keep\n");
+    fs.symlinkSync(outside, path.join(target, "handoff"), "dir");
+    migrateLegacySkills({ roots: [target], apply: true, env: item.env, print: () => {} });
+    assert.equal(fs.existsSync(path.join(target, "handoff")), false);
+    assert.equal(fs.readFileSync(path.join(outside, "preserve.txt"), "utf8"), "keep\n");
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("legacy migration performs full-scope preflight and rolls moved children back", () => {
+  const item = fixture();
+  try {
+    const target = path.join(item.temporary, "skills");
+    fs.mkdirSync(path.join(target, "handoff"), { recursive: true });
+    fs.mkdirSync(path.join(target, "review-code"), { recursive: true });
+    let moves = 0;
+    assert.throws(
+      () => migrateLegacySkills({
+        roots: [target],
+        apply: true,
+        env: item.env,
+        print: () => {},
+        rename(source, destination) {
+          moves += 1;
+          if (moves === 2) throw new Error("simulated second move failure");
+          fs.renameSync(source, destination);
+        }
+      }),
+      /simulated second move failure/
+    );
+    assert.equal(fs.existsSync(path.join(target, "handoff")), true);
+    assert.equal(fs.existsSync(path.join(target, "review-code")), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("legacy migration CLI resolves default Kiro, explicit target, project, and destination roots", () => {
+  const item = fixture();
+  try {
+    const globalRoots = [
+      path.join(item.env.HOME, ".agents", "skills"),
+      path.join(item.env.HOME, ".claude", "skills"),
+      path.join(item.env.HOME, ".kiro", "skills")
+    ];
+    for (const root of globalRoots) fs.mkdirSync(path.join(root, "handoff"), { recursive: true });
+    const defaultResult = command(["migrate", "legacy-skills", "--apply"], item.env);
+    assert.equal(defaultResult.status, 0, defaultResult.stderr);
+    for (const root of globalRoots) assert.equal(fs.existsSync(path.join(root, "handoff")), false);
+
+    const explicitRoot = path.join(item.env.HOME, ".kiro", "skills");
+    fs.mkdirSync(path.join(explicitRoot, "review-code"), { recursive: true });
+    const explicit = command(["migrate", "legacy-skills", "--target", "kiro", "--apply"], item.env);
+    assert.equal(explicit.status, 0, explicit.stderr);
+    assert.equal(fs.existsSync(path.join(explicitRoot, "review-code")), false);
+
+    const project = path.join(item.temporary, "project");
+    const projectRoot = path.join(project, ".claude", "skills");
+    fs.mkdirSync(path.join(projectRoot, "review-code"), { recursive: true });
+    const scoped = command(["migrate", "legacy-skills", "--target", "claude", "--scope", "project", "--project", project, "--apply"], item.env);
+    assert.equal(scoped.status, 0, scoped.stderr);
+    assert.equal(fs.existsSync(path.join(projectRoot, "review-code")), false);
+
+    const destination = path.join(item.temporary, "destination");
+    fs.mkdirSync(path.join(destination, "review-code"), { recursive: true });
+    const custom = command(["migrate", "legacy-skills", "--dest", destination, "--apply"], item.env);
+    assert.equal(custom.status, 0, custom.stderr);
+    assert.equal(fs.existsSync(path.join(destination, "review-code")), false);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }

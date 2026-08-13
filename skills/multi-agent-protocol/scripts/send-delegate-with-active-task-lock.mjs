@@ -5,6 +5,8 @@ import process from "node:process";
 import {
   currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic
 } from "./workflow-lib.mjs";
+import { sendActionMessage } from "./action-producer.mjs";
+import { executeDelegateTaskMessage, reviewTaskContextMessage } from "./action-producers.mjs";
 
 const usage = `Send a delegated code task under one active-task lock.
 
@@ -97,23 +99,21 @@ function workspaceHandoff(options) {
 - Workspace lifecycle: ${options.workspaceLifecycle}`;
 }
 
-function messageWithTaskContract(header, brief, footer) {
+function messageWithTaskContract(messageFactory, beforeHeader, afterHeader, brief, footer) {
   const terminator = brief.endsWith("\n") ? "" : "\n";
-  return `${header}
+  return messageFactory(
+    beforeHeader,
+    `${afterHeader}
 
 # Task Contract
 ${brief}${terminator}
-${footer}`;
+${footer}`
+  );
 }
 
-// Action headers are intentionally exact literals so skill-content validation
-// can audit every executable Waypost producer without evaluating runtime data.
-const REVIEW_TASK_CONTEXT_ACTION = "Action: review_task_context";
-const EXECUTE_DELEGATE_TASK_ACTION = "Action: execute_delegate_task";
-
 function reviewerBody(options, brief) {
-  const header = `Task: ${options.taskId}
-${REVIEW_TASK_CONTEXT_ACTION}
+  const beforeHeader = `Task: ${options.taskId}\n`;
+  const afterHeader = `
 From: planner ${options.plannerSessionId}
 To: reviewer ${options.reviewerSessionId}
 Planner: ${options.plannerSessionId}
@@ -133,12 +133,12 @@ ${workspaceHandoff(options)}
 - Wait for the matching \`review_requested\`; do not review code from this message
 - Workflow policy: ${options.workflowPolicy}
 `;
-  return messageWithTaskContract(header, brief, footer);
+  return messageWithTaskContract(reviewTaskContextMessage, beforeHeader, afterHeader, brief, footer);
 }
 
 function coderBody(options, brief) {
-  const header = `Task: ${options.taskId}
-${EXECUTE_DELEGATE_TASK_ACTION}
+  const beforeHeader = `Task: ${options.taskId}\n`;
+  const afterHeader = `
 From: planner ${options.plannerSessionId}
 To: coder ${options.coderSessionId}
 Planner: ${options.plannerSessionId}
@@ -176,7 +176,7 @@ ${review}
 - After a review request or terminal handoff succeeds, stop and wait
 - Workflow policy: ${options.workflowPolicy}
 `;
-  return messageWithTaskContract(header, brief, footer);
+  return messageWithTaskContract(executeDelegateTaskMessage, beforeHeader, afterHeader, brief, footer);
 }
 
 function mutateLock(lockFile, mutate) {
@@ -223,10 +223,14 @@ export function readDelegateBody(bodyFile, { stdinIsTTY = Boolean(process.stdin.
   }
 }
 
-function sendWaypost(options, toAddress, subject, body) {
-  const send = run("waypost", ["send", "--to", toAddress, "--from", options.fromAddress, "--subject", subject, "--content-type", options.contentType, "--schema-version", options.schemaVersion, "--body-file", "-", "--notify", "--json"], {
-    input: body,
-    timeoutMs: options.sendTimeoutMs
+function sendDeclaredActionMessage(options, toAddress, subject, message) {
+  const send = sendActionMessage(message, import.meta.url, {
+    toAddress,
+    fromAddress: options.fromAddress,
+    subject,
+    contentType: options.contentType,
+    schemaVersion: options.schemaVersion,
+    sendTimeoutMs: options.sendTimeoutMs
   });
   if (send.timedOut || send.signal) return { status: "interrupted", signal: send.signal || "SIGTERM", timedOut: send.timedOut };
   if (send.error) return { status: "failed", detail: send.error.message };
@@ -340,7 +344,7 @@ export async function main(argv = process.argv.slice(2)) {
         lock.reviewer_to_address = options.reviewerToAddress;
         lock.reviewer_subject = options.reviewerSubject;
       });
-      const reviewSent = sendWaypost(options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
+      const reviewSent = sendDeclaredActionMessage(options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
       if (reviewSent.status === "interrupted") {
         retainInterrupted("reviewer", reviewSent);
         fail("reviewer context send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
@@ -362,7 +366,7 @@ export async function main(argv = process.argv.slice(2)) {
       });
     }
 
-    const coderSent = sendWaypost(options, options.toAddress, options.subject, coderBody(options, brief));
+    const coderSent = sendDeclaredActionMessage(options, options.toAddress, options.subject, coderBody(options, brief));
     if (coderSent.status === "interrupted") {
       retainInterrupted("coder", coderSent);
       fail("coder send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
