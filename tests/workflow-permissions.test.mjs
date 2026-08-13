@@ -559,6 +559,53 @@ test("workflow permissions migrate the legacy Codex approval block into owned bo
   }
 });
 
+test("workflow permissions automatically reconcile orphaned Codex ownership", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-codex-orphaned-ownership-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const bin = path.join(temporary, "bin");
+  const environment = {
+    HOME: home,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
+    PATH: bin
+  };
+  try {
+    writeWaypostExecutable(bin);
+    fs.mkdirSync(project, { recursive: true });
+    const paths = withEnvironment(environment, () => permissionPaths("user", project));
+    fs.mkdirSync(path.dirname(paths.codexConfig), { recursive: true });
+    const existingApprovals = workflowWaypostMcpTools
+      .map(tool => `[mcp_servers.waypost.tools.${tool}]\napproval_mode = "approve"`)
+      .join("\n\n");
+    fs.writeFileSync(
+      paths.codexConfig,
+      `[mcp_servers.waypost]\ncommand = "waypost"\nargs = ["mcp"]\n\n${existingApprovals}\n`
+    );
+    fs.writeFileSync(paths.codexOwnership, `${JSON.stringify({
+      version: 1,
+      tools: workflowWaypostMcpTools
+    }, null, 2)}\n`);
+
+    const stale = withEnvironment(environment, () => checkPermissions({ scope: "user", project }));
+    assert.equal(stale.issues.some(issue => /ownership exists without its generated approval block/.test(issue)), true);
+
+    withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
+
+    assert.equal(fs.existsSync(paths.codexOwnership), false);
+    const source = fs.readFileSync(paths.codexConfig, "utf8");
+    for (const tool of workflowWaypostMcpTools) {
+      assert.match(source, new RegExp(`mcp_servers\\.waypost\\.tools\\.${tool}`));
+    }
+    const configured = withEnvironment(environment, () => checkPermissions({ scope: "user", project }));
+    assert.equal(configured.ok, true, configured.issues.join("\n"));
+    assert.match(fs.readFileSync(paths.codexRules, "utf8"), /"skill", "get"/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow permissions refuse to override a user-managed Codex denial", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-codex-deny-test-"));
   const home = path.join(temporary, "home");

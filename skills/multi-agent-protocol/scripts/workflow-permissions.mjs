@@ -697,16 +697,17 @@ function stripCodexOwnedBlock(source, ownership) {
     return {
       source: source.slice(0, begin) + source.slice(end + endToken.length),
       tools,
-      legacy: !ownership.present
+      legacy: !ownership.present,
+      orphanedOwnership: false
     };
   }
   if (ownership.present) {
-    throw new Error("Codex permission ownership exists without its generated approval block");
+    return { source, tools: [], legacy: false, orphanedOwnership: true };
   }
 
   const legacyToken = `${CODEX_LEGACY_MARKER}\n`;
   const legacy = source.indexOf(legacyToken);
-  if (legacy === -1) return { source, tools: [], legacy: false };
+  if (legacy === -1) return { source, tools: [], legacy: false, orphanedOwnership: false };
   if (source.indexOf(legacyToken, legacy + legacyToken.length) !== -1) {
     throw new Error("refusing duplicate legacy Agentgear Codex Waypost approval blocks");
   }
@@ -714,7 +715,7 @@ function stripCodexOwnedBlock(source, ownership) {
   if (tools.length === 0 || tools.some(tool => !workflowWaypostMcpTools.includes(tool))) {
     throw new Error("refusing unrecognized legacy Agentgear Codex Waypost approval block");
   }
-  return { source: source.slice(0, legacy), tools, legacy: true };
+  return { source: source.slice(0, legacy), tools, legacy: true, orphanedOwnership: false };
 }
 
 function appendCodexOwnedBlock(source, tools) {
@@ -747,6 +748,9 @@ function configureCodexWaypostMcpPermissions(waypost, paths) {
   const source = info ? fs.readFileSync(configFile, "utf8") : "";
   const ownership = readCodexOwnership(paths);
   const stripped = stripCodexOwnedBlock(source, ownership);
+  if (stripped.orphanedOwnership) {
+    log("warn", `Reconciling orphaned Codex permission ownership: ${paths.codexOwnership}`);
+  }
   const userSource = paths.codexUserConfig !== configFile
     && isSafeRegularFile(paths.codexUserConfig)
     ? fs.readFileSync(paths.codexUserConfig, "utf8")
@@ -955,6 +959,9 @@ function checkCodex(paths, waypost, issues) {
         const stripped = stripCodexOwnedBlock(source, ownership);
         managedTools = stripped.tools;
         baseSource = stripped.source;
+        if (stripped.orphanedOwnership) {
+          issues.push(`Codex permission ownership exists without its generated approval block: ${paths.codexOwnership}`);
+        }
         if (stripped.legacy) {
           issues.push(`Codex Waypost approvals still use legacy ownership markers: ${paths.codexConfig}`);
         }
