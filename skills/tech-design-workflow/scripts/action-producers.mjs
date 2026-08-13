@@ -6,3 +6,5 @@ export const DESIGN_SPEC_REVIEW_CONTEXT = declarations.actions.DESIGN_SPEC_REVIE
 export const DESIGN_SPEC_DRAFT_REQUESTED = declarations.actions.DESIGN_SPEC_DRAFT_REQUESTED;
 export const designSpecReviewContextMessage = declarations.factories.DESIGN_SPEC_REVIEW_CONTEXT;
 export const designSpecDraftRequestedMessage = declarations.factories.DESIGN_SPEC_DRAFT_REQUESTED;
+export const sendDesignSpecReviewContextMessage = declarations.senders.DESIGN_SPEC_REVIEW_CONTEXT;
+export const sendDesignSpecDraftRequestedMessage = declarations.senders.DESIGN_SPEC_DRAFT_REQUESTED;

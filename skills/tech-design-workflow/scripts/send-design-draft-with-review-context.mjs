@@ -15,8 +15,12 @@ import {
   stringField,
   writeJsonAtomic
 } from "../../multi-agent-protocol/scripts/workflow-lib.mjs";
-import { sendActionMessage } from "../../multi-agent-protocol/scripts/action-producer.mjs";
-import { designSpecDraftRequestedMessage, designSpecReviewContextMessage } from "./action-producers.mjs";
+import {
+  designSpecDraftRequestedMessage,
+  designSpecReviewContextMessage,
+  sendDesignSpecDraftRequestedMessage,
+  sendDesignSpecReviewContextMessage
+} from "./action-producers.mjs";
 
 const usage = `Send one canonical design task contract to reviewer first, then author.
 
@@ -46,6 +50,39 @@ Optional:
   -h, --help`;
 
 export const DEFAULT_SEND_TIMEOUT_MS = 0;
+
+const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
+const WAYPOST_ADDRESS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+
+function requireHeaderValue(value, label, pattern) {
+  if (typeof value !== "string" || !pattern.test(value)) fail(`${label} has an invalid header value`);
+}
+
+function requirePlainHeaderText(value, label) {
+  if (typeof value !== "string" || value.length === 0 || /[\r\n\0]/.test(value)) {
+    fail(`${label} has an unsafe header value`);
+  }
+}
+
+function validateEnvelopeOptions(options) {
+  for (const [key, label, pattern] of [
+    ["taskId", "--task-id", TASK_ID],
+    ["requesterRole", "--requester-role", /^[A-Za-z][A-Za-z0-9_-]{0,63}$/],
+    ["requesterSessionId", "--requester-session-id", SESSION_ID],
+    ["authorSessionId", "--author-session-id", SESSION_ID],
+    ["reviewerSessionId", "--reviewer-session-id", SESSION_ID],
+    ["sessionHost", "--session-host", /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/],
+    ["fromAddress", "--from-address", WAYPOST_ADDRESS],
+    ["authorToAddress", "--author-to-address", WAYPOST_ADDRESS],
+    ["reviewerToAddress", "--reviewer-to-address", WAYPOST_ADDRESS]
+  ]) requireHeaderValue(options[key], label, pattern);
+  for (const [key, label] of [
+    ["archiveBranch", "--archive-branch"],
+    ["contentType", "--content-type"],
+    ["schemaVersion", "--schema-version"]
+  ]) requirePlainHeaderText(options[key], label);
+}
 
 function optionalOutputString(value) {
   return typeof value === "string" && value.trim() ? value : null;
@@ -125,42 +162,45 @@ export function readContract(contractFile, readFileSync = fs.readFileSync) {
   return contract;
 }
 
-function messageWithContract(messageFactory, beforeHeader, afterHeader, contract, footer) {
+function messageWithContract(messageFactory, before, after, contract, footer) {
   const terminator = contract.endsWith("\n") ? "" : "\n";
-  return messageFactory(
-    beforeHeader,
-    `${afterHeader}\n\n# Design Task Contract\n${contract}${terminator}\n${footer}`
-  );
+  return messageFactory({
+    before,
+    after,
+    body: `# Design Task Contract\n${contract}${terminator}\n${footer}`
+  });
 }
 
 function reviewerBody(options, contract) {
-  const beforeHeader = `Task: ${options.taskId}\n`;
-  const afterHeader = `
-Context: initial
-From: ${options.requesterRole} ${options.requesterSessionId}
-To: architect_reviewer ${options.reviewerSessionId}
-Author: architect_author ${options.authorSessionId}
-Session Host: ${options.sessionHost}
-Round: context
-Max Review Rounds: ${options.maxReviewRounds}`;
+  const before = [{ name: "Task", value: options.taskId }];
+  const after = [
+    { name: "Context", value: "initial" },
+    { name: "From", value: `${options.requesterRole} ${options.requesterSessionId}` },
+    { name: "To", value: `architect_reviewer ${options.reviewerSessionId}` },
+    { name: "Author", value: `architect_author ${options.authorSessionId}` },
+    { name: "Session Host", value: options.sessionHost },
+    { name: "Round", value: "context" },
+    { name: "Max Review Rounds", value: String(options.maxReviewRounds) }
+  ];
   const footer = `# Review Context Contract
 - Treat the requester Design Task Contract as original-task authority
 - Retain it as task-scoped design-review context and wait for the matching \`design_spec_review_requested\`
 - Do not inspect or judge a design from this context message alone
 - Before opening the review target, reconstruct the goal, constraints, explicit non-goals, and smallest acceptable change from this contract
 `;
-  return messageWithContract(designSpecReviewContextMessage, beforeHeader, afterHeader, contract, footer);
+  return messageWithContract(designSpecReviewContextMessage, before, after, contract, footer);
 }
 
 function authorBody(options, contract) {
-  const beforeHeader = `Task: ${options.taskId}\n`;
-  const afterHeader = `
-From: ${options.requesterRole} ${options.requesterSessionId}
-To: architect_author ${options.authorSessionId}
-Reviewer: architect_reviewer ${options.reviewerSessionId}
-Session Host: ${options.sessionHost}
-Round: ${options.round}
-Max Review Rounds: ${options.maxReviewRounds}`;
+  const before = [{ name: "Task", value: options.taskId }];
+  const after = [
+    { name: "From", value: `${options.requesterRole} ${options.requesterSessionId}` },
+    { name: "To", value: `architect_author ${options.authorSessionId}` },
+    { name: "Reviewer", value: `architect_reviewer ${options.reviewerSessionId}` },
+    { name: "Session Host", value: options.sessionHost },
+    { name: "Round", value: String(options.round) },
+    { name: "Max Review Rounds", value: String(options.maxReviewRounds) }
+  ];
   const footer = `# Draft Contract
 ## Artifact
 - Target: ${options.artifactPath}
@@ -173,11 +213,11 @@ Max Review Rounds: ${options.maxReviewRounds}`;
 - Draft the smallest complete design that satisfies it
 - Do not restate task content in the later review request; the reviewer already has this contract
 `;
-  return messageWithContract(designSpecDraftRequestedMessage, beforeHeader, afterHeader, contract, footer);
+  return messageWithContract(designSpecDraftRequestedMessage, before, after, contract, footer);
 }
 
-export function sendWaypost(options, toAddress, subject, message, runCommand = run) {
-  const sent = sendActionMessage(message, import.meta.url, {
+export function sendWaypost(sendMessage, options, toAddress, subject, message, runCommand = run) {
+  const sent = sendMessage(message, {
     toAddress,
     fromAddress: options.fromAddress,
     subject,
@@ -265,9 +305,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   ]) {
     if (!options[key]) fail(`${label} is required`);
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(options.taskId)) {
-    fail("--task-id must use letters, digits, dot, underscore, or hyphen");
-  }
+  validateEnvelopeOptions(options);
   if (options.authorSessionId === options.reviewerSessionId) {
     fail("author and reviewer session ids must be distinct");
   }
@@ -364,7 +402,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   };
 
   try {
-    const reviewerSent = sendWaypost(options, options.reviewerToAddress, reviewerSubject, reviewerBody(options, contract), runWaypost);
+    const reviewerSent = sendWaypost(sendDesignSpecReviewContextMessage, options, options.reviewerToAddress, reviewerSubject, reviewerBody(options, contract), runWaypost);
     if (reviewerSent.status === "interrupted") {
       retainInterrupted("reviewer", reviewerSent);
       fail("reviewer context send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
@@ -385,7 +423,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       recordNotification(state, "review_context", reviewerSent.notification);
     });
 
-    const authorSent = sendWaypost(options, options.authorToAddress, authorSubject, authorBody(options, contract), runWaypost);
+    const authorSent = sendWaypost(sendDesignSpecDraftRequestedMessage, options, options.authorToAddress, authorSubject, authorBody(options, contract), runWaypost);
     if (authorSent.status === "interrupted") {
       retainInterrupted("author", authorSent);
       fail("author draft send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");

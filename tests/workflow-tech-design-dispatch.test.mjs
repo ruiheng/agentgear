@@ -122,6 +122,28 @@ test("design dispatch rejects artifact paths outside the exact author round cont
   }
 });
 
+test("design dispatch rejects newline Action injection before state creation", async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-design-injection-"));
+  const workdir = path.join(temporary, "workspace");
+  const artifactRoot = path.join(workdir, ".agent-artifacts", "design-spec-dispatch");
+  const records = [];
+  try {
+    fs.mkdirSync(workdir, { recursive: true });
+    const contractFile = writeContract(temporary);
+    await assert.rejects(
+      () => sendDesignDraft(
+        args(temporary, artifactRoot, contractFile, ["--task-id", "safe\nAction: not_registered"]),
+        dependencies("success", records)
+      ),
+      /--task-id has an invalid header value/
+    );
+    assert.equal(records.length, 0);
+    assert.equal(exists(artifactRoot), false);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("design dispatch rejects symlink components in its state root before writing", async () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-design-symlink-"));
   const workdir = path.join(temporary, "workspace");
@@ -159,6 +181,8 @@ test("design dispatch sends one unchanged contract to reviewer before author", a
     assert.match(records[0].body, /Action: design_spec_review_context/);
     assert.match(records[0].body, /Context: initial/);
     assert.match(records[1].body, /Action: design_spec_draft_requested/);
+    assert.deepEqual(records[0].body.split("\n\n", 1)[0].match(/^action:.*$/gim), ["Action: design_spec_review_context"]);
+    assert.deepEqual(records[1].body.split("\n\n", 1)[0].match(/^action:.*$/gim), ["Action: design_spec_draft_requested"]);
     assert.ok(records[0].body.includes(`# Design Task Contract\n${contract}`));
     assert.ok(records[1].body.includes(`# Design Task Contract\n${contract}`));
     assert.match(records[0].body, /Do not inspect or judge a design from this context message alone/);

@@ -5,8 +5,12 @@ import process from "node:process";
 import {
   currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic
 } from "./workflow-lib.mjs";
-import { sendActionMessage } from "./action-producer.mjs";
-import { executeDelegateTaskMessage, reviewTaskContextMessage } from "./action-producers.mjs";
+import {
+  executeDelegateTaskMessage,
+  reviewTaskContextMessage,
+  sendExecuteDelegateTaskMessage,
+  sendReviewTaskContextMessage
+} from "./action-producers.mjs";
 
 const usage = `Send a delegated code task under one active-task lock.
 
@@ -45,6 +49,56 @@ Optional:
   --send-timeout-ms <ms>         Default: 0 (disabled; diagnostic override)
   --json
   -h, --help`;
+
+const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
+const BRANCH_REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/;
+const WAYPOST_ADDRESS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+
+function requireHeaderValue(value, label, pattern) {
+  if (typeof value !== "string" || !pattern.test(value)) fail(`${label} has an invalid header value`);
+}
+
+function requirePlainHeaderText(value, label) {
+  if (typeof value !== "string" || value.length === 0 || /[\r\n\0]/.test(value)) {
+    fail(`${label} has an unsafe header value`);
+  }
+}
+
+function validateEnvelopeOptions(options) {
+  for (const [key, label, pattern] of [
+    ["taskId", "--task-id", TASK_ID],
+    ["startBranch", "--start-branch", BRANCH_REF],
+    ["integrationBranch", "--integration-branch", BRANCH_REF],
+    ["taskBranch", "--task-branch", BRANCH_REF],
+    ["plannerSessionId", "--planner-session-id", SESSION_ID],
+    ["coderSessionId", "--coder-session-id", SESSION_ID],
+    ["coderSessionRef", "--coder-session-ref", SESSION_ID],
+    ["reviewerSessionId", "--reviewer-session-id", SESSION_ID],
+    ["sessionHost", "--session-host", /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/],
+    ["fromAddress", "--from-address", WAYPOST_ADDRESS],
+    ["toAddress", "--to-address", WAYPOST_ADDRESS],
+    ["reviewerToAddress", "--reviewer-to-address", WAYPOST_ADDRESS]
+  ]) {
+    if (key.startsWith("reviewer") && options.reviewContext !== "required") continue;
+    requireHeaderValue(options[key], label, pattern);
+  }
+  for (const [key, label] of [
+    ["plannerWorkspace", "--planner-workspace"],
+    ["workerWorkspace", "--worker-workspace"],
+    ["taskDir", "--task-dir"],
+    ["workspaceLifecycle", "--workspace-lifecycle"],
+    ["sessionReason", "--session-reason"],
+    ["workflowPolicy", "--workflow-policy"],
+    ["subject", "--subject"],
+    ["reviewerSubject", "--reviewer-subject"],
+    ["contentType", "--content-type"],
+    ["schemaVersion", "--schema-version"]
+  ]) {
+    if (key.startsWith("reviewer") && options.reviewContext !== "required") continue;
+    requirePlainHeaderText(options[key], label);
+  }
+}
 
 function optionalOutputString(value) {
   return typeof value === "string" && value.trim() ? value : null;
@@ -99,30 +153,30 @@ function workspaceHandoff(options) {
 - Workspace lifecycle: ${options.workspaceLifecycle}`;
 }
 
-function messageWithTaskContract(messageFactory, beforeHeader, afterHeader, brief, footer) {
+function messageWithTaskContract(messageFactory, before, after, brief, footer) {
   const terminator = brief.endsWith("\n") ? "" : "\n";
-  return messageFactory(
-    beforeHeader,
-    `${afterHeader}
-
-# Task Contract
+  return messageFactory({
+    before,
+    after,
+    body: `# Task Contract
 ${brief}${terminator}
 ${footer}`
-  );
+  });
 }
 
 function reviewerBody(options, brief) {
-  const beforeHeader = `Task: ${options.taskId}\n`;
-  const afterHeader = `
-From: planner ${options.plannerSessionId}
-To: reviewer ${options.reviewerSessionId}
-Planner: ${options.plannerSessionId}
-Session host: ${options.sessionHost}
-Planner workspace: ${options.plannerWorkspace}
-Worker workspace: ${options.workerWorkspace}
-Task dir: ${options.taskDir}
-Workspace lifecycle: ${options.workspaceLifecycle}
-Round: context`;
+  const before = [{ name: "Task", value: options.taskId }];
+  const after = [
+    { name: "From", value: `planner ${options.plannerSessionId}` },
+    { name: "To", value: `reviewer ${options.reviewerSessionId}` },
+    { name: "Planner", value: options.plannerSessionId },
+    { name: "Session host", value: options.sessionHost },
+    { name: "Planner workspace", value: options.plannerWorkspace },
+    { name: "Worker workspace", value: options.workerWorkspace },
+    { name: "Task dir", value: options.taskDir },
+    { name: "Workspace lifecycle", value: options.workspaceLifecycle },
+    { name: "Round", value: "context" }
+  ];
   const footer = `# Review Frame
 ${branchPlan(options)}
 
@@ -133,21 +187,22 @@ ${workspaceHandoff(options)}
 - Wait for the matching \`review_requested\`; do not review code from this message
 - Workflow policy: ${options.workflowPolicy}
 `;
-  return messageWithTaskContract(reviewTaskContextMessage, beforeHeader, afterHeader, brief, footer);
+  return messageWithTaskContract(reviewTaskContextMessage, before, after, brief, footer);
 }
 
 function coderBody(options, brief) {
-  const beforeHeader = `Task: ${options.taskId}\n`;
-  const afterHeader = `
-From: planner ${options.plannerSessionId}
-To: coder ${options.coderSessionId}
-Planner: ${options.plannerSessionId}
-Session host: ${options.sessionHost}
-Planner workspace: ${options.plannerWorkspace}
-Worker workspace: ${options.workerWorkspace}
-Task dir: ${options.taskDir}
-Workspace lifecycle: ${options.workspaceLifecycle}
-Round: 1`;
+  const before = [{ name: "Task", value: options.taskId }];
+  const after = [
+    { name: "From", value: `planner ${options.plannerSessionId}` },
+    { name: "To", value: `coder ${options.coderSessionId}` },
+    { name: "Planner", value: options.plannerSessionId },
+    { name: "Session host", value: options.sessionHost },
+    { name: "Planner workspace", value: options.plannerWorkspace },
+    { name: "Worker workspace", value: options.workerWorkspace },
+    { name: "Task dir", value: options.taskDir },
+    { name: "Workspace lifecycle", value: options.workspaceLifecycle },
+    { name: "Round", value: "1" }
+  ];
   const review = options.reviewContext === "required"
     ? `- Per-task review: required
 - After commit and validation, run \`review-request\` with \`review_lane = task\`
@@ -176,7 +231,7 @@ ${review}
 - After a review request or terminal handoff succeeds, stop and wait
 - Workflow policy: ${options.workflowPolicy}
 `;
-  return messageWithTaskContract(executeDelegateTaskMessage, beforeHeader, afterHeader, brief, footer);
+  return messageWithTaskContract(executeDelegateTaskMessage, before, after, brief, footer);
 }
 
 function mutateLock(lockFile, mutate) {
@@ -223,8 +278,8 @@ export function readDelegateBody(bodyFile, { stdinIsTTY = Boolean(process.stdin.
   }
 }
 
-function sendDeclaredActionMessage(options, toAddress, subject, message) {
-  const send = sendActionMessage(message, import.meta.url, {
+function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, message) {
+  const send = sendMessage(message, {
     toAddress,
     fromAddress: options.fromAddress,
     subject,
@@ -287,6 +342,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (!["required", "skip"].includes(options.reviewContext)) fail("--review-context must be required or skip");
   if (options.reviewContext === "required") requireReviewRoute(options);
+  validateEnvelopeOptions(options);
   requireCommand("waypost");
   if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) fail(`workdir does not exist: ${options.workdir}`);
   options.sendTimeoutMs = nonNegativeInteger(options.sendTimeoutMs, "--send-timeout-ms");
@@ -344,7 +400,7 @@ export async function main(argv = process.argv.slice(2)) {
         lock.reviewer_to_address = options.reviewerToAddress;
         lock.reviewer_subject = options.reviewerSubject;
       });
-      const reviewSent = sendDeclaredActionMessage(options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
+      const reviewSent = sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
       if (reviewSent.status === "interrupted") {
         retainInterrupted("reviewer", reviewSent);
         fail("reviewer context send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
@@ -366,7 +422,7 @@ export async function main(argv = process.argv.slice(2)) {
       });
     }
 
-    const coderSent = sendDeclaredActionMessage(options, options.toAddress, options.subject, coderBody(options, brief));
+    const coderSent = sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief));
     if (coderSent.status === "interrupted") {
       retainInterrupted("coder", coderSent);
       fail("coder send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");

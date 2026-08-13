@@ -457,7 +457,8 @@ function actionProducerDeclarations(index) {
     for (const [name, declaration] of Object.entries(definition.actions)) {
       if (!/^[A-Z][A-Z0-9_]*$/.test(name) || !declaration || typeof declaration !== "object" || Array.isArray(declaration)
         || typeof declaration.token !== "string" || typeof declaration.script !== "string" || declaration.export !== name
-        || typeof declaration.factory !== "string" || !/^[a-z][A-Za-z0-9]*Message$/.test(declaration.factory)) {
+        || typeof declaration.factory !== "string" || !/^[a-z][A-Za-z0-9]*Message$/.test(declaration.factory)
+        || typeof declaration.sender !== "string" || !/^[a-z][A-Za-z0-9]*Message$/.test(declaration.sender)) {
         candidates.push({ filePath, invalid: true, detail: `invalid Action producer declaration ${name}` });
         continue;
       }
@@ -467,10 +468,6 @@ function actionProducerDeclarations(index) {
         continue;
       }
       const source = fs.readFileSync(script, "utf8");
-      if (!/\bsendActionMessage\s*\(/.test(source)) {
-        candidates.push({ filePath, invalid: true, detail: `Action producer script does not use the declared Action message boundary: ${declaration.script}` });
-        continue;
-      }
       if (!new RegExp(`export\\s+const\\s+${name}\\s*=`).test(moduleSource)) {
         candidates.push({ filePath, invalid: true, detail: `Action producer module does not export declared value ${name}` });
         continue;
@@ -479,8 +476,16 @@ function actionProducerDeclarations(index) {
         candidates.push({ filePath, invalid: true, detail: `Action producer module does not export declared factory ${declaration.factory}` });
         continue;
       }
-      if (!new RegExp(`\\b${declaration.factory}\\b`).test(source)) {
+      if (!new RegExp(`export\\s+const\\s+${declaration.sender}\\s*=`).test(moduleSource)) {
+        candidates.push({ filePath, invalid: true, detail: `Action producer module does not export declared sender ${declaration.sender}` });
+        continue;
+      }
+      if (!new RegExp(`(?:\\b${declaration.factory}\\s*\\(|\\(\\s*${declaration.factory}\\s*,)`).test(source)) {
         candidates.push({ filePath, invalid: true, detail: `Action producer script does not reference declared factory ${declaration.factory}` });
+        continue;
+      }
+      if (!new RegExp(`(?:\\b${declaration.sender}\\s*\\(|\\(\\s*${declaration.sender}\\s*,)`).test(source)) {
+        candidates.push({ filePath, invalid: true, detail: `Action producer script does not reference declared sender ${declaration.sender}` });
         continue;
       }
       candidates.push({ filePath, token: declaration.token });
@@ -528,8 +533,8 @@ function undeclaredWaypostActionProducers(index) {
         errors.push(`${filePath}: Waypost --body-file sender must be declared in ${ACTION_PRODUCER_DECLARATION}`);
         continue;
       }
-      if (!source.includes(ACTION_PRODUCER_HELPER) || !/\bsendActionMessage\s*\(/.test(source)) {
-        errors.push(`${filePath}: declared Waypost Action producer must send through sendActionMessage`);
+      if (!/\baction-producers\.mjs["']/.test(source) || !/\bsend[A-Z][A-Za-z0-9]*Message\s*(?:,|\()/.test(source)) {
+        errors.push(`${filePath}: declared Waypost Action producer must send through its declared Action sender`);
       }
     }
   }

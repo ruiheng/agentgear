@@ -9,7 +9,7 @@ import { loadCatalog, resolveSelection } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
 import { actionAliases, buildSkillContentIndex, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
-import { actionHeader, loadActionProducerManifest, sendActionMessage } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
+import { actionHeader, loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entrySkills = [
@@ -358,10 +358,17 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
   assert.throws(() => actionHeader({ token: "review_requested" }), /declared Action value/);
   assert.throws(() => actionHeader({}), /declared Action value/);
   assert.throws(() => loadActionProducerManifest(import.meta.url), /may only load/);
-  const message = declarations.factories.REVIEW_TASK_CONTEXT("Task: t\n", "\n\nbody");
-  const senderUrl = pathToFileURL(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "send-delegate-with-active-task-lock.mjs")).href;
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "action-producer.mjs"), "utf8"),
+    /export\s+(?:function|const)\s+sendActionMessage\b/
+  );
+  const message = declarations.factories.REVIEW_TASK_CONTEXT({
+    before: [{ name: "Task", value: "t" }],
+    after: [],
+    body: "body"
+  });
   let sent;
-  const result = sendActionMessage(message, senderUrl, {
+  const result = declarations.senders.REVIEW_TASK_CONTEXT(message, {
     toAddress: "agent-deck/reviewer-1",
     fromAddress: "agent-deck/planner-1",
     subject: "review",
@@ -375,10 +382,29 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
   assert.equal(result.status, 0);
   assert.equal(sent.command, "waypost");
   assert.equal(sent.options.input, "Task: t\nAction: review_task_context\n\nbody");
-  assert.throws(() => sendActionMessage({}, senderUrl, {}), /Waypost Action destination is required/);
-  assert.throws(() => sendActionMessage(message, import.meta.url, {
+  assert.deepEqual(
+    sent.options.input.split("\n\n", 1)[0].match(/^action:.*$/gim),
+    ["Action: review_task_context"]
+  );
+  assert.throws(() => declarations.senders.REVIEW_TASK_CONTEXT({}, {}), /Waypost Action destination is required/);
+  assert.throws(() => declarations.senders.EXECUTE_DELEGATE_TASK(message, {
     toAddress: "to", fromAddress: "from", subject: "subject", contentType: "text/markdown", schemaVersion: "1"
-  }), /not declared for sender/);
+  }), /does not match its declared producer route/);
+  assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
+    before: [{ name: "Action", value: "not_registered" }], after: [], body: "body"
+  }), /may not set Action/);
+  assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
+    before: [], after: [{ name: "aCtIoN", value: "not_registered" }], body: "body"
+  }), /may not set Action/);
+  assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
+    before: [{ name: "Task", value: "t" }], after: [{ name: "task", value: "other" }], body: "body"
+  }), /duplicate header task/);
+  assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
+    before: [{ name: "Action ", value: "not_registered" }], after: [], body: "body"
+  }), /invalid name/);
+  assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
+    before: [{ name: "Task", value: "t\nAction: not_registered" }], after: [], body: "body"
+  }), /unsafe value/);
 });
 
 test("action-template validation checks every declared Waypost sender without parsing inert JavaScript", () => {
@@ -411,7 +437,7 @@ test("action-template validation checks every declared Waypost sender without pa
     missingBoundary.actions.REVIEW_TASK_CONTEXT.script = "producer-fixture.mjs";
     fs.writeFileSync(declaration, `${JSON.stringify(missingBoundary, null, 2)}\n`);
     const boundaryIndex = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
-    assert.equal(validateActionTemplates(boundaryIndex, aliases).some(error => /Action producer script does not use the declared Action message boundary: producer-fixture\.mjs/.test(error)), true);
+    assert.equal(validateActionTemplates(boundaryIndex, aliases).some(error => /Action producer script does not reference declared factory reviewTaskContextMessage/.test(error)), true);
   } finally {
     fs.writeFileSync(declaration, original);
     fs.rmSync(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "producer-fixture.mjs"), { force: true });
@@ -440,18 +466,22 @@ test("Action producer manifests cover every actual sender exactly once", () => {
     for (const value of Object.values(declaration.actions)) {
       const script = path.join(rootDir, "skills", skill, "scripts", value.script);
       const tokens = actual.get(script) ?? [];
-      tokens.push(value.token);
+      tokens.push({ token: value.token, factory: value.factory, sender: value.sender });
       actual.set(script, tokens);
     }
   }
   assert.deepEqual(
-    [...actual.entries()].map(([script, tokens]) => [script, [...tokens].sort()]).sort(([left], [right]) => left.localeCompare(right)),
+    [...actual.entries()].map(([script, entries]) => [script, entries.map(entry => entry.token).sort()]).sort(([left], [right]) => left.localeCompare(right)),
     [...expected.entries()].map(([script, tokens]) => [script, [...tokens].sort()]).sort(([left], [right]) => left.localeCompare(right))
   );
-  for (const [script, tokens] of actual) {
+  for (const [script, entries] of actual) {
     const source = fs.readFileSync(script, "utf8");
-    assert.match(source, /sendActionMessage\s*\(/, script);
-    for (const token of tokens) assert.equal(aliases.has(token), true, token);
+    assert.doesNotMatch(source, /\bsendActionMessage\s*\(/, script);
+    for (const { token, factory, sender } of entries) {
+      assert.equal(aliases.has(token), true, token);
+      assert.match(source, new RegExp(`(?:\\b${factory}\\s*\\(|\\(\\s*${factory}\\s*,)`), `${script} must pass ${factory}`);
+      assert.match(source, new RegExp(`(?:\\b${sender}\\s*\\(|\\(\\s*${sender}\\s*,)`), `${script} must pass ${sender}`);
+    }
   }
 });
 

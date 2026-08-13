@@ -7,6 +7,10 @@ const ACTION_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const ACTION_NAME = /^[A-Z][A-Z0-9_]*$/;
 const SCRIPT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:mjs|cjs|js)$/;
 const FACTORY_NAME = /^[a-z][A-Za-z0-9]*Message$/;
+const SENDER_NAME = /^[a-z][A-Za-z0-9]*Message$/;
+// Existing workflow envelopes use descriptive labels such as "Session host".
+// Keep those labels intact while still accepting only one physical header line.
+const HEADER_NAME = /^[A-Za-z](?:[A-Za-z0-9 -]*[A-Za-z0-9])?$/;
 const MANIFEST_FILE = "action-producers.json";
 const MODULE_FILE = "action-producers.mjs";
 const declaredActionsByValue = new WeakMap();
@@ -53,13 +57,44 @@ export function actionHeader(declaration) {
   return `Action: ${actionDeclaration(declaration).token}`;
 }
 
-function actionMessage(declaration, beforeHeader, afterHeader) {
-  if (typeof beforeHeader !== "string" || typeof afterHeader !== "string") {
-    fail("Waypost Action message requires string body sections");
+function headerFields(fields, label, seen) {
+  if (!Array.isArray(fields)) fail(`Waypost Action message ${label} headers must be an array`);
+  return fields.map((field, index) => {
+    if (!field || typeof field !== "object" || Array.isArray(field)
+      || Object.keys(field).length !== 2 || !Object.hasOwn(field, "name") || !Object.hasOwn(field, "value")
+      || typeof field.name !== "string" || typeof field.value !== "string") {
+      fail(`Waypost Action message ${label} header ${index + 1} must have string name and value`);
+    }
+    if (!HEADER_NAME.test(field.name)) {
+      fail(`Waypost Action message ${label} header ${index + 1} has an invalid name`);
+    }
+    const normalizedName = field.name.toLowerCase();
+    if (normalizedName === "action") {
+      fail("Waypost Action message headers may not set Action");
+    }
+    if (seen.has(normalizedName)) {
+      fail(`Waypost Action message has duplicate header ${field.name}`);
+    }
+    if (field.value.length === 0 || /[\r\n\0]/.test(field.value)) {
+      fail(`Waypost Action message ${label} header ${field.name} has an unsafe value`);
+    }
+    seen.add(normalizedName);
+    return `${field.name}: ${field.value}`;
+  });
+}
+
+function actionMessage(declaration, envelope) {
+  if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)
+    || Object.keys(envelope).length !== 3 || typeof envelope.body !== "string") {
+    fail("Waypost Action message requires structured headers and a string body");
   }
+  const seenHeaders = new Set();
+  const before = headerFields(envelope.before, "before", seenHeaders);
+  const after = headerFields(envelope.after, "after", seenHeaders);
+  const initialEnvelope = [...before, actionHeader(declaration), ...after].join("\n");
   const message = Object.freeze({});
-  messageBodies.set(message, `${beforeHeader}${actionHeader(declaration)}${afterHeader}`);
-  messageDeclarations.set(message, actionDeclaration(declaration));
+  messageBodies.set(message, `${initialEnvelope}\n\n${envelope.body}`);
+  messageDeclarations.set(message, declaration);
   return message;
 }
 
@@ -70,14 +105,17 @@ export function loadActionProducerManifest(moduleUrl) {
   const scriptsDirectory = path.join(path.dirname(manifestPath), "scripts");
   const actions = {};
   const factories = {};
+  const senders = {};
   const seenTokens = new Set();
   const seenFactories = new Set();
+  const seenSenders = new Set();
   for (const [name, declaration] of Object.entries(definition.actions)) {
     if (!ACTION_NAME.test(name) || !declaration || typeof declaration !== "object" || Array.isArray(declaration)
       || typeof declaration.token !== "string" || !ACTION_TOKEN.test(declaration.token)
       || declaration.export !== name || typeof declaration.script !== "string" || !SCRIPT_NAME.test(declaration.script)
       || typeof declaration.factory !== "string" || !FACTORY_NAME.test(declaration.factory)
-      || seenTokens.has(declaration.token) || seenFactories.has(declaration.factory)) {
+      || typeof declaration.sender !== "string" || !SENDER_NAME.test(declaration.sender)
+      || seenTokens.has(declaration.token) || seenFactories.has(declaration.factory) || seenSenders.has(declaration.sender)) {
       fail(`Action producer manifest has an invalid action declaration: ${manifestPath}`);
     }
     const script = path.join(scriptsDirectory, declaration.script);
@@ -88,12 +126,14 @@ export function loadActionProducerManifest(moduleUrl) {
     const value = Object.freeze({});
     declaredActionsByValue.set(value, Object.freeze({ name, token: declaration.token, script }));
     actions[name] = value;
-    factories[name] = Object.freeze((beforeHeader, afterHeader) => actionMessage(value, beforeHeader, afterHeader));
+    factories[name] = Object.freeze(envelope => actionMessage(value, envelope));
+    senders[name] = Object.freeze((message, options) => sendDeclaredActionMessage(value, message, options));
     seenTokens.add(declaration.token);
     seenFactories.add(declaration.factory);
+    seenSenders.add(declaration.sender);
   }
   if (seenTokens.size === 0) fail(`Action producer manifest must declare at least one action: ${manifestPath}`);
-  return Object.freeze({ actions: Object.freeze(actions), factories: Object.freeze(factories) });
+  return Object.freeze({ actions: Object.freeze(actions), factories: Object.freeze(factories), senders: Object.freeze(senders) });
 }
 
 function actionMessageBody(message) {
@@ -103,8 +143,9 @@ function actionMessageBody(message) {
 }
 
 // This is the only helper that unwraps a branded Action message and writes a
-// Waypost body. The sender module must exactly match the declared script.
-export function sendActionMessage(message, senderModuleUrl, {
+// Waypost body. loadActionProducerManifest binds each exposed sender closure
+// to one declaration, so callers cannot supply or spoof a sender URL.
+function sendDeclaredActionMessage(declaration, message, {
   toAddress,
   fromAddress,
   subject,
@@ -126,16 +167,10 @@ export function sendActionMessage(message, senderModuleUrl, {
     fail("Waypost Action send timeout must be a non-negative integer");
   }
   if (typeof runCommand !== "function") fail("Waypost Action send requires a structured transport callback");
-  const declaration = message && typeof message === "object" ? messageDeclarations.get(message) : undefined;
-  if (!declaration) fail("Waypost send requires a declared Action message");
-  let senderPath;
-  try {
-    senderPath = fileURLToPath(senderModuleUrl);
-  } catch {
-    fail("Waypost Action sender must provide its module URL");
-  }
-  if (path.resolve(senderPath) !== declaration.script) {
-    fail(`Waypost Action ${declaration.name} is not declared for sender: ${senderPath}`);
+  const messageDeclaration = message && typeof message === "object" ? messageDeclarations.get(message) : undefined;
+  if (!messageDeclaration) fail("Waypost send requires a declared Action message");
+  if (messageDeclaration !== declaration) {
+    fail("Waypost Action message does not match its declared producer route");
   }
   return runCommand("waypost", [
     "send", "--to", toAddress,
