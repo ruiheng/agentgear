@@ -123,6 +123,7 @@ test("technical design requester owns terminal architect cleanup", () => {
   assert.match(draftStart, /reviewer-first ordering/);
   assert.match(authorRound, /Session Host: <session_host>/);
   assert.match(authorRound, /Previous reviewed artifact/);
+  assert.match(authorRound, /Reuse prior evidence from unchanged source/);
   assert.match(authorRound, /machine diff/);
   assert.match(requesterHandling, /send the same delta unchanged to author/);
   assert.match(requesterHandling, /design_spec_review_context_rejected/);

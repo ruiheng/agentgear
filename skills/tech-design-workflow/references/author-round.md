@@ -19,7 +19,7 @@ On `design_spec_review_context_recovery_requested` with `Relay: requester`, reco
 On `design_spec_draft_requested`:
 
 1. Recover requester, reviewer, host, round, maximum, canonical contract, artifact, archive branch, and prior reviewed target when round > 1.
-2. For round 1, inspect the relevant repository and user-aligned context. For later rounds, start from the prior review findings and the copied prior artifact; re-open source only when the revision changes a dependency/invariant or reviewer evidence is stale.
+2. For round 1, inspect the relevant repository and user-aligned context. For later rounds, start from the prior review findings and copied prior artifact. Reuse prior evidence from unchanged source; reinspect only source affected by the findings, artifact changes, repository changes, or a current contradiction.
 3. Write the complete, proportional, implementation-ready design to the named round path. Only the author writes `.agent-artifacts/design-spec/<author_session_id>/`.
 4. Keep accepted constraints and rationale in the artifact, not only in messages.
 5. Send the review request below, leave the artifact unchanged, and follow the Async sender rule.

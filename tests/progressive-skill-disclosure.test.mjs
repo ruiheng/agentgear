@@ -98,7 +98,7 @@ test("canonical bootstraps ask agents to remember guidance without repeating glo
   const catalog = loadCatalog(rootDir);
   for (const skill of Object.keys(catalog.skills.skills)) {
     const source = fs.readFileSync(path.join(rootDir, "skills", skill, "SKILL.md"), "utf8");
-    assert.match(source, new RegExp(`Run \\`agentgear skill get ${skill} start\\`\\. Remember and follow its guidance\\.`));
+    assert.match(source, new RegExp("Run `agentgear skill get " + skill + " start`\\. Remember and follow its guidance\\."));
     assert.doesNotMatch(source, /Agentgear skill text is stable/);
     assert.doesNotMatch(source, /Repeat that command after compaction/);
   }
