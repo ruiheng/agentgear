@@ -1,7 +1,7 @@
 ---
 skill-selector: start-plan
 selector-summary: Complete execute-plan instructions, part 1.
-selector-aliases: execute-plan/start, check-waypost-messages/action:execute_plan
+selector-aliases: execute-plan/start, action:execute_plan
 ---
 
 # Execute Plan
@@ -9,7 +9,7 @@ selector-aliases: execute-plan/start, check-waypost-messages/action:execute_plan
 Execute one supervisor-provided goal inside one workspace.
 This session owns one planner lane.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Input
 
@@ -30,7 +30,7 @@ Provide `execute_plan`, or a matching `integration_final` result plus plan conte
 
 ## Multi-Agent Mode
 
-Retrieve `agentgear skill get multi-agent-protocol shared-protocol` for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol` for shared protocol.
 
 Skill-specific context resolution:
 Final-review continuation:
@@ -94,4 +94,4 @@ Use this when the task fails the direct gate, no native harness is available, an
 
 ## Continue
 
-Retrieve `agentgear skill get execute-plan continue-1` before proceeding.
+Retrieve `agentgear skill get execute-plan/continue-1` before proceeding.

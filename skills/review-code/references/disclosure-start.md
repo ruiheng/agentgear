@@ -1,14 +1,14 @@
 ---
 skill-selector: review
 selector-summary: Complete review-code instructions, part 1.
-selector-aliases: review-code/start, check-waypost-messages/action:review_requested
+selector-aliases: review-code/start, action:review_requested
 ---
 
 # Review Code
 
 Review code changes for logical correctness, design quality, and security.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Input
 
@@ -127,4 +127,4 @@ Correctness, design, security, regressions, verification, andâ€”after round `1`â
 
 ## Continue
 
-Retrieve `agentgear skill get review-code continue-1` before proceeding.
+Retrieve `agentgear skill get review-code/continue-1` before proceeding.

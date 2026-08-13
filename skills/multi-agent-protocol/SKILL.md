@@ -7,4 +7,4 @@ description: Use the shared protocol for multi-agent collaboration.
 
 Use the shared protocol for multi-agent collaboration.
 
-Run `agentgear skill get multi-agent-protocol start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get multi-agent-protocol`. Run it only if you no longer remember the guidance or have evidence it changed.

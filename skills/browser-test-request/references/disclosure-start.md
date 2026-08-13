@@ -7,7 +7,7 @@ selector-summary: Complete browser-test-request instructions, part 1.
 
 Generate a concise Waypost message that asks a browser-tester to validate one coherent browser test batch with `agent-browser`.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Inputs
 
@@ -38,7 +38,7 @@ Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol s
 
 ## Multi-Agent Mode
 
-Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host tool-resolution` for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/session-host multi-agent-protocol/tool-resolution` for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message/review context -> ask

@@ -7,7 +7,7 @@ selector-summary: Complete roundtable instructions, part 1.
 
 Moderate a group discussion. The user talks to you; participants talk in the Waypost group.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Role
 
@@ -46,7 +46,7 @@ Resolve by priority: explicit input -> current roundtable context -> message bod
    - `waypost_group_add_member` for `moderator`
    - `waypost_group_add_subscriber` with `notify_address = moderator_notify_address` and `person = moderator`
    - `waypost_group_add_member` for each `participant/<slug>`
-4. Resolve every new participant tool through `agentgear skill get multi-agent-protocol tool-resolution` for role `roundtable_participant`.
+4. Resolve every new participant tool through `agentgear skill get multi-agent-protocol/tool-resolution` for role `roundtable_participant`.
 5. Resolve each participant session.
    - First try `session_resolve` for an explicit existing `participant_session_id` or known `participant_session_ref`.
    - If an existing session is found, use `session_require` with its returned host, real id, and current workspace.
@@ -128,4 +128,4 @@ After participant control message is sent, do independent moderator work when av
 
 ## Continue
 
-Retrieve `agentgear skill get roundtable continue-1` before proceeding.
+Retrieve `agentgear skill get roundtable/continue-1` before proceeding.

@@ -46,8 +46,7 @@ import {
   buildSkillContentIndex,
   formatSkillText,
   listSkillSelectors,
-  resolveSkillOverview,
-  resolveSkillSelector
+  resolveSkillAddress
 } from "./lib/skill-content.mjs";
 import { migrateLegacySkills } from "./lib/legacy-skill-migration.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
@@ -72,7 +71,7 @@ function usage() {
     "",
     "Commands:",
     "  list [--json]",
-    "  skill get [--json] [--] SKILL [SELECTOR...]",
+    "  skill get [--json] [--] ADDRESS...",
     "  skill list [--json] [--] SKILL",
     "  migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]",
     "  build",
@@ -507,8 +506,11 @@ function list(catalog, options) {
 function skillUsage() {
   return [
     "Usage:",
-    "  agentgear skill get [--json] [--] SKILL [SELECTOR...]",
+    "  agentgear skill get [--json] [--] ADDRESS...",
     "  agentgear skill list [--json] [--] SKILL",
+    "",
+    "Addresses: SKILL loads its entry; SKILL/SELECTOR is exact; a bare SELECTOR",
+    "searches all skills and must match exactly one slice. Multiple addresses are allowed.",
     "",
     "Skill text is stable. Remember and reuse it; reload only if you no longer remember it,",
     "the user asks, or there is evidence it changed."
@@ -527,10 +529,10 @@ function skill(catalog, argumentsList) {
     return;
   }
   if ([...options.supplied].some(option => option !== "json")) {
-    fail("skill accepts only --json and positional skill selectors");
+    fail("skill accepts only --json and positional addresses");
   }
   const [skillName, ...selectors] = options.positional;
-  if (!skillName) fail(`skill ${operation} requires SKILL`);
+  if (!skillName) fail(`skill ${operation} requires ${operation === "get" ? "ADDRESS" : "SKILL"}`);
   const index = buildSkillContentIndex(rootDir, catalog);
   const upstream = catalog.skills.upstreams?.[skillName];
   if (upstream) {
@@ -540,7 +542,7 @@ function skill(catalog, argumentsList) {
       return;
     }
     if (operation !== "get") fail(`Unknown skill: ${skillName}. Run agentgear list for known skills.`);
-    if (selectors.length > 0) throw new SkillContentError(`Unknown selector ${skillName}/${selectors[0]}. Run agentgear skill list ${skillName}.`, { kind: "unknown" });
+    if (options.positional.length > 1) throw new SkillContentError(`Upstream skill ${skillName} cannot be combined with other addresses.`, { kind: "unknown" });
     const paths = computePaths();
     const resource = retrieveUpstreamSkill({
       catalog,
@@ -551,8 +553,7 @@ function skill(catalog, argumentsList) {
     const overview = fs.readFileSync(path.join(resource.payload, "SKILL.md"), "utf8").replace(/\r\n/g, "\n").replace(/\n*$/, "") + "\n";
     if (options.json) {
       print(JSON.stringify({
-        skill: skillName,
-        overview,
+        selections: [{ address: skillName, owner: skillName, body: overview }],
         resourceBase: resource.payload,
         repository: resource.plan.source.repository,
         ref: resource.plan.source.ref,
@@ -582,25 +583,22 @@ function skill(catalog, argumentsList) {
     return;
   }
   if (operation !== "get") fail(`Unknown skill command: ${operation}`);
-  const overview = selectors.length === 0 ? resolveSkillOverview(index, skillName) : null;
-  const selections = selectors.map(selector => ({ ...resolveSkillSelector(index, skillName, selector), requestedSelector: selector }));
+  const addresses = options.positional;
+  const selections = addresses.map(address => resolveSkillAddress(index, address));
   if (options.json) {
-    const payload = overview
-      ? { skill: skillName, overview: overview.body }
-      : {
-        skill: skillName,
-        selections: selections.map(record => ({
-          requestedSelector: record.requestedSelector,
-          owner: record.owner,
-          selector: record.canonicalSelector,
-          aliases: record.aliases,
-          summary: record.summary,
-          body: record.body
-        }))
-      };
+    const payload = {
+      selections: selections.map(record => ({
+        address: record.requestedAddress,
+        owner: record.owner,
+        selector: record.canonicalSelector,
+        aliases: record.aliases,
+        summary: record.summary,
+        body: record.body
+      }))
+    };
     print(JSON.stringify(payload, null, 2));
   } else {
-    process.stdout.write(formatSkillText({ skill: skillName, overview, selections }));
+    process.stdout.write(formatSkillText({ selections }));
   }
 }
 

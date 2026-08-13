@@ -7,7 +7,7 @@ selector-summary: Complete review-closeout instructions, part 1.
 
 Extract a closeout summary from a full review report.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Purpose
 
@@ -33,7 +33,7 @@ Provide the accepted full review report text.
 
 ## Multi-Agent Mode
 
-Retrieve `agentgear skill get multi-agent-protocol shared-protocol diagnostics` for shared protocol:
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/diagnostics` for shared protocol:
 - `Multi-Agent Mode Detection`
 - `Context Resolution Priority`
 - `Error Handling and Diagnostics`
@@ -140,4 +140,4 @@ No actionable items.
 
 ## Continue
 
-Retrieve `agentgear skill get review-closeout continue-1` before proceeding.
+Retrieve `agentgear skill get review-closeout/continue-1` before proceeding.

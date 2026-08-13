@@ -1,7 +1,7 @@
 ---
 skill-selector: requester-delivery
 selector-summary: Archive and close out a delivered accepted technical design.
-selector-aliases: check-waypost-messages/action:design_spec_delivered
+selector-aliases: action:design_spec_delivered
 ---
 
 # Requester Delivery
@@ -14,6 +14,6 @@ On `design_spec_delivered`:
 4. Choose a tracked docs path and stop if it has unrelated changes.
 5. Return substantive changes to the author for another reviewed round; make only trivial non-substantive archival edits locally.
 6. Copy and commit only the accepted design document.
-7. Retrieve `agentgear skill get tech-design-workflow closeout`, archive and remove task sessions, then report the tracked doc and commit.
+7. Retrieve `agentgear skill get tech-design-workflow/closeout`, archive and remove task sessions, then report the tracked doc and commit.
 
-Treat the tracked committed document as authoritative for implementation. Retrieve `agentgear skill get tech-design-workflow requester-handling` only when the complete requester handling contract is needed.
+Treat the tracked committed document as authoritative for implementation. Retrieve `agentgear skill get tech-design-workflow/requester-handling` only when the complete requester handling contract is needed.

@@ -15,7 +15,7 @@ For author and reviewer, independently resolve tool selection with roles `archit
 
 ## Sessions
 
-Retrieve `agentgear skill get multi-agent-protocol session-host tool-resolution` before session operations.
+Retrieve `agentgear skill get multi-agent-protocol/session-host multi-agent-protocol/tool-resolution` before session operations.
 
 Resolve deterministic refs, defaulting to `architect-author-<task_id>` and `architect-reviewer-<task_id>`:
 

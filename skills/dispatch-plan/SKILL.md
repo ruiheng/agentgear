@@ -7,4 +7,4 @@ description: Send a goal to a planner.
 
 Send a goal to a planner.
 
-Run `agentgear skill get dispatch-plan start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get dispatch-plan`. Run it only if you no longer remember the guidance or have evidence it changed.

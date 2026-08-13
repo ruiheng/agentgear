@@ -19,7 +19,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 
    Stop on workspace or integration-branch mismatch. Use `--override-workspaces` only after explicit user confirmation.
 
-2. Resolve the coder id/ref through `agentgear skill get multi-agent-protocol session-host`. When review is required, also resolve or create the reviewer before coder dispatch with the same planner parent, workspace, and session host.
+2. Resolve the coder id/ref through `agentgear skill get multi-agent-protocol/session-host`. When review is required, also resolve or create the reviewer before coder dispatch with the same planner parent, workspace, and session host.
 
    - reuse a found coder with `session_require` and its returned host, real id,
      path, and address;

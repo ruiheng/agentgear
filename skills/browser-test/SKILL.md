@@ -7,4 +7,4 @@ description: Validate browser behavior with agent-browser.
 
 Validate browser behavior with agent-browser.
 
-Run `agentgear skill get browser-test start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get browser-test`. Run it only if you no longer remember the guidance or have evidence it changed.

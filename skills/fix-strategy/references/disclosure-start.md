@@ -119,4 +119,4 @@ Keep it compact and evidence-linked. Cite concrete files, tests, artifacts, and 
 
 ## Continue
 
-Retrieve `agentgear skill get fix-strategy continue-1` before proceeding.
+Retrieve `agentgear skill get fix-strategy/continue-1` before proceeding.

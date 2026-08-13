@@ -10,7 +10,7 @@ selector-summary: Complete dispatch-plan instructions, part 2.
 3. resolve `workspace`
 4. set internal `planner_workspace = workspace` and `worker_workspace = workspace`
 5. resolve `planner_session_ref`; when creating a new planner and no existing ref/id is provided, generate `planner-YYYYMMDD-HHMM-<slug>` from the workspace or goal
-6. resolve planner launch policy only when allocating a new planner lane, following `agentgear skill get multi-agent-protocol tool-resolution` for role `planner`
+6. resolve planner launch policy only when allocating a new planner lane, following `agentgear skill get multi-agent-protocol/tool-resolution` for role `planner`
    - if `planner_session_id` is already known, skip this resolution step and carry forward the existing planner launch metadata
    - if explicit `planner_tool` is provided, preserve it unchanged as `planner_tool_cmd`
    - otherwise, if explicit `planner_tool_profile` is provided, resolve role `planner` with that profile

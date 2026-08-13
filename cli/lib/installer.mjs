@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   findMissingWorkflowLauncherApprovals,
+  findMissingWaypostCliFailApprovals,
   findRetiredPermissionApprovals
 } from "../../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
 import { resolveSelection } from "./catalog.mjs";
@@ -68,14 +69,16 @@ export function permissionMigrationScopes(options, env = process.env) {
     .map(candidate => {
       const retired = findRetiredPermissionApprovals({ ...candidate, env });
       const launcher = findMissingWorkflowLauncherApprovals({ ...candidate, env });
+      const waypostFail = findMissingWaypostCliFailApprovals({ ...candidate, env });
       return {
         ...candidate,
-        required: retired.required || launcher.required,
+        required: retired.required || launcher.required || waypostFail.required,
         reasons: [
           ...(retired.required ? ["retired-command"] : []),
-          ...(launcher.required ? ["missing-workflow-launcher"] : [])
+          ...(launcher.required ? ["missing-workflow-launcher"] : []),
+          ...(waypostFail.required ? ["missing-waypost-cli-fail"] : [])
         ],
-        issues: [...retired.issues, ...launcher.issues]
+        issues: [...retired.issues, ...launcher.issues, ...waypostFail.issues]
       };
     })
     .filter(result => result.required);
@@ -90,12 +93,16 @@ export function printPermissionMigrationRequirement({
     || (!Array.isArray(result.reasons) && result.required);
   const retiredDetected = detectedScopes.some(isRetiredResult);
   const launcherMissing = detectedScopes.some(result => result.reasons?.includes("missing-workflow-launcher"));
-  if (!commandRetired && !retiredDetected && !launcherMissing) return;
+  const waypostFailMissing = detectedScopes.some(result => result.reasons?.includes("missing-waypost-cli-fail"));
+  if (!commandRetired && !retiredDetected && !launcherMissing && !waypostFailMissing) return;
   const retiredScopes = [...new Set(detectedScopes
     .filter(isRetiredResult)
     .map(result => result.scope))];
   const launcherScopes = [...new Set(detectedScopes
     .filter(result => result.reasons?.includes("missing-workflow-launcher"))
+    .map(result => result.scope))];
+  const waypostFailScopes = [...new Set(detectedScopes
+    .filter(result => result.reasons?.includes("missing-waypost-cli-fail"))
     .map(result => result.scope))];
   if (commandRetired || retiredDetected) {
     print("SECURITY ACTION REQUIRED: permission_migration_required command=adwf-send-and-wake");
@@ -103,11 +110,17 @@ export function printPermissionMigrationRequirement({
   if (launcherMissing) {
     print("SECURITY ACTION REQUIRED: permission_migration_required missing=tech-design-workflow-launcher");
   }
+  if (waypostFailMissing) {
+    print("SECURITY ACTION REQUIRED: permission_migration_required missing=waypost-cli-fail");
+  }
   if (retiredScopes.length > 0) {
     print(`Detected retired permission approvals in scope(s): ${retiredScopes.join(",")}`);
   }
   if (launcherScopes.length > 0) {
     print(`Detected outdated workflow launcher approvals in scope(s): ${launcherScopes.join(",")}`);
+  }
+  if (waypostFailScopes.length > 0) {
+    print(`Detected outdated Waypost CLI approvals in scope(s): ${waypostFailScopes.join(",")}`);
   }
   print("Run: agentgear permissions init");
   print("For every project where workflow permissions were initialized, run: agentgear permissions init --scope project --project <path>");

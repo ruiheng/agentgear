@@ -7,4 +7,4 @@ description: Process a planner's final Waypost report.
 
 Process a planner's final Waypost report.
 
-Run `agentgear skill get plan-report start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get plan-report`. Run it only if you no longer remember the guidance or have evidence it changed.

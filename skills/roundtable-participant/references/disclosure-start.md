@@ -1,14 +1,14 @@
 ---
 skill-selector: turn
 selector-summary: Complete roundtable-participant instructions, part 1.
-selector-aliases: roundtable-participant/start, check-waypost-messages/action:roundtable_participant_turn
+selector-aliases: roundtable-participant/start, action:roundtable_participant_turn
 ---
 
 # Roundtable Participant
 
 Speak as the assigned participant. The moderator talks to the user; you talk to the group.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Inputs
 

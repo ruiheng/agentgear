@@ -7,4 +7,4 @@ description: Find safe code simplifications without changes.
 
 Find safe code simplifications without changes.
 
-Run `agentgear skill get simplify-review start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get simplify-review`. Run it only if you no longer remember the guidance or have evidence it changed.

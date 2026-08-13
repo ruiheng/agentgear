@@ -5,14 +5,14 @@ selector-summary: Complete review-tech-design instructions, part 1.
 
 # Review Technical Design
 
-Use `agentgear skill get multi-agent-protocol start shared-protocol` for shared transport. Determine the mode from the input, then read only the reference needed for that mode.
+Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol` for shared transport. Determine the mode from the input, then read only the reference needed for that mode.
 
 ## Route First
 
-- Any Waypost body with `Action: design_spec_review_context` uses context intake mode; retrieve `agentgear skill get review-tech-design context-intake`.
-- For `design_spec_review_requested` with `Mode: draft-round`, retrieve `agentgear skill get review-tech-design draft-round-review message-delivery`.
-- For `design_spec_review_requested` with `Mode: committed-docs`, retrieve `agentgear skill get review-tech-design committed-docs-review message-delivery`.
-- Every other invocation is direct-use mode; review the readable target named by the user and retrieve `agentgear skill get review-tech-design message-delivery` for the report form. Do not send Waypost.
+- Any Waypost body with `Action: design_spec_review_context` uses context intake mode; retrieve `agentgear skill get review-tech-design/context-intake`.
+- For `design_spec_review_requested` with `Mode: draft-round`, retrieve `agentgear skill get review-tech-design/draft-round-review review-tech-design/message-delivery`.
+- For `design_spec_review_requested` with `Mode: committed-docs`, retrieve `agentgear skill get review-tech-design/committed-docs-review review-tech-design/message-delivery`.
+- Every other invocation is direct-use mode; review the readable target named by the user and retrieve `agentgear skill get review-tech-design/message-delivery` for the report form. Do not send Waypost.
 
 ## Authority and Independence
 

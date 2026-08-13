@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const ACTIONS = ["read", "list"];
+const ACTIONS = ["read", "list", "fail"];
 const MANIFEST_VERSION = 3;
 const WAYPOST_MCP_PERMISSION = /^mcp__waypost__[A-Za-z0-9_]+$/;
 const WAYPOST_EXECUTABLE = /^waypost(?:[._-].*)?$/;
@@ -157,7 +157,8 @@ function supportsWaypostCapabilities(command, stateDir, env) {
   const checks = [
     ["mcp", "--help"],
     ["--state-dir", stateDir, "read", "--help"],
-    ["--state-dir", stateDir, "list", "--help"]
+    ["--state-dir", stateDir, "list", "--help"],
+    ["--state-dir", stateDir, "fail", "--help"]
   ];
   return checks.every(args => run(command, args, { env }).status === 0);
 }
@@ -213,7 +214,7 @@ export function resolveWaypostPermissionContext({
     return { trusted: false, rules: [], reason: "waypost command or target is inside the project workspace" };
   }
   if (!supportsWaypostCapabilities(canonicalCommand, stateDir, env)) {
-    return { trusted: false, rules: [], reason: "waypost lacks mcp/read/list support" };
+    return { trusted: false, rules: [], reason: "waypost lacks mcp/read/list/fail support" };
   }
 
   const { commandForms, stateForms } = commandAndStateForms(canonicalCommand, stateDir, home);
@@ -265,7 +266,7 @@ export function claudeWaypostPermission(rule) {
 function stableRules(rules) {
   const normalized = rules.map(normalizedRule);
   const identities = normalized.map(rule => JSON.stringify(rule));
-  if (normalized.length === 0 || normalized.length > 16 || new Set(identities).size !== normalized.length) {
+  if (normalized.length === 0 || normalized.length > 24 || new Set(identities).size !== normalized.length) {
     throw new Error("invalid Waypost ownership rule set");
   }
   return normalized;

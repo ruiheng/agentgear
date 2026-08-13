@@ -7,4 +7,4 @@ description: Review code changes for correctness and security.
 
 Review code changes for correctness and security.
 
-Run `agentgear skill get review-code start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get review-code`. Run it only if you no longer remember the guidance or have evidence it changed.

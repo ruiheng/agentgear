@@ -5,7 +5,7 @@ selector-summary: Complete delegate-task instructions, part 1.
 
 # Delegate Task
 
-Use `agentgear skill get multi-agent-protocol start shared-protocol` for Waypost transport and lifecycle; retrieve `agentgear skill get multi-agent-protocol session-host tool-resolution` when session lifecycle work is needed.
+Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol` for Waypost transport and lifecycle; retrieve `agentgear skill get multi-agent-protocol/session-host multi-agent-protocol/tool-resolution` when session lifecycle work is needed.
 
 Delegate one bounded outcome; do not run it locally or infer a code-delivery lifecycle.
 
@@ -103,4 +103,4 @@ Use this as the direct task contract. Prepend the Waypost envelope below for a W
 
 ## Continue
 
-Retrieve `agentgear skill get delegate-task dispatch` before dispatching.
+Retrieve `agentgear skill get delegate-task/dispatch` before dispatching.

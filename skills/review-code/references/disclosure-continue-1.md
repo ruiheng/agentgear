@@ -154,4 +154,4 @@ For `integration_final`, insert after `Intent And Constraints`:
 
 ## Continue
 
-Retrieve `agentgear skill get review-code continue-2` before proceeding.
+Retrieve `agentgear skill get review-code/continue-2` before proceeding.

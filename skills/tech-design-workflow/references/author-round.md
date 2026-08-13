@@ -1,12 +1,12 @@
 ---
 skill-selector: author-round
 selector-summary: Draft or revise one immutable technical design round and request review.
-selector-aliases: check-waypost-messages/action:design_spec_draft_requested, check-waypost-messages/action:design_spec_context_corrected
+selector-aliases: action:design_spec_draft_requested, action:design_spec_context_corrected
 ---
 
 # Author Round
 
-This is the first executable author stage. Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host` before transport or session operations.
+This is the first executable author stage. Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/session-host` before transport or session operations.
 
 ## Route Corrections and Recovery
 

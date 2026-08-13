@@ -14,18 +14,18 @@ installation-specific path from another repository.
 ## Workflow Order
 
 For any workflow turn:
-1. retrieve `agentgear skill get multi-agent-protocol shared-protocol`
+1. retrieve `agentgear skill get multi-agent-protocol/shared-protocol`
 2. use the action skill for the current workflow step
 3. use any extra references that skill requires
 
 Interpret references to the shared workflow protocol as:
-- use `agentgear skill get multi-agent-protocol start` as the entry point
+- use `agentgear skill get multi-agent-protocol` as the entry point
 - then follow the returned shared protocol
 
 ## Session Hosts
 
 Before resolving, creating, requiring, or addressing a collaborator session,
-retrieve `agentgear skill get multi-agent-protocol session-host`. Waypost selects Agent Deck or Thurbox; keep
+retrieve `agentgear skill get multi-agent-protocol/session-host`. Waypost selects Agent Deck or Thurbox; keep
 host detection and provider-specific arguments out of action skills.
 
 ## Shared Context
@@ -41,10 +41,10 @@ permission. If denied, escalate instead of retrying unchanged.
 
 ## Launch Resolution
 
-Before creating a new session, retrieve `agentgear skill get multi-agent-protocol session-host tool-resolution`. Resolve a workflow role to opaque launch
+Before creating a new session, retrieve `agentgear skill get multi-agent-protocol/session-host multi-agent-protocol/tool-resolution`. Resolve a workflow role to opaque launch
 candidate values; never invent a command line or Thurbox agent key in an
 action prompt.
 
 ## Error Handling and Diagnostics
 
-Retrieve `agentgear skill get multi-agent-protocol diagnostics` for the shared diagnostics checklist.
+Retrieve `agentgear skill get multi-agent-protocol/diagnostics` for the shared diagnostics checklist.

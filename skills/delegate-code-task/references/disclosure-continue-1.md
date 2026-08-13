@@ -1,7 +1,7 @@
 ---
 skill-selector: execute
 selector-summary: Complete delegate-code-task instructions, part 2.
-selector-aliases: check-waypost-messages/action:execute_delegate_task
+selector-aliases: action:execute_delegate_task
 ---
 
 ## Coder Receive
@@ -46,4 +46,4 @@ Round: final
 
 ## Continue
 
-Retrieve `agentgear skill get delegate-code-task continue-2` before proceeding.
+Retrieve `agentgear skill get delegate-code-task/continue-2` before proceeding.

@@ -5,16 +5,16 @@ selector-summary: Complete tech-design-workflow instructions, part 1.
 
 # Technical Design Workflow
 
-Use `agentgear skill get multi-agent-protocol start shared-protocol` for the shared transport and session protocol. Read only the reference required by the current action; load another reference only when the action explicitly crosses into it.
+Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol` for the shared transport and session protocol. Read only the reference required by the current action; load another reference only when the action explicitly crosses into it.
 
 ## Route First
 
-- New draft-review lane: retrieve `agentgear skill get tech-design-workflow draft-review`.
-- New review-existing lane: retrieve `agentgear skill get tech-design-workflow review-existing`.
-- `design_spec_draft_requested`, `design_spec_context_corrected`, or author-addressed `design_spec_review_context_recovery_requested`: retrieve `agentgear skill get tech-design-workflow author-round`.
-- `design_spec_review_report`: retrieve `agentgear skill get tech-design-workflow report-handling`.
-- `design_spec_review_context_rejected`, `design_spec_decision_requested`, `design_spec_delivered`, or requester-addressed `design_spec_review_context_recovery_requested`: retrieve `agentgear skill get tech-design-workflow requester-handling`.
-- After the accepted design is authoritative: retrieve `agentgear skill get tech-design-workflow closeout`.
+- New draft-review lane: retrieve `agentgear skill get tech-design-workflow/draft-review`.
+- New review-existing lane: retrieve `agentgear skill get tech-design-workflow/review-existing`.
+- `design_spec_draft_requested`, `design_spec_context_corrected`, or author-addressed `design_spec_review_context_recovery_requested`: retrieve `agentgear skill get tech-design-workflow/author-round`.
+- `design_spec_review_report`: retrieve `agentgear skill get tech-design-workflow/report-handling`.
+- `design_spec_review_context_rejected`, `design_spec_decision_requested`, `design_spec_delivered`, or requester-addressed `design_spec_review_context_recovery_requested`: retrieve `agentgear skill get tech-design-workflow/requester-handling`.
+- After the accepted design is authoritative: retrieve `agentgear skill get tech-design-workflow/closeout`.
 
 For a new request, choose draft-review when no defensible committed specification exists or material technical choices remain unresolved. Choose review-existing only for committed specifications with a known branch, base, and complete requester context. Do not make the requester invent a specification merely to obtain review.
 
@@ -61,7 +61,7 @@ Treat this contract and requester-delivered Decision Deltas as authority. Treat 
 
 ## Shared Invariants
 
-- Use `session_resolve`, `session_require`, and `session_create` only through `agentgear skill get multi-agent-protocol session-host`; retrieve `agentgear skill get tech-design-workflow draft-review` before creating sessions.
+- Use `session_resolve`, `session_require`, and `session_create` only through `agentgear skill get multi-agent-protocol/session-host`; retrieve `agentgear skill get tech-design-workflow/draft-review` before creating sessions.
 - Keep transport metadata, launch commands, and provider-specific values out of task contracts and design artifacts.
 - Do not resolve user-owned product scope through engineering judgment. Exclude optional capability or use a Decision Request.
 - Keep findings and revisions proportional to the stated goal. Do not add machinery merely to satisfy a template.

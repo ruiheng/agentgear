@@ -7,4 +7,4 @@ description: Execute a supervisor-assigned workspace goal.
 
 Execute a supervisor-assigned workspace goal.
 
-Run `agentgear skill get execute-plan start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get execute-plan`. Run it only if you no longer remember the guidance or have evidence it changed.

@@ -8,6 +8,7 @@ import { main as cliMain } from "../cli/agentgear.mjs";
 import {
   checkPermissions,
   findMissingWorkflowLauncherApprovals,
+  findMissingWaypostCliFailApprovals,
   findRetiredPermissionApprovals,
   initializePermissions,
   permissionPaths,
@@ -26,7 +27,7 @@ function writeWaypostExecutable(directory, name = "waypost") {
   fs.writeFileSync(executable, `#!${process.execPath}
 const args = process.argv.slice(2);
 const supported = (args[0] === "mcp" && args[1] === "--help") ||
-  (args[0] === "--state-dir" && (args[2] === "read" || args[2] === "list") && args[3] === "--help");
+  (args[0] === "--state-dir" && (args[2] === "read" || args[2] === "list" || args[2] === "fail") && args[3] === "--help");
 process.exit(supported ? 0 : 1);
 `);
   fs.chmodSync(executable, 0o755);
@@ -248,6 +249,45 @@ test("permission migration detects every prior launcher form missing skill get a
       assert.equal(claude.permissions.allow.includes(`Bash(${command} run review-tech-design *)`), false);
     }
     assert.equal(findMissingWorkflowLauncherApprovals({ scope: "user", project, env: environment }).required, false);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("permission migration detects managed Waypost CLI rules missing fail", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-fail-upgrade-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const environment = { HOME: home, PATH: "" };
+  const paths = permissionPaths("user", project, environment);
+  const command = "/opt/waypost";
+  const stateDir = "/opt/waypost-state";
+  const permission = `Bash(${command} --state-dir ${stateDir} read)`;
+  const manifestFile = path.join(path.dirname(paths.claudeSettings), ".agentgear-workflow-permissions.json");
+  try {
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(path.dirname(paths.claudeSettings), { recursive: true });
+    fs.writeFileSync(paths.claudeSettings, `${JSON.stringify({ permissions: { allow: [permission] } })}\n`);
+    fs.writeFileSync(manifestFile, `${JSON.stringify({
+      version: 3,
+      permissions: [permission],
+      mcp_permissions: [],
+      rules: [{ command, state_dir: stateDir, action: "read", wildcard: false }]
+    })}\n`);
+    fs.mkdirSync(path.dirname(paths.codexRules), { recursive: true });
+    fs.writeFileSync(paths.codexRules, `# Agentgear workflow - generated approval rules\nprefix_rule(\n    pattern = ["${command}", "--state-dir", "${stateDir}", "read"],\n)\n`);
+    fs.mkdirSync(path.dirname(paths.geminiPolicy), { recursive: true });
+    fs.writeFileSync(paths.geminiPolicy, `# Agentgear workflow - generated policy rules\ncommandPrefix = ["${command}", "--state-dir", "${stateDir}", "list"]\n`);
+
+    const stale = findMissingWaypostCliFailApprovals({ scope: "user", project, env: environment });
+    assert.equal(stale.required, true);
+    assert.equal(stale.issues.length, 3);
+    assert.equal(stale.issues.every(issue => /missing fail/.test(issue)), true);
+
+    fs.rmSync(manifestFile);
+    fs.writeFileSync(paths.codexRules, "# Agentgear workflow - generated approval rules\n");
+    fs.writeFileSync(paths.geminiPolicy, "# Agentgear workflow - generated policy rules\n");
+    assert.equal(findMissingWaypostCliFailApprovals({ scope: "user", project, env: environment }).required, false);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -539,7 +579,12 @@ test("workflow permissions migrate the legacy Codex approval block into owned bo
     fs.mkdirSync(project, { recursive: true });
     const paths = withEnvironment(environment, () => permissionPaths("user", project));
     fs.mkdirSync(path.dirname(paths.codexConfig), { recursive: true });
-    const legacySections = workflowWaypostMcpTools
+    const legacyTools = [
+      "session_create", "session_require", "session_resolve", "waypost_ack", "waypost_bind", "waypost_defer",
+      "waypost_fail", "waypost_group_add_member", "waypost_group_add_subscriber", "waypost_group_create",
+      "waypost_list", "waypost_read", "waypost_recv", "waypost_release", "waypost_send", "waypost_status"
+    ];
+    const legacySections = legacyTools
       .map(tool => `[mcp_servers.waypost.tools.${tool}]\napproval_mode = "approve"`)
       .join("\n\n");
     fs.writeFileSync(
@@ -553,6 +598,7 @@ test("workflow permissions migrate the legacy Codex approval block into owned bo
     assert.doesNotMatch(source, /# Agentgear multi-agent-protocol Waypost MCP approvals/);
     assert.match(source, /# BEGIN Agentgear Waypost MCP approvals/);
     assert.match(source, /# END Agentgear Waypost MCP approvals/);
+    assert.doesNotMatch(source, /mcp_servers\.waypost\.tools\.waypost_fail/);
     assert.equal(fs.existsSync(paths.codexOwnership), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
@@ -663,27 +709,34 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
 
     const expectedRead = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} read)`;
     const expectedReadWildcard = `${expectedRead.slice(0, -1)} *)`;
+    const expectedFail = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} fail)`;
+    const expectedFailWildcard = `${expectedFail.slice(0, -1)} *)`;
     const claude = JSON.parse(fs.readFileSync(claudeSettings, "utf8"));
     assert.equal(claude.permissions.allow.includes(expectedRead), true);
     assert.equal(claude.permissions.allow.includes(expectedReadWildcard), true);
+    assert.equal(claude.permissions.allow.includes(expectedFail), true);
+    assert.equal(claude.permissions.allow.includes(expectedFailWildcard), true);
     assert.equal(claude.permissions.allow.includes("Bash(waypost)"), false);
     assert.equal(claude.permissions.allow.includes("Bash(waypost *)"), false);
 
     const manifest = JSON.parse(fs.readFileSync(path.join(project, ".claude", ".agentgear-workflow-permissions.json"), "utf8"));
     assert.equal(manifest.version, 3);
-    assert.equal(manifest.rules.length, 4);
+    assert.equal(manifest.rules.length, 6);
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));
 
     const codex = fs.readFileSync(path.join(project, ".codex", "rules", "agentgear-workflow.rules"), "utf8");
     assert.match(codex, new RegExp(escapeRegex(waypost)));
+    assert.match(codex, /"fail"/);
     assert.doesNotMatch(codex, /pattern = \["waypost"/);
 
     const gemini = fs.readFileSync(path.join(project, ".gemini", "policies", "agentgear-workflow.toml"), "utf8");
     assert.match(gemini, /mcpName = "waypost"/);
     assert.match(gemini, new RegExp(escapeRegex(waypost)));
+    assert.match(gemini, /"fail"/);
 
     const userPermission = "Bash(/opt/custom-waypost --state-dir /tmp/custom-state read)";
-    claude.permissions.allow.push(userPermission);
+    const retiredMcpFail = "mcp__waypost__waypost_fail";
+    claude.permissions.allow.push(userPermission, retiredMcpFail);
     fs.writeFileSync(claudeSettings, `${JSON.stringify(claude, null, 2)}\n`);
     const manifestFile = path.join(project, ".claude", ".agentgear-workflow-permissions.json");
     const legacyManifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
@@ -698,6 +751,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     for (const tool of workflowWaypostMcpTools) {
       assert.equal(updatedClaude.permissions.allow.includes(`mcp__waypost__${tool}`), false, `stale MCP grant ${tool} was removed`);
     }
+    assert.equal(updatedClaude.permissions.allow.includes(retiredMcpFail), false, "retired v2 MCP fail grant was removed");
     assert.equal(fs.existsSync(manifestFile), false);
     const updatedGemini = fs.readFileSync(path.join(project, ".gemini", "policies", "agentgear-workflow.toml"), "utf8");
     assert.doesNotMatch(updatedGemini, /mcpName = "waypost"/);

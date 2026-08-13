@@ -1,14 +1,14 @@
 ---
 skill-selector: receive
 selector-summary: Complete plan-report instructions, part 1.
-selector-aliases: plan-report/start, check-waypost-messages/action:plan_report_delivered
+selector-aliases: plan-report/start, action:plan_report_delivered
 ---
 
 # Plan Report
 
 Handle one final planner report from `plan_report_delivered`.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Input
 

@@ -84,6 +84,26 @@ export const workflowWaypostMcpTools = [
   "waypost_ack",
   "waypost_bind",
   "waypost_defer",
+  "waypost_group_add_member",
+  "waypost_group_add_subscriber",
+  "waypost_group_create",
+  "waypost_list",
+  "waypost_read",
+  "waypost_recv",
+  "waypost_release",
+  "waypost_send",
+  "waypost_status"
+];
+
+// Version 2 manifests did not record MCP ownership. Keep the exact historical
+// grant set frozen so upgrades can remove permissions no longer generated.
+const legacyV2WorkflowWaypostMcpTools = [
+  "session_create",
+  "session_require",
+  "session_resolve",
+  "waypost_ack",
+  "waypost_bind",
+  "waypost_defer",
   "waypost_fail",
   "waypost_group_add_member",
   "waypost_group_add_subscriber",
@@ -445,6 +465,67 @@ export function findMissingWorkflowLauncherApprovals({
   };
 }
 
+function missingClaudeWaypostCliFailIssue(paths) {
+  let ownership;
+  try {
+    ownership = readWaypostOwnershipManifest(paths.configRoot);
+  } catch {
+    return null;
+  }
+  if (!ownership.present) return null;
+  const actions = new Set(ownership.rules.map(rule => rule.action));
+  const hasPriorCliRules = actions.has("read") || actions.has("list")
+    || ownership.permissions.some(permission => / (?:read|list)(?: \*)?\)$/.test(permission));
+  const hasFail = actions.has("fail")
+    || ownership.permissions.some(permission => / fail(?: \*)?\)$/.test(permission));
+  return hasPriorCliRules && !hasFail
+    ? `Claude Waypost CLI approvals are missing fail: ${paths.claudeSettings}`
+    : null;
+}
+
+function missingGeneratedWaypostCliFailIssue(filePath, label) {
+  const inspected = readRetiredPermissionFile(filePath, label);
+  if (inspected.issue || inspected.source === null) return null;
+  if (!inspected.source.includes("# Agentgear workflow - generated")) return null;
+  const rule = String.raw`(?:pattern|commandPrefix)\s*=\s*\[[^\]\r\n]*"--state-dir"[^\]\r\n]*"ACTION"\]`;
+  const hasPriorCliRules = new RegExp(rule.replace("ACTION", "(?:read|list)")).test(inspected.source);
+  const hasFail = new RegExp(rule.replace("ACTION", "fail")).test(inspected.source);
+  return hasPriorCliRules && !hasFail
+    ? `${label} Waypost CLI approvals are missing fail: ${filePath}`
+    : null;
+}
+
+export function findMissingWaypostCliFailApprovals({
+  scope = "user",
+  project = process.cwd(),
+  env = process.env
+} = {}) {
+  if (!["user", "project"].includes(scope)) {
+    throw new Error(`Invalid permissions scope: ${scope}. Use user or project.`);
+  }
+  const projectDir = path.resolve(project);
+  const paths = permissionPaths(scope, projectDir, env);
+  const issues = [];
+  const claudeIssue = missingClaudeWaypostCliFailIssue(paths);
+  if (claudeIssue) issues.push(claudeIssue);
+  for (const [filePath, label] of [
+    [paths.codexRules, "Codex rules"],
+    [paths.codexLegacyRules, "Legacy Codex rules"],
+    [paths.geminiPolicy, "Gemini policy"],
+    [paths.geminiLegacyPolicy, "Legacy Gemini policy"]
+  ]) {
+    const issue = missingGeneratedWaypostCliFailIssue(filePath, label);
+    if (issue) issues.push(issue);
+  }
+  return {
+    required: issues.length > 0,
+    scope,
+    project: projectDir,
+    issues,
+    paths
+  };
+}
+
 function generatedClaudePermissions(waypost) {
   const permissions = [
     jsonPermission("agent-deck"), jsonPermission("agent-deck *"),
@@ -483,7 +564,7 @@ function configureClaude(configRoot, waypost) {
   // list whenever Waypost was trusted. Treat it as legacy installer-owned
   // during one migration pass, then persist explicit v3 ownership.
   const legacyMcpPermissions = ownership.version === 2
-    ? workflowWaypostMcpTools.map(name => `mcp__waypost__${name}`)
+    ? legacyV2WorkflowWaypostMcpTools.map(name => `mcp__waypost__${name}`)
     : [];
   const ownedWaypostPermissions = new Set([
     ...ownership.permissions,
@@ -712,7 +793,7 @@ function stripCodexOwnedBlock(source, ownership) {
     throw new Error("refusing duplicate legacy Agentgear Codex Waypost approval blocks");
   }
   const tools = parseCodexToolSections(source.slice(legacy + legacyToken.length));
-  if (tools.length === 0 || tools.some(tool => !workflowWaypostMcpTools.includes(tool))) {
+  if (tools.length === 0 || tools.some(tool => !legacyV2WorkflowWaypostMcpTools.includes(tool))) {
     throw new Error("refusing unrecognized legacy Agentgear Codex Waypost approval block");
   }
   return { source: source.slice(0, legacy), tools, legacy: true, orphanedOwnership: false };

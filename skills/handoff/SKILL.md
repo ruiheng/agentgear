@@ -8,4 +8,4 @@ disable-model-invocation: true
 
 Create a handoff for another agent.
 
-Run `agentgear skill get handoff start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get handoff`. Run it only if you no longer remember the guidance or have evidence it changed.

@@ -7,4 +7,4 @@ description: Summarize an accepted review for the planner.
 
 Summarize an accepted review for the planner.
 
-Run `agentgear skill get review-closeout start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get review-closeout`. Run it only if you no longer remember the guidance or have evidence it changed.

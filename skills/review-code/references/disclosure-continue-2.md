@@ -5,7 +5,7 @@ selector-summary: Complete review-code instructions, part 3.
 
 ## Multi-Agent Mode
 
-Retrieve `agentgear skill get multi-agent-protocol shared-protocol diagnostics` for shared protocol:
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/diagnostics` for shared protocol:
 - `Multi-Agent Mode Detection`
 - `Context Resolution Priority`
 - `Error Handling and Diagnostics`
@@ -68,4 +68,4 @@ Default policy when missing:
 
 ## Continue
 
-Retrieve `agentgear skill get review-code continue-3` before proceeding.
+Retrieve `agentgear skill get review-code/continue-3` before proceeding.

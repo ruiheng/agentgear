@@ -7,4 +7,4 @@ description: Run or manage a multi-agent roundtable.
 
 Run or manage a multi-agent roundtable.
 
-Run `agentgear skill get roundtable start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get roundtable`. Run it only if you no longer remember the guidance or have evidence it changed.

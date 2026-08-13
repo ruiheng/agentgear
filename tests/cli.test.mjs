@@ -971,6 +971,39 @@ test("workflow update requires permission reinitialization for a missing design 
   }
 });
 
+test("workflow update requires permission reinitialization for missing Waypost CLI fail", () => {
+  const fixture = environmentFixture();
+  const claudeDir = path.join(fixture.home, ".claude");
+  const command = "/opt/waypost";
+  const stateDir = "/opt/waypost-state";
+  const permission = `Bash(${command} --state-dir ${stateDir} read)`;
+  try {
+    run(["install", "--pack", "workflow", "--target", "general"], fixture.environment);
+    fs.mkdirSync(claudeDir, { recursive: true });
+    fs.writeFileSync(path.join(claudeDir, "settings.json"), `${JSON.stringify({ permissions: { allow: [permission] } })}\n`);
+    fs.writeFileSync(path.join(claudeDir, ".agentgear-workflow-permissions.json"), `${JSON.stringify({
+      version: 3,
+      permissions: [permission],
+      mcp_permissions: [],
+      rules: [{ command, state_dir: stateDir, action: "read", wildcard: false }]
+    })}\n`);
+
+    const result = spawnAgentgear(
+      ["update", "--pack", "workflow", "--target", "general"],
+      fixture,
+      fixture.environment
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /permission_migration_required missing=waypost-cli-fail/);
+    assert.match(result.stdout, /Detected outdated Waypost CLI approvals in scope\(s\): user/);
+    assert.match(result.stdout, /Run: agentgear permissions init/);
+    assert.match(result.stdout, /Restart existing agent sessions/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("purge and later install report retired approvals after installation state is gone", t => {
   if (process.platform === "win32") {
     t.skip("retired link migration fixture is POSIX-specific");

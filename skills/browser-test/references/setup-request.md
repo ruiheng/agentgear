@@ -1,7 +1,7 @@
 ---
 skill-selector: setup-request
 selector-summary: Request or prepare browser validation setup.
-selector-aliases: check-waypost-messages/action:browser_setup_requested
+selector-aliases: action:browser_setup_requested
 ---
 
 # Browser Setup Request

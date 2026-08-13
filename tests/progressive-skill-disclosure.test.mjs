@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadCatalog, resolveSelection } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
-import { actionAliases, buildSkillContentIndex, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { actionAliases, buildSkillContentIndex, listSkillSelectors, resolveSkillAddress, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
 import { actionHeader, loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
@@ -50,15 +50,47 @@ function command(argumentsList, env = {}) {
   });
 }
 
-function actionLookup(body) {
+function contentIndexFixture({ skill = "fixture", selector = "start", aliases = [], upstreams = {}, includeEntry = true } = {}) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-content-index-test-"));
+  const skillRoot = path.join(temporary, "skills", skill);
+  fs.mkdirSync(path.join(skillRoot, "references"), { recursive: true });
+  fs.writeFileSync(path.join(skillRoot, "SKILL.md"), "# Fixture\n");
+  fs.writeFileSync(path.join(skillRoot, "references", "slice.md"), [
+    "---",
+    `skill-selector: ${selector}`,
+    "selector-summary: Fixture slice.",
+    ...(aliases.length > 0 ? [`selector-aliases: ${aliases.join(", ")}`] : []),
+    "---",
+    "",
+    "# Slice",
+    ""
+  ].join("\n"));
+  if (includeEntry && selector !== "start") {
+    fs.writeFileSync(path.join(skillRoot, "references", "entry.md"), [
+      "---",
+      "skill-selector: start",
+      "selector-summary: Fixture entry.",
+      "---",
+      "",
+      "# Entry",
+      ""
+    ].join("\n"));
+  }
+  return {
+    temporary,
+    catalog: { skills: { skills: { [skill]: {} }, upstreams } }
+  };
+}
+
+function actionRoute(body) {
   const normalized = body.replace(/\r\n/g, "\n");
-  if (normalized.startsWith("\n")) return null;
-  const header = normalized.split("\n\n", 1)[0];
+  const header = normalized.startsWith("\n") ? "" : normalized.split("\n\n", 1)[0];
   const lines = header.split("\n");
+  const actionFields = lines.filter(line => /^\s*action\s*:/i.test(line));
+  if (actionFields.length === 0) return { kind: "plain" };
   const actionLines = lines.filter(line => /^Action: [A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(line));
-  if (actionLines.length !== 1) return null;
-  if (lines.some(line => /^action:/i.test(line) && !/^Action: /.test(line))) return null;
-  return `action:${actionLines[0].slice("Action: ".length)}`;
+  if (actionFields.length !== 1 || actionLines.length !== 1) return { kind: "invalid" };
+  return { kind: "action", address: `action:${actionLines[0].slice("Action: ".length)}` };
 }
 
 function pinnedCatalogWithPayload(catalog, payload) {
@@ -96,9 +128,11 @@ test("catalog exposes exactly the approved entry surface", () => {
 
 test("canonical bootstraps ask agents to remember guidance without repeating global policy", () => {
   const catalog = loadCatalog(rootDir);
+  const index = buildSkillContentIndex(rootDir, catalog);
   for (const skill of Object.keys(catalog.skills.skills)) {
     const source = fs.readFileSync(path.join(rootDir, "skills", skill, "SKILL.md"), "utf8");
-    assert.match(source, new RegExp("Run `agentgear skill get " + skill + " start`\\. Remember and follow its guidance\\."));
+    assert.match(source, new RegExp("Follow the remembered guidance from `agentgear skill get " + skill + "`\\. Run it only if you no longer remember the guidance or have evidence it changed\\."));
+    assert.equal(resolveSkillAddress(index, skill).owner, skill);
     assert.doesNotMatch(source, /Agentgear skill text is stable/);
     assert.doesNotMatch(source, /Repeat that command after compaction/);
   }
@@ -111,35 +145,235 @@ test("skill help states the stable guidance policy once", () => {
   assert.match(result.stdout, /the user asks, or there is evidence it changed\./);
 });
 
-test("skill get formats overview, aliases, repeated multi-selector output, and atomic errors", () => {
-  const overview = command(["skill", "get", "handoff"]);
-  assert.equal(overview.status, 0, overview.stderr);
-  assert.match(overview.stdout, /agentgear skill get handoff start/);
+test("skill get resolves independent addresses, global fallbacks, and atomic errors", () => {
+  const entry = command(["skill", "get", "handoff"]);
+  assert.equal(entry.status, 0, entry.stderr);
+  assert.match(entry.stdout, /# Handoff/);
 
-  const alias = command(["skill", "get", "check-waypost-messages", "action:execute_delegate_task"]);
+  const alias = command(["skill", "get", "action:execute_delegate_task"]);
   assert.equal(alias.status, 0, alias.stderr);
   assert.match(alias.stdout, /Coder Receive/);
   assert.doesNotMatch(alias.stdout, /^---/m);
 
-  const multi = command(["skill", "get", "check-waypost-messages", "invalid-envelope", "invalid-envelope"]);
+  const fallback = command(["skill", "get", "session-host"]);
+  assert.equal(fallback.status, 0, fallback.stderr);
+  assert.match(fallback.stdout, /Session Host Contract/);
+
+  const multi = command(["skill", "get", "check-waypost-messages/invalid-envelope", "tech-design-workflow/report-handling"]);
   assert.equal(multi.status, 0, multi.stderr);
   assert.match(multi.stdout, /^agentgear skill: check-waypost-messages\/invalid-envelope/m);
-  assert.equal((multi.stdout.match(/agentgear skill: check-waypost-messages\/invalid-envelope/g) ?? []).length, 2);
+  assert.match(multi.stdout, /^agentgear skill: tech-design-workflow\/report-handling/m);
 
-  const unknown = command(["skill", "get", "check-waypost-messages", "invalid-envelope", "not-real"]);
+  const ambiguous = command(["skill", "get", "continue-1"]);
+  assert.equal(ambiguous.status, 2);
+  assert.match(ambiguous.stderr, /Ambiguous skill address continue-1/);
+
+  const unknown = command(["skill", "get", "check-waypost-messages/invalid-envelope", "not-real"]);
   assert.equal(unknown.status, 2);
   assert.equal(unknown.stdout, "");
-  assert.match(unknown.stderr, /agentgear skill list check-waypost-messages/);
+  assert.match(unknown.stderr, /Unknown skill address: not-real/);
 });
 
-test("skill list is deterministic and includes action aliases", () => {
+test("skill list is deterministic and emits directly resolvable owned addresses", () => {
   const result = command(["skill", "list", "check-waypost-messages", "--json"]);
   assert.equal(result.status, 0, result.stderr);
   const records = JSON.parse(result.stdout);
   const selectors = records.map(record => record.selector);
   assert.deepEqual(selectors, [...selectors].sort());
-  assert.ok(selectors.includes("action:execute_delegate_task"));
-  assert.ok(selectors.includes("invalid-envelope"));
+  assert.ok(selectors.includes("action:group_message_available"));
+  assert.ok(selectors.includes("check-waypost-messages/invalid-envelope"));
+
+  const planReport = command(["skill", "list", "plan-report"]);
+  assert.equal(planReport.status, 0, planReport.stderr);
+  const addresses = planReport.stdout.trim().split("\n");
+  assert.deepEqual(addresses, ["action:plan_report_delivered", "plan-report/receive", "plan-report/start"]);
+  for (const address of addresses) {
+    const lookup = command(["skill", "get", address]);
+    assert.equal(lookup.status, 0, `${address}: ${lookup.stderr}`);
+  }
+});
+
+test("selector aliases cannot shadow canonical or upstream skill entry addresses", () => {
+  for (const [alias, upstreams] of [["fixture", {}], ["agent-deck", { "agent-deck": {} }]]) {
+    const item = contentIndexFixture({ aliases: [alias], upstreams });
+    try {
+      assert.throws(
+        () => buildSkillContentIndex(item.temporary, item.catalog),
+        new RegExp(`Selector alias shadows skill entry address: ${alias}`)
+      );
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("every canonical skill owns its entry address", () => {
+  const missing = contentIndexFixture({ selector: "review", includeEntry: false });
+  try {
+    assert.throws(
+      () => buildSkillContentIndex(missing.temporary, missing.catalog),
+      /Skill has no entry address: fixture/
+    );
+  } finally {
+    fs.rmSync(missing.temporary, { recursive: true, force: true });
+  }
+
+  const foreign = contentIndexFixture({ selector: "review", includeEntry: false });
+  try {
+    const otherRoot = path.join(foreign.temporary, "skills", "other");
+    fs.mkdirSync(path.join(otherRoot, "references"), { recursive: true });
+    fs.writeFileSync(path.join(otherRoot, "SKILL.md"), "# Other\n");
+    fs.writeFileSync(path.join(otherRoot, "references", "start.md"), [
+      "---",
+      "skill-selector: start",
+      "selector-summary: Other entry.",
+      "selector-aliases: fixture/start",
+      "---",
+      "",
+      "# Other",
+      ""
+    ].join("\n"));
+    foreign.catalog.skills.skills.other = {};
+    assert.throws(
+      () => buildSkillContentIndex(foreign.temporary, foreign.catalog),
+      /Skill entry address fixture\/start is owned by other/
+    );
+  } finally {
+    fs.rmSync(foreign.temporary, { recursive: true, force: true });
+  }
+});
+
+test("qualified aliases resolve even when their prefix is not a catalog skill", () => {
+  const item = contentIndexFixture({ aliases: ["legacy/entry"] });
+  try {
+    const index = buildSkillContentIndex(item.temporary, item.catalog);
+    const record = resolveSkillAddress(index, "legacy/entry");
+    assert.equal(record.owner, "fixture");
+    assert.equal(record.canonicalSelector, "start");
+    assert.equal(record.requestedAddress, "legacy/entry");
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("bare aliases must resolve to one canonical slice", () => {
+  function addSlice(item, skill, selector, aliases = []) {
+    const skillRoot = path.join(item.temporary, "skills", skill);
+    fs.mkdirSync(path.join(skillRoot, "references"), { recursive: true });
+    fs.writeFileSync(path.join(skillRoot, "SKILL.md"), `# ${skill}\n`);
+    fs.writeFileSync(path.join(skillRoot, "references", `${selector}.md`), [
+      "---",
+      `skill-selector: ${selector}`,
+      "selector-summary: Test slice.",
+      ...(aliases.length > 0 ? [`selector-aliases: ${aliases.join(", ")}`] : []),
+      "---",
+      "",
+      "# Slice",
+      ""
+    ].join("\n"));
+    if (selector !== "start") {
+      fs.writeFileSync(path.join(skillRoot, "references", "entry.md"), [
+        "---",
+        "skill-selector: start",
+        "selector-summary: Test entry.",
+        "---",
+        "",
+        "# Entry",
+        ""
+      ].join("\n"));
+    }
+    item.catalog.skills.skills[skill] = {};
+  }
+
+  for (const conflictingSlice of [
+    ["a", "foo", []],
+    ["a", "start", ["legacy/foo"]]
+  ]) {
+    const item = contentIndexFixture({ skill: "b", aliases: ["foo"] });
+    try {
+      addSlice(item, ...conflictingSlice);
+      assert.throws(
+        () => buildSkillContentIndex(item.temporary, item.catalog),
+        /Ambiguous bare selector alias foo; conflicts with: a\/(?:foo|start), b\/start/
+      );
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
+  }
+
+  const sameTarget = contentIndexFixture({ aliases: ["foo", "legacy/foo"] });
+  try {
+    const index = buildSkillContentIndex(sameTarget.temporary, sameTarget.catalog);
+    assert.equal(resolveSkillAddress(index, "foo").canonicalSelector, "start");
+  } finally {
+    fs.rmSync(sameTarget.temporary, { recursive: true, force: true });
+  }
+});
+
+test("selector discovery lists aliases only under their owning skill", () => {
+  const item = contentIndexFixture({ aliases: ["other/entry"] });
+  try {
+    const otherRoot = path.join(item.temporary, "skills", "other");
+    fs.mkdirSync(path.join(otherRoot, "references"), { recursive: true });
+    fs.writeFileSync(path.join(otherRoot, "SKILL.md"), "# Other\n");
+    fs.writeFileSync(path.join(otherRoot, "references", "entry.md"), [
+      "---",
+      "skill-selector: start",
+      "selector-summary: Other entry.",
+      "---",
+      "",
+      "# Other",
+      ""
+    ].join("\n"));
+    item.catalog.skills.skills.other = {};
+    const index = buildSkillContentIndex(item.temporary, item.catalog);
+    assert.equal(listSkillSelectors(index, "fixture").some(record => record.selector === "other/entry"), true);
+    assert.deepEqual(listSkillSelectors(index, "other").map(record => record.selector), ["other/start"]);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("reference validation accepts upstream entries but rejects their subaddresses", () => {
+  const item = contentIndexFixture({ upstreams: { "agent-deck": {} } });
+  const overviewPath = path.join(item.temporary, "skills", "fixture", "SKILL.md");
+  try {
+    fs.writeFileSync(overviewPath, "Run `agentgear skill get agent-deck`.\n");
+    assert.deepEqual(validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog)), []);
+
+    fs.writeFileSync(overviewPath, "Run `agentgear skill get agent-deck/not-real`.\n");
+    let errors = validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog));
+    assert.equal(errors.some(error => /Unknown skill: agent-deck/.test(error)), true);
+
+    for (const addresses of ["agent-deck fixture/start", "fixture/start agent-deck"]) {
+      fs.writeFileSync(overviewPath, `Run \`agentgear skill get ${addresses}\`.\n`);
+      errors = validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog));
+      assert.equal(errors.some(error => /Upstream skill agent-deck cannot be combined with other addresses/.test(error)), true);
+    }
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("canonical and alias addresses share the 256-character index limit", () => {
+  const cases = [
+    { selector: "s".repeat(248), valid: true },
+    { selector: "s".repeat(249), valid: false },
+    { aliases: [`alias/${"s".repeat(250)}`], valid: true },
+    { aliases: [`alias/${"s".repeat(251)}`], valid: false }
+  ];
+  for (const testCase of cases) {
+    const item = contentIndexFixture(testCase);
+    try {
+      if (testCase.valid) {
+        assert.doesNotThrow(() => buildSkillContentIndex(item.temporary, item.catalog));
+      } else {
+        assert.throws(() => buildSkillContentIndex(item.temporary, item.catalog), /Invalid (?:selector address|selector alias)/);
+      }
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
+  }
 });
 
 test("top-level listing distinguishes the retrievable upstream skill from canonical installation skills", () => {
@@ -195,13 +429,13 @@ test("upstream skill get returns resourceBase from a verified runtime and reject
     const json = runtimeCommand(["skill", "get", "--json", "agent-deck"]);
     assert.equal(json.status, 0, json.stderr);
     const payload = JSON.parse(json.stdout);
-    assert.equal(payload.skill, "agent-deck");
-    assert.equal(payload.overview, "# Agent Deck\nRead `references/guide.md`.\n");
+    assert.equal(payload.selections[0].address, "agent-deck");
+    assert.equal(payload.selections[0].body, "# Agent Deck\nRead `references/guide.md`.\n");
     assert.equal(path.isAbsolute(payload.resourceBase), true);
     assert.equal(fs.readFileSync(path.join(payload.resourceBase, "references", "guide.md"), "utf8"), "# Guide\n");
     assert.equal(fs.existsSync(path.join(item.env.HOME, ".agents", "skills", "agent-deck")), false);
     assert.equal(fs.existsSync(path.join(item.env.XDG_STATE_HOME, "agentgear", "installs.json")), false);
-    const unknown = runtimeCommand(["skill", "get", "agent-deck", "not-real"]);
+    const unknown = runtimeCommand(["skill", "get", "agent-deck/not-real"]);
     assert.equal(unknown.status, 2);
     assert.equal(unknown.stdout, "");
   } finally {
@@ -242,33 +476,66 @@ test("skill get works through source, staged release, shared current, and copy-f
   }
 });
 
-test("receiver bootstrap specifies the strict one-lookup Action contract", () => {
+test("receiver bootstrap separates ordinary messages from safe one-lookup Action routing", () => {
   const source = fs.readFileSync(
     path.join(rootDir, "skills", "check-waypost-messages", "references", "disclosure-start.md"),
     "utf8"
   );
   assert.match(source, /Normalize CRLF|normalize CRLF/i);
-  assert.match(source, /exactly one structured-argv\s+lookup/);
+  assert.equal(source.includes("`^\\s*Action\\s*:`"), true);
+  assert.equal(source.includes("`^\\\\s*Action\\\\s*:`"), false);
+  assert.match(source, /structured argv[\s\S]*exactly once/);
   assert.match(source, /\[A-Za-z0-9\]\[A-Za-z0-9_.-\]\{0,127\}/);
   assert.match(source, /invalid-envelope/);
   assert.match(source, /unknown-action/);
+  assert.match(source, /ordinary\s+personal message/);
+  assert.doesNotMatch(source, /reject a missing Action/);
   assert.doesNotMatch(source, /otherwise execute that workflow stage immediately/);
 });
 
-test("receiver parser accepts only one exact, grammar-safe Action header", () => {
+test("receiver parser treats missing Action as plain and rejects explicit malformed Action fields", () => {
   const valid = "Task: t\nAction: review_requested\nFrom: sender\n\nbody";
-  assert.equal(actionLookup(valid), "action:review_requested");
+  assert.deepEqual(actionRoute(valid), { kind: "action", address: "action:review_requested" });
   for (const body of [
-    "Task: t\n\nbody",
+    "Task: t\nFrom: sender\n\nbody",
+    "Round 3 review completed.\n\nDecision: NEEDS_REVISION",
+    "\nordinary body"
+  ]) {
+    assert.deepEqual(actionRoute(body), { kind: "plain" }, body);
+  }
+  for (const body of [
     "Action: review_requested\nAction: stop_recommended\n\nbody",
     "action: review_requested\n\nbody",
+    " Action: review_requested\n\nbody",
+    "Action : review_requested\n\nbody",
     "Action: review requested\n\nbody",
     `Action: ${"x".repeat(129)}\n\nbody`,
-    "Action: review_requested $(command)\n\nbody",
-    "\nAction: review_requested\n\nbody"
+    "Action: review_requested $(command)\n\nbody"
   ]) {
-    assert.equal(actionLookup(body), null, body);
+    assert.deepEqual(actionRoute(body), { kind: "invalid" }, body);
   }
+});
+
+test("routing rejection replies to the sender, then acknowledges or fails without release", () => {
+  const invalid = fs.readFileSync(path.join(rootDir, "skills", "check-waypost-messages", "references", "invalid-envelope.md"), "utf8");
+  const unknown = fs.readFileSync(path.join(rootDir, "skills", "check-waypost-messages", "references", "unknown-action.md"), "utf8");
+  const rejected = fs.readFileSync(path.join(rootDir, "skills", "check-waypost-messages", "references", "message-rejected.md"), "utf8");
+  for (const source of [invalid, unknown]) {
+    assert.match(source, /received `sender_address`/);
+    assert.match(source, /current `recipient_address` as sender/);
+    assert.match(source, /Action: message_rejected/);
+    assert.match(source, /acknowledge the rejected delivery/);
+    assert.match(source, /structured argv `\[executable,"--state-dir",state_dir,"fail"/);
+    assert.match(source, /Report its returned state/);
+    assert.match(source, /never release this delivery/);
+  }
+  assert.match(rejected, /Do not reply to the rejection/);
+  assert.match(rejected, /resend it once/);
+
+  const delivery = fs.readFileSync(path.join(rootDir, "skills", "review-tech-design", "references", "message-delivery.md"), "utf8");
+  assert.match(delivery, /Send the complete report form above as the Waypost body/);
+  assert.match(delivery, /never replace it with a summary/);
+  assert.match(delivery, /Action: design_spec_review_report/);
 });
 
 test("action aliases are complete, direct, and selector validation resolves multi-selector references", () => {
@@ -282,14 +549,14 @@ test("action aliases are complete, direct, and selector validation resolves mult
     "delegated_task_result", "design_spec_context_corrected", "design_spec_decision_requested", "design_spec_delivered",
     "design_spec_draft_requested", "design_spec_review_context", "design_spec_review_context_recovery_requested",
     "design_spec_review_context_rejected", "design_spec_review_report", "design_spec_review_requested",
-    "execute_delegate_task", "execute_delegated_task", "execute_plan", "group_message_available",
+    "execute_delegate_task", "execute_delegated_task", "execute_plan", "group_message_available", "message_rejected",
     "plan_report_delivered", "refactor_review_report", "refactor_review_requested", "review_requested",
     "review_task_context", "rework_required", "roundtable_participant_turn", "simplify_review_report",
     "simplify_review_requested", "stop_recommended", "user_requested_iteration"
   ];
   assert.deepEqual([...aliases.keys()].sort(), expected);
   for (const token of expected) {
-    const result = command(["skill", "get", "--", "check-waypost-messages", `action:${token}`]);
+    const result = command(["skill", "get", "--", `action:${token}`]);
     assert.equal(result.status, 0, `${token}: ${result.stderr}`);
     assert.notEqual(result.stdout, "");
   }
@@ -303,7 +570,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
   ]);
   for (const token of expected) {
     if (discriminatorTokens.has(token)) continue;
-    const result = command(["skill", "get", "--", "check-waypost-messages", `action:${token}`]);
+    const result = command(["skill", "get", "--", `action:${token}`]);
     const record = aliases.get(token);
     const canonical = `${record.owner}/${record.selector}`;
     assert.equal(index.byCanonicalAddress.get(canonical), record, `${token} must directly own ${canonical}`);
@@ -317,19 +584,19 @@ test("action aliases are complete, direct, and selector validation resolves mult
     execute_delegated_task: ["## Worker Receive", "On `Action: execute_delegated_task`"],
     browser_setup_requested: ["## Setup Request Receive", "tester_workspace"],
     browser_setup_provided: ["## Setup Reply Receive", "matching check history"],
-    browser_check_report: ["# Browser Check Report Route", "review-code review continue-1 continue-2 continue-3"]
+    browser_check_report: ["# Browser Check Report Route", "review-code/review review-code/continue-1 review-code/continue-2 review-code/continue-3"]
   };
   for (const [token, [stage, requiredText]] of Object.entries(directStages)) {
-    const result = command(["skill", "get", "--", "check-waypost-messages", `action:${token}`]);
+    const result = command(["skill", "get", "--", `action:${token}`]);
     assert.equal(result.status, 0, `${token}: ${result.stderr}`);
     assert.match(result.stdout, new RegExp(stage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(result.stdout, new RegExp(requiredText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
-  const coder = command(["skill", "get", "--", "check-waypost-messages", "action:execute_delegate_task"]);
-  const worker = command(["skill", "get", "--", "check-waypost-messages", "action:execute_delegated_task"]);
+  const coder = command(["skill", "get", "--", "action:execute_delegate_task"]);
+  const worker = command(["skill", "get", "--", "action:execute_delegated_task"]);
   assert.equal(coder.stdout.trimStart().startsWith("## Coder Receive"), true);
   assert.equal(worker.stdout.trimStart().startsWith("## Worker Receive"), true);
-  assert.equal(index.referencedSelectors.some(item => item.filePath.endsWith("multi-agent-protocol/references/disclosure-start.md") && item.selector === "tool-resolution"), true);
+  assert.equal(index.referencedInvocations.some(item => item.filePath.endsWith("multi-agent-protocol/references/disclosure-start.md") && item.addresses.includes("multi-agent-protocol/tool-resolution")), true);
 });
 
 test("action-template validation rejects indented and dynamic emitted headers", () => {

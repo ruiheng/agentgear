@@ -87,11 +87,11 @@ On a wakeup nudge or explicit user message check:
 
 1. Call `waypost_recv` first.
 2. If no personal message is returned, report it; `no_message` ends this receive pass.
-3. Use `body` as the primary input, parse `Action:`, and run the matching action skill.
+3. Use `body` as the primary input. A message without an Action field is an ordinary personal message. A valid Action selects its action skill; an explicit malformed or unknown Action is rejected to its reported sender.
 4. Settle each claimed delivery according to its current state:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
    - `waypost_release` or `waypost_defer` only when the delivery itself cannot be handled now
-   - `waypost_fail` when it cannot be completed
+   - the reported Waypost CLI `fail` command when a routing rejection cannot be returned
 5. Continue receiving other useful work when appropriate. One claim is not a global receive lock; do not hold an unprocessable delivery merely to preserve ordering.
 
 ## Natural End Gate

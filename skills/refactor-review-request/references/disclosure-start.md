@@ -7,7 +7,7 @@ selector-summary: Complete refactor-review-request instructions, part 1.
 
 Generate a concise Waypost message that asks a refactor reviewer to inspect code for duplication and simplification opportunities.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Inputs
 
@@ -38,7 +38,7 @@ Round `1` or new reviewer allocation:
 
 ## Multi-Agent Mode
 
-Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host tool-resolution` for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/session-host multi-agent-protocol/tool-resolution` for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> workflow context -> ask
@@ -51,7 +51,7 @@ Skill-specific context resolution:
 - `scope`: explicit -> workflow context -> ask
 - `refactor_goal`: explicit -> workflow context -> default `identify duplication and simplification opportunities`
 - `reviewer_tool_profile`: explicit -> workflow context -> omit when `reviewer_tool` is already a full command -> default resolver role default `reviewer`
-- `reviewer_tool_cmd`: explicit full command -> workflow context resolved command -> `agentgear skill get multi-agent-protocol tool-resolution` for role `reviewer`
+- `reviewer_tool_cmd`: explicit full command -> workflow context resolved command -> `agentgear skill get multi-agent-protocol/tool-resolution` for role `reviewer`
 - `round`: explicit -> workflow context -> default `1`
 
 ## Waypost Message Body

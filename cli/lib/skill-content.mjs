@@ -108,9 +108,9 @@ function parseSelectorFrontmatter(source, filePath, owner) {
       const alias = rawAlias.trim();
       if (!alias || /\s/.test(alias)) throw new SkillContentError(`Whitespace in selector alias ${JSON.stringify(rawAlias)}: ${filePath}`);
       const separator = alias.indexOf("/");
-      const lookupSkill = separator === -1 ? "" : alias.slice(0, separator);
-      const lookupSelector = separator === -1 ? "" : alias.slice(separator + 1);
-      if (!SKILL_NAME.test(lookupSkill) || !ALIAS_SELECTOR.test(lookupSelector)) {
+      const lookupSkill = separator === -1 ? null : alias.slice(0, separator);
+      const lookupSelector = separator === -1 ? alias : alias.slice(separator + 1);
+      if (!ALIAS_SELECTOR.test(alias) || (lookupSkill !== null && !SKILL_NAME.test(lookupSkill)) || !ALIAS_SELECTOR.test(lookupSelector)) {
         throw new SkillContentError(`Invalid selector alias ${JSON.stringify(alias)}: ${filePath}`);
       }
       aliases.push(alias);
@@ -185,11 +185,13 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   const skillsRoot = path.resolve(rootDir, "skills");
   regularDirectory(skillsRoot, "Canonical skills directory");
   const names = canonicalSkillNames(catalog);
+  const upstreamEntryAddresses = new Set(Object.keys(catalog?.skills?.upstreams ?? {}));
+  const entryAddresses = new Set([...names, ...upstreamEntryAddresses]);
   const byCanonicalAddress = new Map();
   const byAliasAddress = new Map();
   const byOwner = new Map();
   const overviews = new Map();
-  const referencedSelectors = [];
+  const referencedInvocations = [];
   const referenceErrors = [];
   const documentedScripts = [];
 
@@ -222,6 +224,9 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
       }
       const record = parseSelectorFrontmatter(source, filePath, name);
       const canonicalAddress = `${name}/${record.selector}`;
+      if (!ALIAS_SELECTOR.test(canonicalAddress)) {
+        throw new SkillContentError(`Invalid selector address: ${canonicalAddress}`);
+      }
       if (byCanonicalAddress.has(canonicalAddress) || byAliasAddress.has(canonicalAddress)) {
         throw new SkillContentError(`Duplicate selector address: ${canonicalAddress}`);
       }
@@ -230,6 +235,9 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
       ownerRecords.push(record);
       byOwner.set(name, ownerRecords);
       for (const alias of record.aliases) {
+        if (entryAddresses.has(alias)) {
+          throw new SkillContentError(`Selector alias shadows skill entry address: ${alias}`);
+        }
         if (byCanonicalAddress.has(alias) || byAliasAddress.has(alias)) {
           throw new SkillContentError(`Duplicate selector address: ${alias}`);
         }
@@ -239,12 +247,30 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   }
 
   for (const records of byOwner.values()) records.sort((left, right) => compareUtf8(left.selector, right.selector));
+  for (const name of names) {
+    const entryAddress = `${name}/start`;
+    const entry = byCanonicalAddress.get(entryAddress) ?? byAliasAddress.get(entryAddress);
+    if (!entry) throw new SkillContentError(`Skill has no entry address: ${name}`);
+    if (entry.owner !== name) {
+      throw new SkillContentError(`Skill entry address ${entryAddress} is owned by ${entry.owner}`);
+    }
+  }
+  const addressIndex = { byCanonicalAddress, byAliasAddress };
+  for (const alias of byAliasAddress.keys()) {
+    if (alias.includes("/")) continue;
+    const candidates = bareSelectorCandidates(addressIndex, alias);
+    if (candidates.length > 1) {
+      throw new SkillContentError(
+        `Ambiguous bare selector alias ${alias}; conflicts with: ${candidates.map(candidate => candidate.address).join(", ")}`
+      );
+    }
+  }
 
   for (const overview of overviews.values()) {
-    collectReferences(overview.body, overview.filePath, referencedSelectors, referenceErrors, documentedScripts);
+    collectReferences(overview.body, overview.filePath, referencedInvocations, referenceErrors, documentedScripts);
   }
   for (const record of byCanonicalAddress.values()) {
-    collectReferences(record.body, record.filePath, referencedSelectors, referenceErrors, documentedScripts);
+    collectReferences(record.body, record.filePath, referencedInvocations, referenceErrors, documentedScripts);
   }
 
   return {
@@ -255,13 +281,14 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
     byCanonicalAddress,
     byAliasAddress,
     byOwner,
-    referencedSelectors,
+    upstreamEntryAddresses,
+    referencedInvocations,
     referenceErrors,
     documentedScripts
   };
 }
 
-function collectReferences(body, filePath, selectors, errors, scripts) {
+function collectReferences(body, filePath, invocations, errors, scripts) {
   for (const match of body.matchAll(INLINE_CODE)) {
     const code = match[1].trim();
     if (!code.startsWith("agentgear skill get")) continue;
@@ -270,9 +297,7 @@ function collectReferences(body, filePath, selectors, errors, scripts) {
       errors.push(parsed.error);
       continue;
     }
-    for (const selector of parsed.selectors) {
-      selectors.push({ skill: parsed.skill, selector, filePath });
-    }
+    invocations.push({ addresses: parsed.addresses, filePath });
   }
   for (const match of body.matchAll(RUNTIME_SCRIPT_REFERENCE)) {
     scripts.push({ skill: match[1], script: match[2], filePath });
@@ -285,23 +310,21 @@ function collectReferences(body, filePath, selectors, errors, scripts) {
 function parseSkillGetReference(source, filePath) {
   const argv = source.split(/\s+/).filter(Boolean);
   if (argv[0] !== "agentgear" || argv[1] !== "skill" || argv[2] !== "get") {
-    return { selectors: [] };
+    return { addresses: [] };
   }
   let cursor = 3;
   if (argv[cursor] === "--json") cursor += 1;
   if (argv[cursor] === "--") cursor += 1;
-  const skill = argv[cursor];
-  if (!skill || !SKILL_NAME.test(skill)) {
-    return { error: `${filePath}: invalid agentgear skill get lookup skill in ${JSON.stringify(source)}` };
+  const addresses = argv.slice(cursor);
+  if (addresses.length === 0) {
+    return { error: `${filePath}: missing agentgear skill get address in ${JSON.stringify(source)}` };
   }
-  cursor += 1;
-  const selectors = argv.slice(cursor);
-  for (const selector of selectors) {
-    if (!ALIAS_SELECTOR.test(selector)) {
-      return { error: `${filePath}: invalid agentgear skill get selector ${JSON.stringify(selector)}` };
+  for (const address of addresses) {
+    if (!ALIAS_SELECTOR.test(address)) {
+      return { error: `${filePath}: invalid agentgear skill get address ${JSON.stringify(address)}` };
     }
   }
-  return { skill, selectors };
+  return { addresses };
 }
 
 export function resolveSkillOverview(index, skill) {
@@ -320,35 +343,80 @@ export function resolveSkillSelector(index, skill, selector) {
   return selectorRecordForSkill(record, skill, selector);
 }
 
+function bareSelectorCandidates(index, selector) {
+  const candidates = new Map();
+  for (const [address, record] of index.byCanonicalAddress) {
+    if (record.selector === selector) candidates.set(`${record.owner}/${record.selector}`, { address, record });
+  }
+  for (const [address, record] of index.byAliasAddress) {
+    if (address.slice(address.indexOf("/") + 1) === selector) {
+      const canonicalAddress = `${record.owner}/${record.selector}`;
+      candidates.set(canonicalAddress, { address: canonicalAddress, record });
+    }
+  }
+  return [...candidates.values()].sort((left, right) => compareUtf8(left.address, right.address));
+}
+
+export function resolveSkillAddress(index, address) {
+  if (!ALIAS_SELECTOR.test(address)) {
+    throw new SkillContentError(`Invalid skill address: ${address}`, { kind: "unknown" });
+  }
+  if (index.overviews.has(address)) {
+    const record = index.byCanonicalAddress.get(`${address}/start`) ?? index.byAliasAddress.get(`${address}/start`);
+    if (!record) throw new SkillContentError(`Skill has no entry address: ${address}`, { kind: "corrupt" });
+    return { ...selectorRecordForSkill(record, address, "start"), requestedAddress: address };
+  }
+  const separator = address.indexOf("/");
+  if (separator !== -1) {
+    const record = index.byCanonicalAddress.get(address) ?? index.byAliasAddress.get(address);
+    if (record) {
+      return { ...selectorRecordForSkill(record, record.owner, address), requestedAddress: address };
+    }
+    const skill = address.slice(0, separator);
+    const selector = address.slice(separator + 1);
+    return { ...resolveSkillSelector(index, skill, selector), requestedAddress: address };
+  }
+  const candidates = bareSelectorCandidates(index, address);
+  if (candidates.length === 1) {
+    const { record } = candidates[0];
+    return { ...selectorRecordForSkill(record, record.owner, address), requestedAddress: address };
+  }
+  if (candidates.length > 1) {
+    throw new SkillContentError(
+      `Ambiguous skill address ${address}; use one of: ${candidates.map(candidate => candidate.address).join(", ")}`,
+      { kind: "unknown" }
+    );
+  }
+  throw new SkillContentError(`Unknown skill address: ${address}. Run agentgear list or agentgear skill list SKILL.`, { kind: "unknown" });
+}
+
 export function listSkillSelectors(index, skill) {
   resolveSkillOverview(index, skill);
   const records = [];
   for (const record of index.byOwner.get(skill) ?? []) {
-    records.push(selectorRecordForSkill(record, skill, record.selector));
+    records.push(selectorRecordForSkill(record, skill, `${skill}/${record.selector}`));
   }
   for (const [address, record] of index.byAliasAddress) {
-    const prefix = `${skill}/`;
-    if (!address.startsWith(prefix)) continue;
-    records.push(selectorRecordForSkill(record, skill, address.slice(prefix.length)));
+    if (record.owner !== skill) continue;
+    records.push(selectorRecordForSkill(record, skill, address));
   }
   return records.sort((left, right) => compareUtf8(left.selector, right.selector));
 }
 
-export function formatSkillText({ skill, overview, selections = [] }) {
-  if (overview) return normalizeBody(overview.body);
+export function formatSkillText({ selections = [] }) {
   if (selections.length === 1) return normalizeBody(selections[0].body);
   return selections.map(selection => {
     const indented = normalizeBody(selection.body).slice(0, -1).split("\n")
       .map(line => `  ${line}`)
       .join("\n");
-    return `agentgear skill: ${skill}/${selection.requestedSelector}\n${indented}`;
+    return `agentgear skill: ${selection.requestedAddress}\n${indented}`;
   }).join("\n\n") + "\n";
 }
 
 export function actionAliases(index) {
   const result = new Map();
   for (const [address, record] of index.byAliasAddress) {
-    const prefix = "check-waypost-messages/action:";
+    const prefix = "action:";
     if (!address.startsWith(prefix)) continue;
     const token = address.slice(prefix.length);
     if (!ACTION_TOKEN.test(token)) throw new SkillContentError(`Invalid action alias token: ${address}`);
@@ -359,11 +427,19 @@ export function actionAliases(index) {
 
 export function validateSkillContentIndex(index) {
   const errors = [...index.referenceErrors];
-  for (const reference of index.referencedSelectors) {
-    try {
-      resolveSkillSelector(index, reference.skill, reference.selector);
-    } catch (error) {
-      errors.push(`${reference.filePath}: ${error.message}`);
+  for (const invocation of index.referencedInvocations) {
+    const upstreamAddresses = invocation.addresses.filter(address => index.upstreamEntryAddresses.has(address));
+    if (upstreamAddresses.length > 0 && invocation.addresses.length !== 1) {
+      errors.push(`${invocation.filePath}: Upstream skill ${upstreamAddresses[0]} cannot be combined with other addresses.`);
+      continue;
+    }
+    for (const address of invocation.addresses) {
+      if (index.upstreamEntryAddresses.has(address)) continue;
+      try {
+        resolveSkillAddress(index, address);
+      } catch (error) {
+        errors.push(`${invocation.filePath}: ${error.message}`);
+      }
     }
   }
   try {

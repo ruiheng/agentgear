@@ -7,4 +7,4 @@ description: Advise on code refactoring without changes.
 
 Advise on code refactoring without changes.
 
-Run `agentgear skill get refactor-review start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get refactor-review`. Run it only if you no longer remember the guidance or have evidence it changed.

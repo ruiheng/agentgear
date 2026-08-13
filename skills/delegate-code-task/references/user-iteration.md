@@ -1,7 +1,7 @@
 ---
 skill-selector: user-iteration
 selector-summary: Continue a delegated code task after requester iteration.
-selector-aliases: check-waypost-messages/action:user_requested_iteration
+selector-aliases: action:user_requested_iteration
 ---
 
 # User Requested Iteration
@@ -13,4 +13,4 @@ On `user_requested_iteration`, treat the body as the recorded code-task continua
 - Follow workflow policy. After a delivery commit, run `review-request` when per-task review is required and reuse the recorded reviewer. The coder request does not need task background, goals, constraints, workflow policy, or other task-content description; reviewer gets them from planner context.
 - For a material scope change or uncertainty, ask the user immediately and wait before applying or committing it. A user instruction that resolves it is the decision.
 
-Retrieve `agentgear skill get delegate-code-task execute continue-2` only if the recorded coder contract is not already available.
+Retrieve `agentgear skill get delegate-code-task/execute delegate-code-task/continue-2` only if the recorded coder contract is not already available.

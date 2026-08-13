@@ -7,4 +7,4 @@ description: Request an advisory refactor review.
 
 Request an advisory refactor review.
 
-Run `agentgear skill get refactor-review-request start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get refactor-review-request`. Run it only if you no longer remember the guidance or have evidence it changed.

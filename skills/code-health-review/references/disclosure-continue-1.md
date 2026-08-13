@@ -84,8 +84,8 @@ Direct-use mode skips the header block and starts at `## Code Health Assessment`
 
 ## References
 
-- Retrieve `agentgear skill get code-health-review signals` when judging whether a code smell is local or systemic.
-- Retrieve `agentgear skill get code-health-review remediation-patterns` when proposing structural corrections or sequencing.
+- Retrieve `agentgear skill get code-health-review/signals` when judging whether a code smell is local or systemic.
+- Retrieve `agentgear skill get code-health-review/remediation-patterns` when proposing structural corrections or sequencing.
 
 ## Direct-Use Mode
 
@@ -96,7 +96,7 @@ When invoked directly by the user instead of Waypost message workflow:
 
 ## Multi-Agent Mode
 
-Retrieve `agentgear skill get multi-agent-protocol shared-protocol session-host` for shared protocol.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/session-host` for shared protocol.
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`

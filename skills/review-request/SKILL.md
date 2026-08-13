@@ -7,4 +7,4 @@ description: Request code review from a collaborator.
 
 Request code review from a collaborator.
 
-Run `agentgear skill get review-request start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get review-request`. Run it only if you no longer remember the guidance or have evidence it changed.

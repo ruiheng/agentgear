@@ -1,7 +1,7 @@
 ---
 skill-selector: result
 selector-summary: Handle a delegated task result.
-selector-aliases: check-waypost-messages/action:delegated_task_result
+selector-aliases: action:delegated_task_result
 ---
 
 # Delegated Task Result

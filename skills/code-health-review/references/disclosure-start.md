@@ -1,7 +1,7 @@
 ---
 skill-selector: review
 selector-summary: Complete code-health-review instructions, part 1.
-selector-aliases: code-health-review/start, check-waypost-messages/action:code_health_review_requested
+selector-aliases: code-health-review/start, action:code_health_review_requested
 ---
 
 # Code Health Review
@@ -11,7 +11,7 @@ Prefer structural diagnoses that explain multiple symptoms at once instead of li
 
 This skill is advisory only.
 
-Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol start shared-protocol`.
+Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
 ## Hard Boundary
 
@@ -101,11 +101,11 @@ Each hypothesis should explain multiple symptoms, not just the latest report ite
 - Can the hypothesis explain bug concentration, slow review convergence, and testing pain at the same time?
 - Does the proposed direction remove special cases instead of adding guards?
 - Does it reduce future change surface instead of moving complexity around?
-- Retrieve `agentgear skill get code-health-review signals` to check the hypothesis against counter-signals.
+- Retrieve `agentgear skill get code-health-review/signals` to check the hypothesis against counter-signals.
 
 5. Produce one prioritized report.
-Use `agentgear skill get code-health-review signals` to classify signals.
-Use `agentgear skill get code-health-review remediation-patterns` to shape recommendations.
+Use `agentgear skill get code-health-review/signals` to classify signals.
+Use `agentgear skill get code-health-review/remediation-patterns` to shape recommendations.
 
 ## Review Lens
 
@@ -139,4 +139,4 @@ Highest-signal patterns under those lenses:
 
 ## Continue
 
-Retrieve `agentgear skill get code-health-review continue-1` before proceeding.
+Retrieve `agentgear skill get code-health-review/continue-1` before proceeding.

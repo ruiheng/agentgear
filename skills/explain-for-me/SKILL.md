@@ -8,4 +8,4 @@ disable-model-invocation: true
 
 Create an audience-adapted HTML explainer.
 
-Run `agentgear skill get explain-for-me start`. Remember and follow its guidance.
+Follow the remembered guidance from `agentgear skill get explain-for-me`. Run it only if you no longer remember the guidance or have evidence it changed.
