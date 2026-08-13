@@ -6,6 +6,7 @@ selector-summary: Diagnose shared multi-agent workflow transport and session fai
 # Error Handling and Diagnostics
 
 Use this shared checklist after listener, send, worker-start, or closeout failure.
+For send failures, diagnose only final failed, partial, or unknown sends.
 
 1. Report a concise stderr summary.
 2. Resolve the sender or target with the generic `session_resolve` operation.

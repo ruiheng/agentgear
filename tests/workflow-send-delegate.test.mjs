@@ -103,6 +103,21 @@ async function captureStdout(action) {
   }
 }
 
+async function captureStderr(action) {
+  const originalWrite = process.stderr.write;
+  let output = "";
+  process.stderr.write = chunk => {
+    output += String(chunk);
+    return true;
+  };
+  try {
+    await action();
+    return output;
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+}
+
 const loggingWaypost = `
 const fs = require("node:fs");
 const body = fs.readFileSync(0, "utf8");
@@ -266,11 +281,13 @@ test("required review sends one opaque task contract to reviewer then coder", as
     const briefFile = writeBrief(temporary);
     const brief = fs.readFileSync(briefFile, "utf8");
     const policy = "human; auto_accept_if_no_must_fix=false";
-    await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" }, async () => {
-      await sendDelegate(args(temporary, artifactRoot, briefFile, "required", ["--workflow-policy", policy]));
-    });
+    const progress = await captureStderr(() => withEnvironment(
+      { PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" },
+      () => sendDelegate(args(temporary, artifactRoot, briefFile, "required", ["--workflow-policy", policy]))
+    ));
     const records = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
     assert.equal(records.length, 2);
+    assert.equal(progress, "sending reviewer...\nsending coder...\n");
     for (const [index, record] of records.entries()) {
       assert.deepEqual(record.args.slice(-2), ["--notify", "--json"]);
       assert.deepEqual(

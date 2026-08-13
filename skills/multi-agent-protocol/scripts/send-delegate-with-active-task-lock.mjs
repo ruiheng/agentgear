@@ -373,6 +373,7 @@ export async function main(argv = process.argv.slice(2)) {
         lock.reviewer_to_address = options.reviewerToAddress;
         lock.reviewer_subject = options.reviewerSubject;
       });
+      process.stderr.write("sending reviewer...\n");
       const reviewSent = sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
       if (reviewSent.status === "interrupted") {
         retainInterrupted("reviewer", reviewSent);
@@ -395,6 +396,7 @@ export async function main(argv = process.argv.slice(2)) {
       });
     }
 
+    process.stderr.write("sending coder...\n");
     const coderSent = sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief));
     if (coderSent.status === "interrupted") {
       retainInterrupted("coder", coderSent);

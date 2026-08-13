@@ -12,6 +12,22 @@ function exists(filePath) {
   return fs.lstatSync(filePath, { throwIfNoEntry: false }) !== undefined;
 }
 
+async function captureOutput(action) {
+  const stdoutWrite = process.stdout.write;
+  const stderrWrite = process.stderr.write;
+  let stdout = "";
+  let stderr = "";
+  process.stdout.write = chunk => { stdout += String(chunk); return true; };
+  process.stderr.write = chunk => { stderr += String(chunk); return true; };
+  try {
+    await action();
+    return { stdout, stderr };
+  } finally {
+    process.stdout.write = stdoutWrite;
+    process.stderr.write = stderrWrite;
+  }
+}
+
 function writeContract(temporary) {
   const contractFile = path.join(temporary, "workspace", ".agent-artifacts", "message", "design-contract.md");
   fs.mkdirSync(path.dirname(contractFile), { recursive: true });
@@ -210,9 +226,14 @@ test("design dispatch sends one unchanged contract to reviewer before author", a
     fs.mkdirSync(workdir, { recursive: true });
     const contractFile = writeContract(temporary);
     const contract = fs.readFileSync(contractFile, "utf8");
-    await sendDesignDraft(args(temporary, artifactRoot, contractFile), dependencies("success", records));
+    const output = await captureOutput(() => sendDesignDraft(
+      args(temporary, artifactRoot, contractFile, ["--json"]),
+      dependencies("success", records)
+    ));
 
     assert.equal(records.length, 2);
+    assert.equal(output.stderr, "sending reviewer...\nsending author...\n");
+    assert.equal(JSON.parse(output.stdout).status, "sent");
     assert.match(records[0].body, /Action: design_spec_review_context/);
     assert.match(records[0].body, /Context: initial/);
     assert.match(records[1].body, /Action: design_spec_draft_requested/);

@@ -389,6 +389,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   };
 
   try {
+    process.stderr.write("sending reviewer...\n");
     const reviewerSent = sendWaypost(sendDesignSpecReviewContextMessage, options, options.reviewerToAddress, reviewerSubject, reviewerBody(options, contract), runWaypost);
     if (reviewerSent.status === "interrupted") {
       retainInterrupted("reviewer", reviewerSent);
@@ -410,6 +411,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       recordNotification(state, "review_context", reviewerSent.notification);
     });
 
+    process.stderr.write("sending author...\n");
     const authorSent = sendWaypost(sendDesignSpecDraftRequestedMessage, options, options.authorToAddress, authorSubject, authorBody(options, contract), runWaypost);
     if (authorSent.status === "interrupted") {
       retainInterrupted("author", authorSent);

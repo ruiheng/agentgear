@@ -60,8 +60,8 @@ permission. If denied, escalate instead of retrying unchanged.
 
 ## Collaborator Privacy Boundary
 
-Never inspect another agent's input or output without explicit user
-authorization.
+Never inspect another session's input, output, or Waypost data without explicit
+user authorization.
 
 ## Delivery Contract
 
@@ -75,7 +75,7 @@ is unresolved.
 ## Async sender rule
 
 - `waypost_send` completes delivery; replies are later inbound work.
-- Continue only with independent local work; otherwise return the action's confirmation/status.
+- After sending, continue independent work; do not poll for the reply.
 - Keep target execution receiver-owned. A failed or unverified wake does not
   reverse durable delivery and may be a false negative. Do not resend, press
   Enter, restart, inspect, or repair the target unless the user explicitly
@@ -86,7 +86,7 @@ is unresolved.
 On a wakeup nudge or explicit user message check:
 
 1. Call `waypost_recv` first.
-2. If no personal message is returned, report no message and end.
+2. If no personal message is returned, report it; `no_message` ends this receive pass.
 3. Use `body` as the primary input, parse `Action:`, and run the matching action skill.
 4. Settle each claimed delivery according to its current state:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
