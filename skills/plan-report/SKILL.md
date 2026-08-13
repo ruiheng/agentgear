@@ -7,8 +7,4 @@ description: Process a planner's final Waypost report.
 
 Process a planner's final Waypost report.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get plan-report start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get plan-report start`. Remember and follow its guidance.

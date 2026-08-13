@@ -8,8 +8,4 @@ disable-model-invocation: true
 
 Create an audience-adapted HTML explainer.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get explain-for-me start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get explain-for-me start`. Remember and follow its guidance.

@@ -7,8 +7,4 @@ description: Send a goal to a planner.
 
 Send a goal to a planner.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get dispatch-plan start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get dispatch-plan start`. Remember and follow its guidance.

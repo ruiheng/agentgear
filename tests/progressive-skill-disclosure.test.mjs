@@ -94,6 +94,23 @@ test("catalog exposes exactly the approved entry surface", () => {
   assert.equal(all.exposedSkills.includes("agent-deck"), false);
 });
 
+test("canonical bootstraps ask agents to remember guidance without repeating global policy", () => {
+  const catalog = loadCatalog(rootDir);
+  for (const skill of Object.keys(catalog.skills.skills)) {
+    const source = fs.readFileSync(path.join(rootDir, "skills", skill, "SKILL.md"), "utf8");
+    assert.match(source, new RegExp(`Run \\`agentgear skill get ${skill} start\\`\\. Remember and follow its guidance\\.`));
+    assert.doesNotMatch(source, /Agentgear skill text is stable/);
+    assert.doesNotMatch(source, /Repeat that command after compaction/);
+  }
+});
+
+test("skill help states the stable guidance policy once", () => {
+  const result = command(["skill", "--help"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Skill text is stable\. Remember and reuse it; reload only if you no longer remember it,/);
+  assert.match(result.stdout, /the user asks, or there is evidence it changed\./);
+});
+
 test("skill get formats overview, aliases, repeated multi-selector output, and atomic errors", () => {
   const overview = command(["skill", "get", "handoff"]);
   assert.equal(overview.status, 0, overview.stderr);

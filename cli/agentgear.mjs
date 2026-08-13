@@ -508,7 +508,10 @@ function skillUsage() {
   return [
     "Usage:",
     "  agentgear skill get [--json] [--] SKILL [SELECTOR...]",
-    "  agentgear skill list [--json] [--] SKILL"
+    "  agentgear skill list [--json] [--] SKILL",
+    "",
+    "Skill text is stable. Remember and reuse it; reload only if you no longer remember it,",
+    "the user asks, or there is evidence it changed."
   ].join("\n");
 }
 

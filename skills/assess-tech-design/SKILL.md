@@ -8,8 +8,4 @@ disable-model-invocation: true
 
 Independently assess a completed technical design specification against its current accepted intent, starting from the original problem. Use only when explicitly asked for a final assessment, not for drafting, workflow routing, or acceptance closeout.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get assess-tech-design start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get assess-tech-design start`. Remember and follow its guidance.

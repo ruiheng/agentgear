@@ -7,8 +7,4 @@ description: Delegate persistent code work to a coder.
 
 Delegate persistent code work to a coder.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get delegate-code-task start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get delegate-code-task start`. Remember and follow its guidance.

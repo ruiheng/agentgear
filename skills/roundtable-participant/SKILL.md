@@ -7,8 +7,4 @@ description: Respond to a multi-agent roundtable turn.
 
 Respond to a multi-agent roundtable turn.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get roundtable-participant start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get roundtable-participant start`. Remember and follow its guidance.

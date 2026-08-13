@@ -7,8 +7,4 @@ description: Summarize an accepted review for the planner.
 
 Summarize an accepted review for the planner.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get review-closeout start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get review-closeout start`. Remember and follow its guidance.

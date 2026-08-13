@@ -45,7 +45,7 @@ Commit 03c5528 usefully demonstrates that large technical-design skills can be s
 
 Every maintained skill directory remains present under skills/<name>/, with its existing scripts, agents metadata, assets, and other owned material. Agent-facing content is divided into two forms:
 
-1. SKILL.md is a concise bootstrap for direct or compatibility installation. It contains only enough instruction to identify the first selector, invoke agentgear skill get, and recover after compaction. Every SKILL.md, including a prompt-only skill installed explicitly, remains independently valid.
+1. SKILL.md is a concise bootstrap for direct or compatibility installation. It identifies the first selector and tells the agent to remember and reuse the stable guidance returned by agentgear skill get. Reload occurs only when the agent no longer remembers the guidance, the user asks, or there is evidence it changed. Every SKILL.md, including a prompt-only skill installed explicitly, remains independently valid.
 2. Markdown files below skills/<name>/references/ hold the detailed prompt slices. Existing reference directories are reused; no parallel prompt source tree is introduced.
 
 A prompt slice opts into the runtime index with restricted frontmatter:
@@ -475,7 +475,7 @@ Remove or supersede:
 - prompt wording that treats unchanged hashes or a whole-worktree fingerprint as proof that repository evidence remains valid;
 - permission grants present only for the removed script.
 
-Later-round design review may use an ordinary diff between immutable design artifacts or commits as navigation evidence. The complete current artifact remains authoritative. If repository state may have changed, the reviewer rechecks evidence required by the current finding rather than relying on a global snapshot claim.
+Later-round design review may use an ordinary diff between immutable design artifacts or commits as navigation evidence. The complete current artifact remains authoritative. The reviewer reuses evidence from unchanged source and rechecks only evidence affected by the artifact diff, repository changes, or a current contradiction.
 
 ## End-to-end flows
 
@@ -486,7 +486,7 @@ Later-round design review may use an ordinary diff between immutable design arti
 3. For a valid token, it invokes agentgear skill get -- check-waypost-messages action:<token> with argv-safe arguments.
 4. The alias resolves directly to the owning executable selector, or to one tiny discriminator selector for the six branching actions listed above.
 5. The agent retrieves any additional exact skill/selector pairs named by that stage, optionally batching adjacent needs in one ordered invocation, executes them, and settles the claim.
-6. After compaction, the agent repeats the alias or selector lookup. No installation path or file-read cache is required.
+6. The agent reuses remembered guidance. It repeats the exact alias or selector lookup only when it no longer remembers that guidance, the user asks, or there is evidence it changed.
 
 ### Direct workflow start
 

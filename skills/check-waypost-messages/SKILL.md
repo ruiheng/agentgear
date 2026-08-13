@@ -7,8 +7,4 @@ description: Claim and process pending Waypost messages.
 
 Claim and process pending Waypost messages.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get check-waypost-messages start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get check-waypost-messages start`. Remember and follow its guidance.

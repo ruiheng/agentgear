@@ -7,8 +7,4 @@ description: Validate browser behavior with agent-browser.
 
 Validate browser behavior with agent-browser.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get browser-test start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get browser-test start`. Remember and follow its guidance.

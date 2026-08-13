@@ -7,8 +7,4 @@ description: Request an advisory refactor review.
 
 Request an advisory refactor review.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get refactor-review-request start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get refactor-review-request start`. Remember and follow its guidance.

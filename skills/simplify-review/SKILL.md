@@ -7,8 +7,4 @@ description: Find safe code simplifications without changes.
 
 Find safe code simplifications without changes.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get simplify-review start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get simplify-review start`. Remember and follow its guidance.

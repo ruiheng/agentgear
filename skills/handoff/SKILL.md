@@ -8,8 +8,4 @@ disable-model-invocation: true
 
 Create a handoff for another agent.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get handoff start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get handoff start`. Remember and follow its guidance.

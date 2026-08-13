@@ -130,6 +130,7 @@ That includes:
 - one rule should have one owner
 - repeated wording across protocol, action skill, message template, and README will drift
 - if a rule must be repeated, keep one source authoritative and keep the repeat minimal
+- Agentgear skill text is stable; tell agents to remember and reuse loaded guidance, and reload only when they no longer remember it, the user asks, or there is evidence it changed
 
 Repeated near-duplicates are dangerous because the model may synthesize a third meaning.
 

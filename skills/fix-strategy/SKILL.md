@@ -8,8 +8,4 @@ disable-model-invocation: true
 
 Critically validate multiple problem leads from reviews, feedback, or failures, decide what is worth fixing, then recommend a coordinated strategy without executing it. Assess scope, relationships, complexity, order, optional refactors, and the next route. For defect discovery from one seed, use explore-defects.
 
-Retrieve the complete instructions with:
-
-`agentgear skill get fix-strategy start`
-
-Follow the returned text. Repeat that command after compaction; do not open installation-specific reference paths.
+Run `agentgear skill get fix-strategy start`. Remember and follow its guidance.

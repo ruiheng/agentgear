@@ -146,7 +146,8 @@ test("technical design requester owns terminal architect cleanup", () => {
   assert.match(reviewDelivery, /actual inbound sender address/);
   assert.doesNotMatch(draftReview, /prepare-incremental-review\.mjs/);
   assert.match(draftReview, /Read an ordinary diff between the immutable prior and current artifacts/);
-  assert.match(draftReview, /Recheck the evidence needed for each conclusion/);
+  assert.match(draftReview, /Reuse prior evidence from unchanged source/);
+  assert.match(draftReview, /not another repository scan/);
   assert.match(messageRouter, /design_spec_review_context_recovery_requested/);
   assert.match(messageRouter, /Only the six discriminator aliases/);
   assert.match(
