@@ -57,43 +57,69 @@ export function actionHeader(declaration) {
   return `Action: ${actionDeclaration(declaration).token}`;
 }
 
+function hasExactOwnKeys(value, expectedKeys) {
+  const keys = Object.keys(value);
+  return keys.length === expectedKeys.length && expectedKeys.every(key => keys.includes(key));
+}
+
+function snapshotHeaderField(field, label, index) {
+  if (!field || typeof field !== "object" || Array.isArray(field)
+    || !hasExactOwnKeys(field, ["name", "value"])) {
+    fail(`Waypost Action message ${label} header ${index + 1} must have string name and value`);
+  }
+  // Read untrusted getters/proxies exactly once, then validate and emit only
+  // these primitive snapshots rather than re-reading caller-owned objects.
+  const name = field.name;
+  const value = field.value;
+  if (typeof name !== "string" || typeof value !== "string") {
+    fail(`Waypost Action message ${label} header ${index + 1} must have string name and value`);
+  }
+  return Object.freeze({ name, value });
+}
+
 function headerFields(fields, label, seen) {
   if (!Array.isArray(fields)) fail(`Waypost Action message ${label} headers must be an array`);
-  return fields.map((field, index) => {
-    if (!field || typeof field !== "object" || Array.isArray(field)
-      || Object.keys(field).length !== 2 || !Object.hasOwn(field, "name") || !Object.hasOwn(field, "value")
-      || typeof field.name !== "string" || typeof field.value !== "string") {
+  const result = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    if (!Object.hasOwn(fields, index)) {
       fail(`Waypost Action message ${label} header ${index + 1} must have string name and value`);
     }
-    if (!HEADER_NAME.test(field.name)) {
+    const field = fields[index];
+    const { name, value } = snapshotHeaderField(field, label, index);
+    if (!HEADER_NAME.test(name)) {
       fail(`Waypost Action message ${label} header ${index + 1} has an invalid name`);
     }
-    const normalizedName = field.name.toLowerCase();
+    const normalizedName = name.toLowerCase();
     if (normalizedName === "action") {
       fail("Waypost Action message headers may not set Action");
     }
     if (seen.has(normalizedName)) {
-      fail(`Waypost Action message has duplicate header ${field.name}`);
+      fail(`Waypost Action message has duplicate header ${name}`);
     }
-    if (field.value.length === 0 || /[\r\n\0]/.test(field.value)) {
-      fail(`Waypost Action message ${label} header ${field.name} has an unsafe value`);
+    if (value.length === 0 || /[\r\n\0]/.test(value)) {
+      fail(`Waypost Action message ${label} header ${name} has an unsafe value`);
     }
     seen.add(normalizedName);
-    return `${field.name}: ${field.value}`;
-  });
+    result.push(`${name}: ${value}`);
+  }
+  return result;
 }
 
 function actionMessage(declaration, envelope) {
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)
-    || Object.keys(envelope).length !== 3 || typeof envelope.body !== "string") {
+    || !hasExactOwnKeys(envelope, ["before", "after", "body"])) {
     fail("Waypost Action message requires structured headers and a string body");
   }
+  const beforeHeaders = envelope.before;
+  const afterHeaders = envelope.after;
+  const body = envelope.body;
+  if (typeof body !== "string") fail("Waypost Action message requires structured headers and a string body");
   const seenHeaders = new Set();
-  const before = headerFields(envelope.before, "before", seenHeaders);
-  const after = headerFields(envelope.after, "after", seenHeaders);
+  const before = headerFields(beforeHeaders, "before", seenHeaders);
+  const after = headerFields(afterHeaders, "after", seenHeaders);
   const initialEnvelope = [...before, actionHeader(declaration), ...after].join("\n");
   const message = Object.freeze({});
-  messageBodies.set(message, `${initialEnvelope}\n\n${envelope.body}`);
+  messageBodies.set(message, `${initialEnvelope}\n\n${body}`);
   messageDeclarations.set(message, declaration);
   return message;
 }

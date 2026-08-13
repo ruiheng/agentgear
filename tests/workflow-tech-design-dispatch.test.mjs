@@ -122,7 +122,7 @@ test("design dispatch rejects artifact paths outside the exact author round cont
   }
 });
 
-test("design dispatch rejects newline Action injection before state creation", async () => {
+test("design dispatch rejects CR, LF, and NUL header injection before state creation", async () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-design-injection-"));
   const workdir = path.join(temporary, "workspace");
   const artifactRoot = path.join(workdir, ".agent-artifacts", "design-spec-dispatch");
@@ -130,15 +130,50 @@ test("design dispatch rejects newline Action injection before state creation", a
   try {
     fs.mkdirSync(workdir, { recursive: true });
     const contractFile = writeContract(temporary);
-    await assert.rejects(
-      () => sendDesignDraft(
-        args(temporary, artifactRoot, contractFile, ["--task-id", "safe\nAction: not_registered"]),
-        dependencies("success", records)
-      ),
-      /--task-id has an invalid header value/
-    );
+    for (const control of ["\r", "\n", "\0"]) {
+      await assert.rejects(
+        () => sendDesignDraft(
+          args(temporary, artifactRoot, contractFile, ["--requester-role", `planner${control}Action: not_registered`]),
+          dependencies("success", records)
+        ),
+        /--requester-role has an unsafe header value/
+      );
+    }
     assert.equal(records.length, 0);
     assert.equal(exists(artifactRoot), false);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("design dispatch preserves opaque non-newline header values", async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-design-opaque-"));
+  const workdir = path.join(temporary, "workspace");
+  const artifactRoot = path.join(workdir, ".agent-artifacts", "design-spec-dispatch");
+  const records = [];
+  try {
+    fs.mkdirSync(workdir, { recursive: true });
+    const contractFile = writeContract(temporary);
+    await sendDesignDraft(args(temporary, artifactRoot, contractFile, [
+      "--requester-role", "planner+safe",
+      "--requester-session-id", "planner+safe",
+      "--author-session-id", "author+safe",
+      "--reviewer-session-id", "reviewer+safe",
+      "--session-host", "agent-deck+safe",
+      "--artifact-path", ".agent-artifacts/design-spec/author+safe/r001.md",
+      "--from-address", "agent-deck/planner+safe",
+      "--author-to-address", "agent-deck/author+safe",
+      "--reviewer-to-address", "agent-deck/reviewer+safe"
+    ]), dependencies("success", records));
+
+    assert.equal(records.length, 2);
+    assert.match(records[0].body, /From: planner\+safe planner\+safe/);
+    assert.match(records[0].body, /To: architect_reviewer reviewer\+safe/);
+    assert.match(records[0].body, /Author: architect_author author\+safe/);
+    assert.match(records[0].body, /Session Host: agent-deck\+safe/);
+    assert.equal(records[0].commandArgs.includes("agent-deck/planner+safe"), true);
+    assert.equal(records[0].commandArgs.includes("agent-deck/reviewer+safe"), true);
+    assert.equal(records[1].commandArgs.includes("agent-deck/author+safe"), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

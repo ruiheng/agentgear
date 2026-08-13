@@ -50,15 +50,6 @@ Optional:
   --json
   -h, --help`;
 
-const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
-const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
-const BRANCH_REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/;
-const WAYPOST_ADDRESS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-
-function requireHeaderValue(value, label, pattern) {
-  if (typeof value !== "string" || !pattern.test(value)) fail(`${label} has an invalid header value`);
-}
-
 function requirePlainHeaderText(value, label) {
   if (typeof value !== "string" || value.length === 0 || /[\r\n\0]/.test(value)) {
     fail(`${label} has an unsafe header value`);
@@ -66,34 +57,16 @@ function requirePlainHeaderText(value, label) {
 }
 
 function validateEnvelopeOptions(options) {
-  for (const [key, label, pattern] of [
-    ["taskId", "--task-id", TASK_ID],
-    ["startBranch", "--start-branch", BRANCH_REF],
-    ["integrationBranch", "--integration-branch", BRANCH_REF],
-    ["taskBranch", "--task-branch", BRANCH_REF],
-    ["plannerSessionId", "--planner-session-id", SESSION_ID],
-    ["coderSessionId", "--coder-session-id", SESSION_ID],
-    ["coderSessionRef", "--coder-session-ref", SESSION_ID],
-    ["reviewerSessionId", "--reviewer-session-id", SESSION_ID],
-    ["sessionHost", "--session-host", /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/],
-    ["fromAddress", "--from-address", WAYPOST_ADDRESS],
-    ["toAddress", "--to-address", WAYPOST_ADDRESS],
-    ["reviewerToAddress", "--reviewer-to-address", WAYPOST_ADDRESS]
-  ]) {
-    if (key.startsWith("reviewer") && options.reviewContext !== "required") continue;
-    requireHeaderValue(options[key], label, pattern);
-  }
   for (const [key, label] of [
+    ["taskId", "--task-id"],
+    ["plannerSessionId", "--planner-session-id"],
+    ["coderSessionId", "--coder-session-id"],
+    ["reviewerSessionId", "--reviewer-session-id"],
+    ["sessionHost", "--session-host"],
     ["plannerWorkspace", "--planner-workspace"],
     ["workerWorkspace", "--worker-workspace"],
     ["taskDir", "--task-dir"],
-    ["workspaceLifecycle", "--workspace-lifecycle"],
-    ["sessionReason", "--session-reason"],
-    ["workflowPolicy", "--workflow-policy"],
-    ["subject", "--subject"],
-    ["reviewerSubject", "--reviewer-subject"],
-    ["contentType", "--content-type"],
-    ["schemaVersion", "--schema-version"]
+    ["workspaceLifecycle", "--workspace-lifecycle"]
   ]) {
     if (key.startsWith("reviewer") && options.reviewContext !== "required") continue;
     requirePlainHeaderText(options[key], label);

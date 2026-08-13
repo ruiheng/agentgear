@@ -51,14 +51,6 @@ Optional:
 
 export const DEFAULT_SEND_TIMEOUT_MS = 0;
 
-const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
-const WAYPOST_ADDRESS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-
-function requireHeaderValue(value, label, pattern) {
-  if (typeof value !== "string" || !pattern.test(value)) fail(`${label} has an invalid header value`);
-}
-
 function requirePlainHeaderText(value, label) {
   if (typeof value !== "string" || value.length === 0 || /[\r\n\0]/.test(value)) {
     fail(`${label} has an unsafe header value`);
@@ -66,21 +58,13 @@ function requirePlainHeaderText(value, label) {
 }
 
 function validateEnvelopeOptions(options) {
-  for (const [key, label, pattern] of [
-    ["taskId", "--task-id", TASK_ID],
-    ["requesterRole", "--requester-role", /^[A-Za-z][A-Za-z0-9_-]{0,63}$/],
-    ["requesterSessionId", "--requester-session-id", SESSION_ID],
-    ["authorSessionId", "--author-session-id", SESSION_ID],
-    ["reviewerSessionId", "--reviewer-session-id", SESSION_ID],
-    ["sessionHost", "--session-host", /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/],
-    ["fromAddress", "--from-address", WAYPOST_ADDRESS],
-    ["authorToAddress", "--author-to-address", WAYPOST_ADDRESS],
-    ["reviewerToAddress", "--reviewer-to-address", WAYPOST_ADDRESS]
-  ]) requireHeaderValue(options[key], label, pattern);
   for (const [key, label] of [
-    ["archiveBranch", "--archive-branch"],
-    ["contentType", "--content-type"],
-    ["schemaVersion", "--schema-version"]
+    ["taskId", "--task-id"],
+    ["requesterRole", "--requester-role"],
+    ["requesterSessionId", "--requester-session-id"],
+    ["authorSessionId", "--author-session-id"],
+    ["reviewerSessionId", "--reviewer-session-id"],
+    ["sessionHost", "--session-host"]
   ]) requirePlainHeaderText(options[key], label);
 }
 
@@ -304,6 +288,9 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     ["contractFile", "--contract-file"]
   ]) {
     if (!options[key]) fail(`${label} is required`);
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(options.taskId)) {
+    fail("--task-id must use letters, digits, dot, underscore, or hyphen");
   }
   validateEnvelopeOptions(options);
   if (options.authorSessionId === options.reviewerSessionId) {
