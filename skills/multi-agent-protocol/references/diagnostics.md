@@ -9,7 +9,7 @@ Use this shared checklist after listener, send, worker-start, or closeout failur
 For send failures, diagnose only final failed, partial, or unknown sends.
 
 1. Report a concise stderr summary.
-2. Resolve the sender or target with the generic `session_resolve` operation.
+2. Inspect the sender or target with `session_require` and `auto_restart = false`.
 3. Confirm the command runs in the expected workflow session context.
 4. Check the relevant send, receive, or lifecycle tool result.
 

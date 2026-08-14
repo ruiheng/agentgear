@@ -80,7 +80,6 @@ async function execute(mainFunction) {
 export const workflowWaypostMcpTools = [
   "session_create",
   "session_require",
-  "session_resolve",
   "waypost_ack",
   "waypost_bind",
   "waypost_defer",
@@ -298,7 +297,8 @@ function retiredClaudePermissions(env = process.env) {
     `Bash(${sendAndWake} *)`,
     "Bash(agentgear run review-tech-design *)",
     "Bash(~/.local/bin/agentgear run review-tech-design *)",
-    `Bash(${agentgear} run review-tech-design *)`
+    `Bash(${agentgear} run review-tech-design *)`,
+    "mcp__waypost__session_resolve"
   ];
 }
 
@@ -321,25 +321,49 @@ function readRetiredPermissionFile(filePath, label) {
   }
 }
 
-function retiredClaudePermissionIssue(filePath, env) {
+function retiredClaudePermissionIssues(filePath, env) {
   const inspected = readRetiredPermissionFile(filePath, "Claude settings");
-  if (inspected.issue || inspected.source === null) return inspected.issue;
+  if (inspected.issue || inspected.source === null) return inspected.issue ? [inspected.issue] : [];
   let settings;
   try {
     settings = JSON.parse(inspected.source);
   } catch {
     return inspected.source.includes("adwf-send-and-wake")
-      ? `Claude settings mention retired command adwf-send-and-wake but are not valid JSON: ${filePath}`
-      : null;
+      ? [`Claude settings mention retired command adwf-send-and-wake but are not valid JSON: ${filePath}`]
+      : [];
   }
   const allowed = Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : [];
   const retired = new Set(retiredClaudePermissions(env));
   const retained = [...allowed].filter(permission => retired.has(permission));
-  if (retained.length === 0) return null;
-  const detail = retained.some(permission => permission.includes("review-tech-design"))
-    ? "retired Agentgear review-tech-design launcher"
-    : "retired command adwf-send-and-wake";
-  return `Claude settings retain an approval for ${detail}: ${filePath}`;
+  const issues = [];
+  if (retained.some(permission => permission.includes("session_resolve"))) {
+    issues.push(`Claude settings retain an approval for retired Waypost session_resolve tool: ${filePath}`);
+  }
+  if (retained.some(permission => permission.includes("review-tech-design"))) {
+    issues.push(`Claude settings retain an approval for retired Agentgear review-tech-design launcher: ${filePath}`);
+  }
+  if (retained.some(permission => permission.includes("adwf-send-and-wake"))) {
+    issues.push(`Claude settings retain an approval for retired command adwf-send-and-wake: ${filePath}`);
+  }
+  return issues;
+}
+
+function retiredCodexSessionResolveIssue(paths) {
+  const info = fs.lstatSync(paths.codexConfig, { throwIfNoEntry: false });
+  if (!info) return null;
+  if (!info.isFile() || info.isSymbolicLink()) {
+    return `Codex config cannot be safely inspected for retired Agentgear permissions: ${paths.codexConfig}`;
+  }
+  try {
+    const source = fs.readFileSync(paths.codexConfig, "utf8");
+    const ownership = readCodexOwnership(paths);
+    const stripped = stripCodexOwnedBlock(source, ownership);
+    return stripped.tools.includes("session_resolve")
+      ? `Codex config retains an Agentgear-owned approval for retired Waypost session_resolve: ${paths.codexConfig}`
+      : null;
+  } catch (error) {
+    return `Codex config could not be inspected for retired Agentgear permissions (${error.message}): ${paths.codexConfig}`;
+  }
 }
 
 function retiredGeneratedPermissionIssue(filePath, label) {
@@ -361,8 +385,9 @@ export function findRetiredPermissionApprovals({
   const projectDir = path.resolve(project);
   const paths = permissionPaths(scope, projectDir, env);
   const issues = [];
-  const claudeIssue = retiredClaudePermissionIssue(paths.claudeSettings, env);
-  if (claudeIssue) issues.push(claudeIssue);
+  issues.push(...retiredClaudePermissionIssues(paths.claudeSettings, env));
+  const codexMcpIssue = retiredCodexSessionResolveIssue(paths);
+  if (codexMcpIssue) issues.push(codexMcpIssue);
   for (const [filePath, label] of [
     [paths.codexRules, "Codex rules"],
     [paths.codexLegacyRules, "Legacy Codex rules"],

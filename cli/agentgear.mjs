@@ -55,7 +55,7 @@ import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/wo
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
-const minimumWaypostVersion = [0, 5, 0];
+const minimumWaypostVersion = [0, 6, 0];
 const minimumWaypostVersionText = minimumWaypostVersion.join(".");
 
 function print(message = "") {

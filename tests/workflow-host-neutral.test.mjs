@@ -10,6 +10,14 @@ function read(relativePath) {
   return fs.readFileSync(path.join(rootDir, relativePath), "utf8");
 }
 
+function markdownUnder(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const item = path.join(directory, entry.name);
+    if (entry.isDirectory()) return markdownUnder(item);
+    return entry.isFile() && entry.name.endsWith(".md") ? [item] : [];
+  });
+}
+
 const creationSkills = [
   "delegate-code-task",
   "delegate-task",
@@ -47,6 +55,34 @@ test("the shared contract uses resolver-provided launch values", () => {
   assert.doesNotMatch(hostContract, /session-host-config/);
   assert.match(resolverContract, /tool_candidates/);
   assert.match(resolverContract, /thurbox_agent_key/);
+});
+
+test("workflow guidance uses session_require for lookup without a resolve preflight", () => {
+  const source = markdownUnder(path.join(rootDir, "skills"))
+    .map(filePath => fs.readFileSync(filePath, "utf8"))
+    .join("\n");
+  const hostContract = read("skills/multi-agent-protocol/references/session-host.md");
+  assert.doesNotMatch(source, /session_resolve/);
+  assert.match(hostContract, /status = not_found/);
+  assert.match(hostContract, /auto_restart = false/);
+});
+
+test("review closeout routes by current role without inspecting the executor session", () => {
+  const reviewCloseout = read("skills/review-closeout/references/disclosure-start.md");
+  const plannerCloseout = read("skills/planner-closeout/references/disclosure-start.md");
+  assert.match(reviewCloseout, /current role is Planner[\s\S]*do not send a Waypost message/);
+  assert.match(reviewCloseout, /pass the generated body directly to `planner-closeout`/);
+  assert.match(reviewCloseout, /Do not call `session_require` for the current closeout executor/);
+  assert.doesNotMatch(reviewCloseout, /closeout_sender_session_id == planner_session_id/);
+  assert.match(plannerCloseout, /produces the `closeout_delivered` body locally[\s\S]*same turn/);
+});
+
+test("browser tester routing distinguishes an explicit id from a foreign ref", () => {
+  const request = read("skills/browser-test-request/references/disclosure-start.md");
+  assert.match(request, /browser_tester_session_id[\s\S]*workspace[\s\S]*invalid explicit context/);
+  assert.match(request, /browser_tester_session_ref[\s\S]*workspace mismatch[\s\S]*browser-tester-<browser_check_id>/);
+  assert.match(request, /never retry creation with the conflicting ref/);
+  assert.match(request, /do not treat any other `session_require` error as `not_found`/);
 });
 
 test("code dispatch allocates cross-workspace sessions before changing worker git state", () => {

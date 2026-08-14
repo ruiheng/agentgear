@@ -77,7 +77,9 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 
 - `waypost` is the authoritative workflow message layer
 - Action skills start or require target collaborator sessions through Waypost's
-  generic `session_resolve`, `session_require`, and `session_create` tools.
+  generic `session_require` and `session_create` tools. `session_require`
+  returns `not_found` for an absent target and supports read-only inspection
+  with `auto_restart=false`; no separate resolve preflight exists.
   Waypost selects the active supported host; prompts retain the host returned
   by those tools instead of assuming Agent Deck.
 - `multi-agent-protocol/references/internal-protocol/shared-protocol.md` owns recv/wait, async sender, and target-status rules

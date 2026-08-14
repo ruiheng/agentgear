@@ -170,6 +170,26 @@ test("retired permission detection only treats Claude allow entries as approvals
     });
     assert.equal(stale.required, true);
     assert.equal(stale.issues.some(issue => /Claude settings retain an approval/.test(issue)), true);
+
+    settings.permissions.allow = ["mcp__waypost__session_resolve"];
+    fs.writeFileSync(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+    const staleResolve = findRetiredPermissionApprovals({
+      scope: "user",
+      project,
+      env: environment
+    });
+    assert.equal(staleResolve.required, true);
+    assert.equal(staleResolve.issues.some(issue => /retired Waypost session_resolve/.test(issue)), true);
+
+    settings.permissions.allow.push("Bash(~/.local/bin/adwf-send-and-wake *)");
+    fs.writeFileSync(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+    const mixed = findRetiredPermissionApprovals({
+      scope: "user",
+      project,
+      env: environment
+    });
+    assert.equal(mixed.issues.some(issue => /retired Waypost session_resolve/.test(issue)), true);
+    assert.equal(mixed.issues.some(issue => /retired command adwf-send-and-wake/.test(issue)), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -367,7 +387,8 @@ test("user-scoped permission init and check cover all harnesses", () => {
     assert.equal(configured.paths.geminiPolicy, path.join(home, ".gemini", "policies", "agentgear-workflow.toml"));
 
     const claude = JSON.parse(fs.readFileSync(paths.claudeSettings, "utf8"));
-    claude.permissions.allow = claude.permissions.allow.filter(permission => permission !== "mcp__waypost__session_resolve");
+    assert.equal(claude.permissions.allow.includes("mcp__waypost__session_resolve"), false);
+    claude.permissions.allow = claude.permissions.allow.filter(permission => permission !== "mcp__waypost__session_require");
     fs.writeFileSync(paths.claudeSettings, `${JSON.stringify(claude, null, 2)}\n`);
     const stale = withEnvironment(environment, () => checkPermissions({ scope: "user", project }));
     assert.equal(stale.ok, false);
@@ -499,6 +520,7 @@ test("workflow permissions recognize the trusted absolute Waypost command in Cod
     PATH: bin
   };
   try {
+    assert.equal(workflowWaypostMcpTools.includes("session_resolve"), false);
     const waypost = writeWaypostExecutable(bin);
     fs.mkdirSync(project, { recursive: true });
     const paths = withEnvironment(environment, () => permissionPaths("user", project));
@@ -592,6 +614,10 @@ test("workflow permissions migrate the legacy Codex approval block into owned bo
       `[mcp_servers.waypost]\ncommand = "waypost"\nargs = ["mcp"]\n\n# Agentgear multi-agent-protocol Waypost MCP approvals\n${legacySections}\n`
     );
 
+    const stale = findRetiredPermissionApprovals({ scope: "user", project, env: environment });
+    assert.equal(stale.required, true);
+    assert.equal(stale.issues.some(issue => /Codex config.*session_resolve/.test(issue)), true);
+
     withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
 
     const source = fs.readFileSync(paths.codexConfig, "utf8");
@@ -599,6 +625,7 @@ test("workflow permissions migrate the legacy Codex approval block into owned bo
     assert.match(source, /# BEGIN Agentgear Waypost MCP approvals/);
     assert.match(source, /# END Agentgear Waypost MCP approvals/);
     assert.doesNotMatch(source, /mcp_servers\.waypost\.tools\.waypost_fail/);
+    assert.doesNotMatch(source, /mcp_servers\.waypost\.tools\.session_resolve/);
     assert.equal(fs.existsSync(paths.codexOwnership), true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });

@@ -74,7 +74,7 @@ export function permissionMigrationScopes(options, env = process.env) {
         ...candidate,
         required: retired.required || launcher.required || waypostFail.required,
         reasons: [
-          ...(retired.required ? ["retired-command"] : []),
+          ...(retired.required ? ["retired-approval"] : []),
           ...(launcher.required ? ["missing-workflow-launcher"] : []),
           ...(waypostFail.required ? ["missing-waypost-cli-fail"] : [])
         ],
@@ -89,9 +89,13 @@ export function printPermissionMigrationRequirement({
   commandRetired = false,
   detectedScopes = []
 }) {
-  const isRetiredResult = result => result.reasons?.includes("retired-command")
+  const isRetiredResult = result => result.reasons?.includes("retired-approval")
     || (!Array.isArray(result.reasons) && result.required);
   const retiredDetected = detectedScopes.some(isRetiredResult);
+  const retiredSessionResolve = detectedScopes.some(result =>
+    result.issues?.some(issue => issue.includes("session_resolve")));
+  const retiredCommandApproval = commandRetired || detectedScopes.some(result =>
+    result.issues?.some(issue => /adwf-send-and-wake|review-tech-design/.test(issue)));
   const launcherMissing = detectedScopes.some(result => result.reasons?.includes("missing-workflow-launcher"));
   const waypostFailMissing = detectedScopes.some(result => result.reasons?.includes("missing-waypost-cli-fail"));
   if (!commandRetired && !retiredDetected && !launcherMissing && !waypostFailMissing) return;
@@ -104,8 +108,11 @@ export function printPermissionMigrationRequirement({
   const waypostFailScopes = [...new Set(detectedScopes
     .filter(result => result.reasons?.includes("missing-waypost-cli-fail"))
     .map(result => result.scope))];
-  if (commandRetired || retiredDetected) {
+  if (retiredCommandApproval) {
     print("SECURITY ACTION REQUIRED: permission_migration_required command=adwf-send-and-wake");
+  }
+  if (retiredSessionResolve) {
+    print("SECURITY ACTION REQUIRED: permission_migration_required tool=session_resolve");
   }
   if (launcherMissing) {
     print("SECURITY ACTION REQUIRED: permission_migration_required missing=tech-design-workflow-launcher");

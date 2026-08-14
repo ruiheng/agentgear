@@ -7,7 +7,7 @@ selector-summary: Review already committed design specifications on a recorded b
 
 Require committed docs, `design_spec_branch`, `design_spec_base_branch`, complete requester context, and an explicit `design_specs_in_scope`. Never guess the base.
 
-Resolve the reviewer ID and host from explicit input, workflow context, persisted Waypost history, then `session_resolve`. If prior review context exists but identity or host is missing, stop rather than create a context-free replacement. Create a reviewer only for a clearly new lane, following the host-neutral launch contract.
+Resolve the reviewer ID and host from explicit input, workflow context, and persisted Waypost history, then call `session_require` with its id or ref and reviewer workspace. If prior review context exists but identity or host is missing, stop rather than create a context-free replacement. Create a reviewer only after `status = not_found` for a clearly new lane, following the host-neutral launch contract.
 
 Before each request:
 

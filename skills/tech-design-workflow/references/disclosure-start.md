@@ -62,7 +62,7 @@ Treat this contract and requester-delivered Decision Deltas as authority. Treat 
 
 ## Shared Invariants
 
-- Use `session_resolve`, `session_require`, and `session_create` only through `agentgear skill get multi-agent-protocol/session-host`; retrieve `agentgear skill get tech-design-workflow/draft-review` before creating sessions.
+- Use `session_require` and `session_create` only through `agentgear skill get multi-agent-protocol/session-host`; retrieve `agentgear skill get tech-design-workflow/draft-review` before creating sessions.
 - Keep transport metadata, launch commands, and provider-specific values out of task contracts and design artifacts.
 - Do not resolve user-owned product scope through engineering judgment. Exclude optional capability or use a Decision Request.
 - Keep findings and revisions proportional to the stated goal. Do not add machinery merely to satisfy a template.

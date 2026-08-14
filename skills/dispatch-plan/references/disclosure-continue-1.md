@@ -24,9 +24,9 @@ selector-summary: Complete dispatch-plan instructions, part 2.
    - do not switch the supervisor worktree onto that branch
    - if the preferred branch name already exists and resume was not explicit, choose a new unique suffix instead of reusing that ref
    - on resume, preserve the recorded `review_base`
-9. call `waypost_status` and resolve the planner target by its real id or ref.
+9. call `waypost_status`; for an existing lane, call `session_require` with the planner real id or ref, known host, and `<planner_workspace>`.
 10. if this dispatch allocates a new planner lane, call `session_create` for `<planner_session_ref>` with the selected opaque launch candidate, the recorded supervisor parent real id, and `<planner_workspace>`. It verifies the parent; do not preflight it with `session_require`.
-11. otherwise call `session_require` with the returned host, real planner id, and `<planner_workspace>`.
+11. continue an existing lane only when `session_require` returns `ready`; stop on `not_found` rather than silently creating a replacement.
 12. record the returned host, real id, and sole address as the authoritative planner route for later workflow turns.
 13. fill `{{TO_SESSION_ID}}`
 14. send with:

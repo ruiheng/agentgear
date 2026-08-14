@@ -127,17 +127,19 @@ Recommended subject:
 Use the `waypost` MCP tools:
 - use `waypost`
 - resolve the browser tester target before send:
-  - if `browser_tester_session_id` is already known, call `session_require`
-    with its returned host, real id, and `workdir = <browser_tester_workspace>`
-  - otherwise call `session_resolve` with `browser_tester_session_ref`
-  - if that ref resolves and its returned `path` matches
-    `<browser_tester_workspace>`, call `session_require`
-  - if it does not resolve, resolve role `browser_tester`, then call
-    `session_create` with the selected opaque launch candidate and recorded
-    requester parent. It verifies that parent; do not preflight it with
-    `session_require`. If the requested tester workspace differs from the
-    requester parent workspace, ask the user to create the direct tester
-    session manually instead.
+  - if `browser_tester_session_id` is present, call `session_require` with that
+    id, known host, and `workdir = <browser_tester_workspace>`; a workspace
+    mismatch is invalid explicit context, so report it and stop
+  - otherwise call `session_require` with `browser_tester_session_ref`, known
+    host, and `workdir = <browser_tester_workspace>`; on workspace mismatch,
+    treat the ref as occupied elsewhere and select the nonconflicting local ref
+    `browser-tester-<browser_check_id>`
+  - on `ready`, reuse the returned real id and address
+  - only on `not_found`, or after selecting a new local ref for a ref workspace
+    mismatch, resolve role `browser_tester` and call `session_create` with that
+    ref, the selected opaque launch candidate, and recorded requester parent;
+    it verifies that parent, so do not preflight it with `session_require`
+  - do not treat any other `session_require` error as `not_found`
 - record the returned host, real id, and sole address as the authoritative
   `browser_tester_session_id` route
 - fill `{{TO_SESSION_ID}}` in the message body before sending
@@ -152,7 +154,7 @@ Use the `waypost` MCP tools:
 - one coherent batch; group related scenarios in a compact matrix and state assertions
 - keep the body self-contained; browser-tester should not need workflow files
 - prefer reusing the long-lived `browser-tester` session for this environment
-- if a resolved `browser-tester` ref points at a different workspace, ignore that hit and create a workspace-local browser tester instead
+- if a browser-tester ref is occupied in another workspace, use the unique local ref derived from `browser_check_id`; never retry creation with the conflicting ref
 - if no reusable `browser-tester` session exists in the requested workspace, create it from this request flow and continue
 - carry both requester and browser-tester workspaces in the message body so later `session_require` calls can verify the correct worktree
 - on require paths, preserve existing session launch metadata

@@ -1,6 +1,6 @@
 ---
 skill-selector: session-host
-selector-summary: Resolve, require, create, and close collaborator sessions through Waypost.
+selector-summary: Require, create, and close collaborator sessions through Waypost.
 ---
 
 # Session Host Contract
@@ -20,15 +20,15 @@ When a workflow already records a host, pass it explicitly. Otherwise omit
 `host` only for current-session work: Waypost selects a valid nested Thurbox
 session first, then Agent Deck, or returns an actionable error.
 
-## Resolve, Require, Create
+## Require or Create
 
-For a target ref:
+For a target id or ref:
 
-1. Call `session_resolve` with exactly one `session` (or an ordered `sessions`
-   batch) and the known host when present.
-2. If it is found, call `session_require` with its returned `host`, exact
-   `session_id`, and expected `workdir`. Continue only when `status = ready`.
-3. If it is not found, retain the recorded workflow-owned parent's exact id.
+1. Call `session_require` with the known host when present, the expected
+   `workdir`, and exactly one of `session_id`, `session_ref`, or an ordered
+   `sessions` batch. Leave `auto_restart` at its default for a target that must
+   be ready. Continue on `status = ready`, preserving the returned identity.
+2. On `status = not_found`, retain the recorded workflow-owned parent's exact id.
    Resolve the workflow role by `agentgear skill get multi-agent-protocol/tool-resolution`, then call
    `session_create` with the parent host when known, `session_name`, `workdir`,
    `parent_session_id`, and the selected candidate's `full_command_line` /
@@ -38,10 +38,14 @@ For a target ref:
    parent merely as creation preflight.
    Continue only when `status = created`.
 
+Use `auto_restart = false` only for read-only inspection. An existing stopped
+target then returns `status = not_ready`; do not send work to it. A normal
+dispatch may require its returned exact id again with automatic restart.
+
 Generic creation always needs a same-host parent. It has no detached,
 parentless, group-placement, or startup-instruction form. An action that cannot
 name a portable parent must ask the user to create the direct session manually,
-then resolve and require it.
+then require it.
 
 If creation rejects the recorded parent or child workdir, report that exact
 error. Do not inspect a host CLI or session inventory, and do not replace the
@@ -49,8 +53,8 @@ recorded parent with an unrelated session.
 
 Do not retry or send work after `created_unverified`,
 `create_recovery_required`, or `ready_unverified`. Keep the returned identity,
-call `session_resolve` only for recovery inspection, and ask for an
-operator-approved next step.
+use `session_require` with `auto_restart = false` only for recovery inspection,
+and ask for an operator-approved next step.
 
 ## Launch Values
 
@@ -66,7 +70,7 @@ pass both opaque values from one resolver candidate.
 
 ## Lifecycle Boundary
 
-Ordinary workflow turns may resolve, require, create, send to, and report
+Ordinary workflow turns may require, create, send to, and report
 sessions. They must not delete, restart, move, group, or otherwise manage a
 host through its CLI. The designated successful closeout path is the exception:
 it removes task-scoped disposable sessions through the owning host adapter,

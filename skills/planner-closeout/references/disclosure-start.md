@@ -12,8 +12,8 @@ Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol m
 
 ## Input
 
-Provide the message body from `closeout_delivered` or `code_delivery_complete`.
-Use this skill only after that terminal handoff is actually received.
+Provide the body from `closeout_delivered` or `code_delivery_complete`.
+Use this skill only after that terminal handoff is received, or after the Planner produces the `closeout_delivered` body locally through `review-closeout` in the same turn.
 
 ## Multi-Agent Mode
 

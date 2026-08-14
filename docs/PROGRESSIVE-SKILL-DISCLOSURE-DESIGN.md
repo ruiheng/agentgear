@@ -284,7 +284,7 @@ Selection behavior is exact:
 - An explicit-skill-only install remains additive.
 - A default or explicit-pack install, link, or update is authoritative for the selected targets and reconciles them to selectedInstallableSkills.
 
-Pack descriptions change so all means all maintained capabilities, not every skill directory exposed to a harness. Workflow and browser readiness requires Waypost 0.5.0 or newer and one alternative session host; upstream documentation is no longer a target-installation readiness requirement. `agentgear list --json` reports each skill's exposure; selector discovery belongs to `agentgear skill list` rather than treating aliases as skills.
+Pack descriptions change so all means all maintained capabilities, not every skill directory exposed to a harness. Workflow and browser readiness requires Waypost 0.6.0 or newer and one alternative session host; upstream documentation is no longer a target-installation readiness requirement. `agentgear list --json` reports each skill's exposure; selector discovery belongs to `agentgear skill list` rather than treating aliases as skills.
 
 Catalog schemaVersion remains 1 because exposure is an internal additive field consumed atomically by this release. The updated validator requires a valid exposure for every canonical skill. Selector aliases stay with canonical agent-facing slices rather than becoming catalog product metadata.
 
@@ -292,7 +292,7 @@ Catalog schemaVersion remains 1 because exposure is an internal additive field c
 
 `agentgear doctor` separates executable readiness from optional upstream documentation availability:
 
-- Required pack commands retain their existing `ok` or `missing` checks and affect exit status. For Waypost, doctor additionally runs `waypost --version` and requires a valid version of at least 0.5.0; it does not start MCP or probe behavior.
+- Required pack commands retain their existing `ok` or `missing` checks and affect exit status. For Waypost, doctor additionally runs `waypost --version` and requires a valid version of at least 0.6.0; it does not start MCP or probe behavior.
 - Each alternative session host prints only its external executable state, for example `ok      session host agent-deck (agent-deck)` or `unavailable session host agent-deck (agent-deck)`. At least one declared host must be available for workflow and browser readiness, exactly as today.
 - A host's catalog `upstream` field describes optional documentation for explicit skill retrieval; it no longer causes a lookup under any harness target and is not counted in the missing-requirement total. The separate `requirements.upstreams` loop is removed for this catalog because packs do not require an installed upstream skill.
 - For Agent Deck, doctor validates documentation without network access. It searches the current verified catalog digest first in `<data-root>/retrieved-skills/agent-deck/<digest-hex>/payload`, then in the current or retained immutable runtimes whose embedded catalog pin matches. It prints exactly one informational state: `ok      optional documentation agent-deck (verified local resource)`, `available optional documentation agent-deck (run: agentgear skill get agent-deck)`, or `warning optional documentation agent-deck (unverifiable local resource: <path>)`. `available` means no verified local copy is present and never triggers a fetch. `warning` reports corruption but does not make an otherwise ready host fail; explicit `skill get` and full purge retain their stricter validation behavior.

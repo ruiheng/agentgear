@@ -42,7 +42,7 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 [remaining uncertainty or None]
 ```
 
-In message review, resolve task, round, reviewer identity, actual inbound From identity, maximum, requester context, and target through shared context rules. Send the complete report form above as the Waypost body; never replace it with a summary, and keep `Action: design_spec_review_report` in its initial header block. Send completed reviews and NEEDS_INPUT to inbound From after `session_resolve`, using the current bound reviewer Waypost address and subject `design-spec review report: <task_id> r<round>`. Follow the shared Async sender rule.
+In message review, resolve task, round, reviewer identity, actual inbound From identity, maximum, requester context, and target through shared context rules. Send the complete report form above as the Waypost body; never replace it with a summary, and keep `Action: design_spec_review_report` in its initial header block. Require inbound From through the shared session-host contract before sending completed reviews or NEEDS_INPUT, using the current bound reviewer Waypost address and subject `design-spec review report: <task_id> r<round>`. Follow the shared Async sender rule.
 
 ## Context Recovery
 

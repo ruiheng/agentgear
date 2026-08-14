@@ -42,8 +42,9 @@ Skill-specific context resolution:
 - `task_id`: explicit -> review report text -> ask
 - `planner_session_id`: explicit -> review context -> ask
 - `planner_workspace`: explicit -> accepted review report `Planner workspace` -> review context -> planner session-manager path -> ask
-- `closeout_sender_session_id`: explicit -> current session id -> review context -> ask
-- `closeout_sender_role`: explicit -> current workflow role -> review context -> default `closeout_executor`
+- `worker_workspace`: explicit -> accepted Handoff `Worker workspace` -> review context -> ask
+- `closeout_sender_session_id`: explicit -> current session id -> ask
+- `closeout_sender_role`: explicit -> current workflow role -> report missing context
 - `reviewer_session_id`: explicit -> accepted review report `From` header -> review context -> ask
 - `coder_session_id` (optional): explicit -> accepted review report `To: coder` header -> review context; omit when the requester is not a coder
 - `session_host`: explicit -> accepted review report `Session host` -> review context -> ask
@@ -63,25 +64,15 @@ Branch-plan rule with a Handoff:
 - if any branch-plan field is missing, ask one short clarification question instead of guessing
 
 If required values are resolved:
-1. normalize identity values before any comparison:
-   - resolve `planner_session_id` / `closeout_sender_session_id` / `reviewer_session_id` and any present `coder_session_id` refs to real ids via `session_resolve`
-   - if normalization fails for required identity, ask one short clarification question before sending
-2. choose message action and subject:
-   - `closeout_delivered`; `closeout delivered: <task_id>`
-3. send mode:
-   - if `closeout_sender_session_id == planner_session_id`, skip cross-session delivery and continue locally
-   - otherwise send the selected action to planner through `waypost_send`
-4. use `waypost`
-5. first call `session_require` with:
-   - `session_id = <planner_session_id>`
-   - `workdir = <planner_workspace>`
-   - do not use the reviewer/current workspace unless it is explicitly the planner workspace
-   - retain the returned planner Waypost address
-6. use `waypost_send` with:
-   - `from_address = <current bound closeout-sender Waypost address>`
-   - `to_address = <returned planner Waypost address>`
-   - `subject = <selected subject>`
-   - `body = <closeout message body>`
+1. determine the current workflow role from direct context; do not query sessions or compare session ids to infer it
+2. produce `closeout_delivered` with subject `closeout delivered: <task_id>`
+3. if the current role is Planner, do not send a Waypost message; pass the generated body directly to `planner-closeout` and continue locally in this turn
+4. if the current role is Reviewer or another designated closeout executor:
+   - call `session_require` for `planner_session_id` with `workdir = <planner_workspace>` and retain its returned real id and Waypost address
+   - call `waypost_send` from the current bound address to that planner address with the selected subject and generated body
+5. if the current role is unclear, report the missing workflow-role context and stop
+
+Do not call `session_require` for the current closeout executor merely to validate its id or workspace.
 
 Recommended subjects:
 - `closeout delivered: <task_id>`

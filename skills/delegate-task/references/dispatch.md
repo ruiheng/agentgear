@@ -41,18 +41,19 @@ Round: 1
 - require `source_material` when execution depends on requester-only material
 - if `execution_skill = explain-for-me`, require `shared; cleanup=none`; do not dispatch a temporary worker
 
-1. Resolve the worker by real id or ref with `session_resolve`.
+1. Call `session_require` for the worker id or ref, expected workspace, and
+   known host. It returns `not_found` without creating a session.
 
 2. For a direct session:
 
    - require `shared; cleanup=none`; a temporary lifecycle must use a Waypost worker
-   - found: call `session_require` with its returned host, real id, and workspace; report its returned address for the user to continue
-   - absent: stop and ask the user to create the direct session manually. Do not create a parentless generic session or inject a startup instruction.
+   - `ready`: report its returned real id and address for the user to continue
+   - `not_found`: stop and ask the user to create the direct session manually. Do not create a parentless generic session or inject a startup instruction.
 
 3. For a Waypost worker:
 
-   - found: call `session_require` with its returned host, real id, and workspace
-   - absent: resolve role `<worker_tool_role>`, then call `session_create` with the selected opaque launch candidate and `parent_session_id = <requester_session_id>`; it verifies the requester parent, so do not preflight that parent with `session_require`
+   - `ready`: reuse its returned host, real id, and address
+   - `not_found`: resolve role `<worker_tool_role>`, then call `session_create` with the selected opaque launch candidate and `parent_session_id = <requester_session_id>`; it verifies the requester parent, so do not preflight that parent with `session_require`
    - record the returned real id and sole address; fill `{{TO_SESSION_ID}}`, then call `waypost_send` from `waypost_status.default_sender` to that address, subject `delegate: <task_id> -> worker`
    - follow the shared Async sender rule
 
