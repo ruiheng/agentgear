@@ -1024,6 +1024,47 @@ test("retrieved skill materializations reject symlink and unexpected shapes with
   }
 });
 
+test("upstream retrieval rejects symlinked managed parents without writing through them", () => {
+  if (process.platform === "win32") return;
+  for (const parent of ["retrieved-skills", path.join("retrieved-skills", "agent-deck")]) {
+    const item = fixture();
+    try {
+      const sourceTree = path.join(item.temporary, "source");
+      const outside = path.join(item.temporary, "outside");
+      fs.mkdirSync(sourceTree, { recursive: true });
+      fs.mkdirSync(outside);
+      fs.writeFileSync(path.join(sourceTree, "SKILL.md"), "# Agent Deck\n");
+      const { catalog } = pinnedCatalogWithPayload(loadCatalog(rootDir), sourceTree);
+      const dataRoot = path.join(item.env.XDG_DATA_HOME, "agentgear");
+      const managedParent = path.join(dataRoot, parent);
+      fs.mkdirSync(path.dirname(managedParent), { recursive: true });
+      fs.symlinkSync(outside, managedParent, "dir");
+
+      assert.throws(
+        () => retrieveUpstreamSkill({ catalog, skill: "agent-deck", env: item.env }),
+        /Retrieved upstream skill parent is not a real directory/
+      );
+      assert.deepEqual(fs.readdirSync(outside), []);
+      assert.equal(fs.lstatSync(managedParent).isSymbolicLink(), true);
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("technical-design delivery overview uses the direct requester-delivery route", () => {
+  const catalog = loadCatalog(rootDir);
+  const index = buildSkillContentIndex(rootDir, catalog);
+  const overview = resolveSkillAddress(index, "tech-design-workflow").body;
+  const requesterHandling = resolveSkillAddress(index, "tech-design-workflow/requester-handling").body;
+  const delivered = resolveSkillAddress(index, "action:design_spec_delivered");
+
+  assert.match(overview, /`design_spec_delivered`: retrieve `agentgear skill get tech-design-workflow\/requester-delivery`/);
+  assert.equal(delivered.owner, "tech-design-workflow");
+  assert.equal(delivered.canonicalSelector, "requester-delivery");
+  assert.doesNotMatch(requesterHandling, /design_spec_delivered|closeout\.md/);
+});
+
 test("retrieved-skill purge preserves old pins and rolls a failed quarantine removal back", () => {
   const item = fixture();
   try {

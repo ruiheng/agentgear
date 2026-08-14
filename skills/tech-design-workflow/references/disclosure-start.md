@@ -13,7 +13,8 @@ Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protoc
 - New review-existing lane: retrieve `agentgear skill get tech-design-workflow/review-existing`.
 - `design_spec_draft_requested`, `design_spec_context_corrected`, or author-addressed `design_spec_review_context_recovery_requested`: retrieve `agentgear skill get tech-design-workflow/author-round`.
 - `design_spec_review_report`: retrieve `agentgear skill get tech-design-workflow/report-handling`.
-- `design_spec_review_context_rejected`, `design_spec_decision_requested`, `design_spec_delivered`, or requester-addressed `design_spec_review_context_recovery_requested`: retrieve `agentgear skill get tech-design-workflow/requester-handling`.
+- `design_spec_review_context_rejected`, `design_spec_decision_requested`, or requester-addressed `design_spec_review_context_recovery_requested`: retrieve `agentgear skill get tech-design-workflow/requester-handling`.
+- `design_spec_delivered`: retrieve `agentgear skill get tech-design-workflow/requester-delivery`.
 - After the accepted design is authoritative: retrieve `agentgear skill get tech-design-workflow/closeout`.
 
 For a new request, choose draft-review when no defensible committed specification exists or material technical choices remain unresolved. Choose review-existing only for committed specifications with a known branch, base, and complete requester context. Do not make the requester invent a specification merely to obtain review.

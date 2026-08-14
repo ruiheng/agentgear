@@ -137,6 +137,48 @@ export function retrievedSkillMaterializationRoot(dataRoot, plan) {
   return path.join(dataRoot, "retrieved-skills", plan.name, digestHex(plan.source));
 }
 
+function retrievalParentDirectories(dataRoot, plan) {
+  return [dataRoot, path.join(dataRoot, "retrieved-skills"), path.join(dataRoot, "retrieved-skills", plan.name)];
+}
+
+function ensureRetrievalParents(dataRoot, plan) {
+  const directories = retrievalParentDirectories(dataRoot, plan);
+  const existing = directories.map(directory => fs.lstatSync(directory, { throwIfNoEntry: false }));
+  for (let index = 0; index < directories.length; index += 1) {
+    const info = existing[index];
+    if (info && (!info.isDirectory() || info.isSymbolicLink())) {
+      fail(`Retrieved upstream skill parent is not a real directory: ${directories[index]}`);
+    }
+  }
+  for (let index = 0; index < directories.length; index += 1) {
+    const directory = directories[index];
+    if (!existing[index]) {
+      if (index === 0) fs.mkdirSync(directory, { recursive: true });
+      else fs.mkdirSync(directory);
+    }
+    const info = fs.lstatSync(directory, { throwIfNoEntry: false });
+    if (!info?.isDirectory() || info.isSymbolicLink()) {
+      fail(`Retrieved upstream skill parent is not a real directory: ${directory}`);
+    }
+  }
+  return directories.map(directory => {
+    const info = fs.lstatSync(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      fail(`Retrieved upstream skill parent is not a real directory: ${directory}`);
+    }
+    return { directory, dev: info.dev, ino: info.ino };
+  });
+}
+
+function validateRetrievalParents(expected) {
+  for (const item of expected) {
+    const info = fs.lstatSync(item.directory, { throwIfNoEntry: false });
+    if (!info?.isDirectory() || info.isSymbolicLink() || info.dev !== item.dev || info.ino !== item.ino) {
+      fail(`Retrieved upstream skill parent changed during materialization: ${item.directory}`);
+    }
+  }
+}
+
 function materializationManifest(plan) {
   return {
     schemaVersion: 1,
@@ -240,6 +282,7 @@ export function retrieveUpstreamSkill({
   if (!plan) return null;
   const dataRoot = dataRootFor(env);
   const finalRoot = retrievedSkillMaterializationRoot(dataRoot, plan);
+  const retrievalParents = ensureRetrievalParents(dataRoot, plan);
   if (fs.existsSync(finalRoot) || fs.lstatSync(finalRoot, { throwIfNoEntry: false })) {
     if (!retrievedSkillMaterializationIsValid(finalRoot, plan)) {
       fail(`Retrieved upstream skill is unverifiable: ${finalRoot}; remove it manually before retrying.`);
@@ -247,7 +290,6 @@ export function retrieveUpstreamSkill({
     return { plan, payload: path.join(finalRoot, "payload"), materialized: false };
   }
 
-  fs.mkdirSync(path.dirname(finalRoot), { recursive: true });
   const temporary = `${finalRoot}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   try {
     fs.mkdirSync(temporary);
@@ -265,6 +307,7 @@ export function retrieveUpstreamSkill({
     }
     fs.writeFileSync(manifestPath(temporary), `${JSON.stringify(materializationManifest(plan), null, 2)}\n`);
     if (!retrievedSkillMaterializationIsValid(temporary, plan)) fail(`Could not verify retrieved upstream skill: ${temporary}`);
+    validateRetrievalParents(retrievalParents);
     try {
       rename(temporary, finalRoot);
     } catch (error) {
@@ -273,7 +316,12 @@ export function retrieveUpstreamSkill({
     }
     return { plan, payload: path.join(finalRoot, "payload"), materialized: true };
   } catch (error) {
-    fs.rmSync(temporary, { recursive: true, force: true });
+    try {
+      validateRetrievalParents(retrievalParents);
+      fs.rmSync(temporary, { recursive: true, force: true });
+    } catch (cleanupError) {
+      error.message += `; temporary cleanup skipped: ${cleanupError.message}`;
+    }
     throw error;
   }
 }

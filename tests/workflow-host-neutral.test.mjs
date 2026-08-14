@@ -111,6 +111,7 @@ test("technical design requester owns terminal architect cleanup", () => {
   const authorRound = read("skills/tech-design-workflow/references/author-round.md");
   const reportHandling = read("skills/tech-design-workflow/references/report-handling.md");
   const requesterHandling = read("skills/tech-design-workflow/references/requester-handling.md");
+  const requesterDelivery = read("skills/tech-design-workflow/references/requester-delivery.md");
   const closeout = read("skills/tech-design-workflow/references/closeout.md");
   const reviewer = read("skills/review-tech-design/references/disclosure-start.md");
   const contextIntake = read("skills/review-tech-design/references/context-intake.md");
@@ -158,7 +159,8 @@ test("technical design requester owns terminal architect cleanup", () => {
   assert.match(closeout, /--target architect-author=<author_session_id>/);
   assert.match(closeout, /--target architect-reviewer=<reviewer_session_id>/);
   assert.match(closeout, /--target architect=<reviewer_session_id>/);
-  assert.match(requesterHandling, /archive and remove task sessions/);
+  assert.match(requesterDelivery, /tech-design-workflow\/closeout/);
+  assert.match(requesterDelivery, /archive and remove task sessions/);
   assert.match(reportHandling, /stable finding IDs/);
   assert.doesNotMatch(closeout, /generic workflow code does not remove them/);
 });
