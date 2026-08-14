@@ -17,12 +17,13 @@ For author and reviewer, independently resolve tool selection with roles `archit
 
 Retrieve `agentgear skill get multi-agent-protocol/session-host multi-agent-protocol/tool-resolution` before session operations.
 
-Resolve deterministic refs, defaulting to `architect-author-<task_id>` and `architect-reviewer-<task_id>`:
+Resolve deterministic refs, defaulting to `architect-author-<task_id>` and `architect-reviewer-<task_id>`. Call `session_require` for each deterministic ref with the known host when present and the expected workdir, then branch only on its returned status:
 
-- if found, verify returned path and call `session_require` with returned host, real ID, and expected workdir;
-- if not found, call `session_create` with the deterministic ref, requester parent, and resolved opaque candidate.
+- on `status = ready`, preserve the returned host, real ID, verified path, and sole address;
+- on `status = not_found`, call `session_create` with the deterministic ref, requester parent, and resolved opaque candidate;
+- on every other status or error, stop without creating or sending.
 
-Require distinct real IDs, one shared returned host, and one address per target. After interrupted setup, resolve first and never create a target that already resolves. After review history exists, recover missing real IDs from Waypost history or stop.
+Require distinct real IDs, one shared returned host, and one address per target. After interrupted setup, repeat `session_require` instead of using a separate resolve preflight, and never create a target that returns `ready`. After review history exists, recover missing real IDs from Waypost history or stop.
 
 ## Contract and Dispatch
 
