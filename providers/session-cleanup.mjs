@@ -113,7 +113,7 @@ function thurboxInventory() {
 }
 
 function thurboxSessionByUuid(uuid) {
-  const result = run("thurbox-cli", ["session", "get", uuid, "--json"]);
+  const result = run("thurbox-cli", ["session", "get", "--json", uuid]);
   if (result.error) fail(`failed to query Thurbox session ${uuid}: ${result.error.message}`);
   if (result.status !== 0) {
     const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.status}`;
@@ -146,7 +146,7 @@ function cleanupThurbox(options) {
   for (const target of options.targets) {
     const targetIsUuid = isThurboxUuid(target.ref);
     const shown = targetIsUuid ? thurboxSessionByUuid(target.ref) : null;
-    const id = stringField(shown, "uuid");
+    const id = stringField(shown, "id");
     const exactId = isThurboxUuid(id) && id === target.ref;
     const title = stringField(shown, "name") || stringField(shown, "title");
     const parentSessionId = stringField(shown, "parent_session_id");

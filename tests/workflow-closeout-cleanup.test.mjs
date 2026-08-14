@@ -58,23 +58,29 @@ const failDelete = process.env.ADWF_TEST_FAIL_REMOVE || "";
 const args = process.argv.slice(2);
 const read = () => JSON.parse(fs.readFileSync(stateFile, "utf8"));
 const write = value => fs.writeFileSync(stateFile, JSON.stringify(value));
+const publicSession = session => {
+  const { lookup_id, ...payload } = session;
+  return payload;
+};
 const state = read();
 if (args[0] === "session" && args[1] === "list") {
   if (process.env.ADWF_TEST_FAIL_LIST === "1") { process.stderr.write("database is locked\\n"); process.exit(9); }
-  process.stdout.write(JSON.stringify(state.sessions.filter(session => session.active !== false)));
+  process.stdout.write(JSON.stringify(state.sessions.filter(session => session.active !== false).map(publicSession)));
   process.exit(0);
 }
 if (args[0] === "session" && args[1] === "get") {
-  if (process.env.ADWF_TEST_FAIL_GET === args[2]) { process.stderr.write("database is locked\\n"); process.exit(9); }
-  const session = state.sessions.find(item => item.id === args[2] || item.uuid === args[2]);
-  if (!session) { process.stderr.write("error: Session not found: " + args[2] + "\\n"); process.exit(1); }
-  process.stdout.write(JSON.stringify(session));
+  if (args[2] !== "--json" || !args[3]) process.exit(2);
+  const sessionId = args[3];
+  if (process.env.ADWF_TEST_FAIL_GET === sessionId) { process.stderr.write("database is locked\\n"); process.exit(9); }
+  const session = state.sessions.find(item => item.id === sessionId || item.lookup_id === sessionId);
+  if (!session) { process.stderr.write("error: Session not found: " + sessionId + "\\n"); process.exit(1); }
+  process.stdout.write(JSON.stringify(publicSession(session)));
   process.exit(0);
 }
 if (args[0] === "session" && args[1] === "delete") {
   if (args.includes("--force")) process.exit(8);
   if (args[2] === failDelete) { process.stderr.write("thurbox delete failed for test\\n"); process.exit(7); }
-  const index = state.sessions.findIndex(item => item.id === args[2] || item.uuid === args[2]);
+  const index = state.sessions.findIndex(item => item.id === args[2]);
   if (index < 0) process.exit(1);
   state.sessions.splice(index, 1);
   write(state);
@@ -285,8 +291,8 @@ integrationTest("task-session cleanup soft-deletes generic multi-role Thurbox ta
   const authorSessionId = "123e4567-e89b-42d3-a456-426614174010";
   const reviewerSessionId = "123e4567-e89b-42d3-a456-426614174011";
   const fixture = makeFixture([
-    { uuid: authorSessionId, name: `architect-author-${taskId}`, cwd: "/tmp/work", parent_session_id: "requester-1" },
-    { uuid: reviewerSessionId, name: `architect-reviewer-${taskId}`, cwd: "/tmp/work", parent_session_id: "requester-1" }
+    { id: authorSessionId, name: `architect-author-${taskId}`, cwd: "/tmp/work", parent_session_id: "requester-1" },
+    { id: reviewerSessionId, name: `architect-reviewer-${taskId}`, cwd: "/tmp/work", parent_session_id: "requester-1" }
   ]);
   try {
     const artifactRoot = path.join(fixture.temporary, "design-closeout");
@@ -339,32 +345,42 @@ integrationTest("task-session cleanup does not resolve a Thurbox title as a targ
   }
 });
 
-integrationTest("task-session cleanup rejects a Thurbox get result without a canonical UUID", () => {
-  const taskId = "20260814-0749-thurbox-id-only-result";
-  const sessionId = "123e4567-e89b-42d3-a456-426614174019";
-  const fixture = makeFixture([
-    { id: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
-  ]);
-  try {
-    const artifactRoot = path.join(fixture.temporary, "artifacts");
-    const result = run(process.execPath, [
-      archiveScript,
-      "--task-id", taskId,
-      "--owner-session-id", "planner-1",
-      "--session-host", "thurbox",
-      "--target", `coder=${sessionId}`,
-      "--artifact-root", artifactRoot,
-      "--apply"
-    ], { env: fixture.env });
-    assert.equal(result.status, 3, result.stderr || result.stdout);
-    assert.match(result.stdout, /delete_guard_blocked count=1 reason=session_id_mismatch/);
-    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [sessionId]);
-    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
-    assert.equal(archive.sessions[0].found, true);
-    assert.equal(archive.sessions[0].session_id, null);
-    assert.equal(archive.sessions[0].delete_status, "blocked_session_id_mismatch");
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+integrationTest("task-session cleanup rejects missing, invalid, or mismatched Thurbox response IDs", () => {
+  const targetId = "123e4567-e89b-42d3-a456-426614174019";
+  for (const testCase of [
+    { name: "missing", responseId: undefined },
+    { name: "invalid", responseId: "not-a-thurbox-uuid" },
+    { name: "mismatched", responseId: "123e4567-e89b-42d3-a456-426614174022" }
+  ]) {
+    const taskId = `20260814-0749-thurbox-${testCase.name}-response-id`;
+    const fixture = makeFixture([{
+      lookup_id: targetId,
+      ...(testCase.responseId === undefined ? {} : { id: testCase.responseId }),
+      name: `coder-${taskId}`,
+      cwd: "/tmp/work",
+      parent_session_id: "planner-1"
+    }]);
+    try {
+      const artifactRoot = path.join(fixture.temporary, "artifacts");
+      const result = run(process.execPath, [
+        archiveScript,
+        "--task-id", taskId,
+        "--owner-session-id", "planner-1",
+        "--session-host", "thurbox",
+        "--target", `coder=${targetId}`,
+        "--artifact-root", artifactRoot,
+        "--apply"
+      ], { env: fixture.env });
+      assert.equal(result.status, 3, result.stderr || result.stdout);
+      assert.match(result.stdout, /delete_guard_blocked count=1 reason=session_id_mismatch/);
+      assert.equal(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.length, 1);
+      const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+      assert.equal(archive.sessions[0].found, true);
+      assert.equal(archive.sessions[0].session_id, testCase.responseId ?? null);
+      assert.equal(archive.sessions[0].delete_status, "blocked_session_id_mismatch");
+    } finally {
+      fs.rmSync(fixture.temporary, { recursive: true, force: true });
+    }
   }
 });
 
@@ -373,8 +389,8 @@ integrationTest("task-session cleanup prefers an exact Thurbox ID over a title c
   const targetId = "123e4567-e89b-42d3-a456-426614174013";
   const collidingSessionId = "123e4567-e89b-42d3-a456-426614174014";
   const fixture = makeFixture([
-    { uuid: collidingSessionId, name: targetId, cwd: "/tmp/work", parent_session_id: "planner-1" },
-    { uuid: targetId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
+    { id: collidingSessionId, name: targetId, cwd: "/tmp/work", parent_session_id: "planner-1" },
+    { id: targetId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
   ]);
   try {
     const artifactRoot = path.join(fixture.temporary, "artifacts");
@@ -388,7 +404,7 @@ integrationTest("task-session cleanup prefers an exact Thurbox ID over a title c
       "--apply"
     ], { env: fixture.env });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.uuid), [collidingSessionId]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [collidingSessionId]);
     const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
     assert.equal(archive.sessions[0].session_id, targetId);
     assert.equal(archive.sessions[0].delete_status, "deleted");
@@ -401,7 +417,7 @@ integrationTest("task-session cleanup blocks a Thurbox target without parent own
   const taskId = "20260814-0749-thurbox-missing-parent";
   const sessionId = "123e4567-e89b-42d3-a456-426614174015";
   const fixture = makeFixture([
-    { uuid: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work" }
+    { id: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work" }
   ]);
   try {
     const artifactRoot = path.join(fixture.temporary, "artifacts");
@@ -416,7 +432,7 @@ integrationTest("task-session cleanup blocks a Thurbox target without parent own
     ], { env: fixture.env });
     assert.equal(result.status, 3, result.stderr || result.stdout);
     assert.match(result.stdout, /delete_guard_blocked count=1 reason=missing_parent_session_id/);
-    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.uuid), [sessionId]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [sessionId]);
     const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
     assert.equal(archive.sessions[0].delete_status, "blocked_missing_parent_session_id");
     assert.equal(archive.sessions[0].delete_block_reason, "missing_parent_session_id");
@@ -429,7 +445,7 @@ integrationTest("task-session cleanup blocks a Thurbox target owned by another p
   const taskId = "20260814-0749-thurbox-parent-mismatch";
   const sessionId = "123e4567-e89b-42d3-a456-426614174016";
   const fixture = makeFixture([
-    { uuid: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "another-planner" }
+    { id: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "another-planner" }
   ]);
   try {
     const artifactRoot = path.join(fixture.temporary, "artifacts");
@@ -444,7 +460,7 @@ integrationTest("task-session cleanup blocks a Thurbox target owned by another p
     ], { env: fixture.env });
     assert.equal(result.status, 3, result.stderr || result.stdout);
     assert.match(result.stdout, /delete_guard_blocked count=1 reason=parent_session_id_mismatch/);
-    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.uuid), [sessionId]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [sessionId]);
     const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
     assert.equal(archive.sessions[0].delete_status, "blocked_parent_session_id_mismatch");
     assert.equal(archive.sessions[0].delete_block_reason, "parent_session_id_mismatch");
@@ -458,8 +474,8 @@ integrationTest("task-session cleanup reports only blocked reasons in a mixed Th
   const blockedSessionId = "123e4567-e89b-42d3-a456-426614174020";
   const preservedSessionId = "123e4567-e89b-42d3-a456-426614174021";
   const fixture = makeFixture([
-    { uuid: blockedSessionId, name: `coder-${taskId}`, cwd: "/tmp/work" },
-    { uuid: preservedSessionId, name: "shared-reviewer", cwd: "/tmp/work", parent_session_id: "planner-1" }
+    { id: blockedSessionId, name: `coder-${taskId}`, cwd: "/tmp/work" },
+    { id: preservedSessionId, name: "shared-reviewer", cwd: "/tmp/work", parent_session_id: "planner-1" }
   ]);
   try {
     const artifactRoot = path.join(fixture.temporary, "artifacts");
@@ -476,7 +492,7 @@ integrationTest("task-session cleanup reports only blocked reasons in a mixed Th
     assert.equal(result.status, 3, result.stderr || result.stdout);
     assert.match(result.stdout, /delete_guard_blocked count=1 reason=missing_parent_session_id/);
     assert.doesNotMatch(result.stdout, /missing_parent_session_id,non_disposable_session/);
-    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.uuid), [blockedSessionId, preservedSessionId]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [blockedSessionId, preservedSessionId]);
     const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
     assert.deepEqual(archive.sessions.map(session => session.delete_status), ["blocked_missing_parent_session_id", "skipped_non_disposable_session"]);
   } finally {
@@ -561,7 +577,7 @@ integrationTest("planner closeout soft-deletes disposable Thurbox sessions", () 
   const taskId = "20260809-1203-thurbox";
   const sessionId = "123e4567-e89b-42d3-a456-426614174017";
   const fixture = makeFixture([
-    { uuid: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
+    { id: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
   ]);
   try {
     const { repository, artifactRoot } = initCloseoutRepository(fixture.temporary, taskId);
@@ -597,7 +613,7 @@ integrationTest("planner closeout retains its task lock when a Thurbox ownership
   const taskId = "20260814-0749-thurbox-closeout-ownership-guard";
   const sessionId = "123e4567-e89b-42d3-a456-426614174018";
   const fixture = makeFixture([
-    { uuid: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work" }
+    { id: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work" }
   ]);
   try {
     const { repository, artifactRoot } = initCloseoutRepository(fixture.temporary, taskId);
@@ -616,7 +632,7 @@ integrationTest("planner closeout retains its task lock when a Thurbox ownership
     ], { cwd: repository, env: fixture.env });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /planner_closeout_ok_with_optional_warn/);
-    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.uuid), [sessionId]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [sessionId]);
     assert.equal(fs.existsSync(lockDir), true);
     const state = JSON.parse(fs.readFileSync(path.join(artifactRoot, "workflow-progress", `closeout-state-${taskId}.json`), "utf8"));
     assert.equal(state.optional_actions.session_cleanup, "failed");
@@ -630,7 +646,7 @@ integrationTest("task-session cleanup resolves an inactive Thurbox session by ex
   const taskId = "20260809-1204-thurbox-inactive";
   const sessionId = "123e4567-e89b-42d3-a456-426614174000";
   const fixture = makeFixture([
-    { uuid: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1", active: false }
+    { id: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1", active: false }
   ]);
   try {
     const artifactRoot = path.join(fixture.temporary, "artifacts");
@@ -658,7 +674,7 @@ integrationTest("task-session cleanup fails closed when exact Thurbox UUID looku
   const taskId = "20260809-1205-thurbox-get-failure";
   const sessionId = "123e4567-e89b-42d3-a456-426614174001";
   const fixture = makeFixture([
-    { uuid: sessionId, name: `coder-${taskId}`, active: false }
+    { id: sessionId, name: `coder-${taskId}`, active: false }
   ]);
   try {
     const result = run(process.execPath, [
@@ -681,7 +697,7 @@ integrationTest("task-session cleanup fails closed when exact Thurbox UUID looku
 integrationTest("planner closeout retains its task lock when Thurbox inventory fails", () => {
   const taskId = "20260809-1204-thurbox-query-failure";
   const fixture = makeFixture([
-    { uuid: "thurbox-coder", name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
+    { id: "123e4567-e89b-42d3-a456-426614174023", name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
   ]);
   try {
     const { repository, artifactRoot } = initCloseoutRepository(fixture.temporary, taskId);
@@ -696,7 +712,7 @@ integrationTest("planner closeout retains its task lock when Thurbox inventory f
       "--task-dir", repository,
       "--planner-session-id", "planner-1",
       "--session-host", "thurbox",
-      "--coder-session-id", "thurbox-coder"
+      "--coder-session-id", "123e4567-e89b-42d3-a456-426614174023"
     ], { cwd: repository, env: { ...fixture.env, ADWF_TEST_FAIL_LIST: "1" } });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /planner_closeout_ok_with_optional_warn/);
