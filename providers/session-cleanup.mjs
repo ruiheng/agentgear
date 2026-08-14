@@ -131,30 +131,23 @@ function thurboxSessionByUuid(uuid) {
   return session;
 }
 
-function thurboxCanonicalId(session) {
-  return stringField(session, "uuid") || stringField(session, "id");
-}
-
 function isThurboxUuid(value) {
   return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
-}
-
-function thurboxSessionForExactTarget(inventory, targetRef) {
-  if (isThurboxUuid(targetRef)) return thurboxSessionByUuid(targetRef);
-  return inventory.find(session => thurboxCanonicalId(session) === targetRef) || null;
 }
 
 function cleanupThurbox(options) {
   if (!resolveCommand("thurbox-cli")) fail("thurbox-cli not found in PATH");
   if (!options.ownerSessionId) fail("--owner-session-id is required for Thurbox cleanup");
-  const inventory = thurboxInventory();
+  thurboxInventory(); // Fail closed if the provider inventory is unavailable.
   const sessions = [];
   const output = [];
   let blocked = 0;
   let failed = 0;
   for (const target of options.targets) {
-    const shown = thurboxSessionForExactTarget(inventory, target.ref);
-    const id = thurboxCanonicalId(shown);
+    const targetIsUuid = isThurboxUuid(target.ref);
+    const shown = targetIsUuid ? thurboxSessionByUuid(target.ref) : null;
+    const id = stringField(shown, "uuid");
+    const exactId = isThurboxUuid(id) && id === target.ref;
     const title = stringField(shown, "name") || stringField(shown, "title");
     const parentSessionId = stringField(shown, "parent_session_id");
     const deleteEligible = options.isDisposable(target.role, title, options.taskId);
@@ -165,14 +158,19 @@ function cleanupThurbox(options) {
     let deleteProvider = null;
     let deleteMode = "soft-delete";
     let recoverable = true;
-    if (id) {
+    if (!targetIsUuid) {
+      deleteStatus = "blocked_invalid_session_id";
+      deleteBlockReason = "invalid_session_id";
+      blocked += 1;
+      output.push(`session_preserved role=${target.role} ref=${target.ref} reason=${deleteBlockReason}`);
+    } else if (shown && !exactId) {
+      deleteStatus = "blocked_session_id_mismatch";
+      deleteBlockReason = "session_id_mismatch";
+      blocked += 1;
+      output.push(`session_preserved role=${target.role} ref=${target.ref} id=${id || "<missing>"} title=${title} reason=${deleteBlockReason}`);
+    } else if (exactId) {
       if (!options.apply) deleteStatus = "skipped_no_apply";
-      else if (id !== target.ref) {
-        deleteStatus = "blocked_session_id_mismatch";
-        deleteBlockReason = "session_id_mismatch";
-        blocked += 1;
-        output.push(`session_preserved role=${target.role} ref=${target.ref} id=${id} title=${title} reason=${deleteBlockReason}`);
-      } else if (!parentSessionId) {
+      else if (!parentSessionId) {
         deleteStatus = "blocked_missing_parent_session_id";
         deleteBlockReason = "missing_parent_session_id";
         blocked += 1;
@@ -204,7 +202,7 @@ function cleanupThurbox(options) {
     sessions.push({
       role: target.role,
       ref: target.ref,
-      found: Boolean(id),
+      found: Boolean(shown),
       session_host: "thurbox",
       session_id: id || null,
       session_title: title || null,
@@ -221,7 +219,7 @@ function cleanupThurbox(options) {
       delete_provider: deleteProvider,
       session_get: shown
     });
-    output.push(`session role=${target.role} ref=${target.ref} found=${id ? 1 : 0}${id ? ` id=${id}` : ""} delete_status=${deleteStatus}`);
+    output.push(`session role=${target.role} ref=${target.ref} found=${shown ? 1 : 0}${id ? ` id=${id}` : ""} delete_status=${deleteStatus}`);
   }
   return {
     mode: options.apply ? "archive_and_remove" : "archive_only",

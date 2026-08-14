@@ -312,9 +312,9 @@ integrationTest("task-session cleanup soft-deletes generic multi-role Thurbox ta
 
 integrationTest("task-session cleanup does not resolve a Thurbox title as a target ID", () => {
   const taskId = "20260814-0749-thurbox-title-target";
-  const sessionId = "123e4567-e89b-42d3-a456-426614174012";
+  const alias = `coder-${taskId}`;
   const fixture = makeFixture([
-    { uuid: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
+    { id: alias, name: alias, cwd: "/tmp/work", parent_session_id: "planner-1" }
   ]);
   try {
     const artifactRoot = path.join(fixture.temporary, "artifacts");
@@ -323,15 +323,46 @@ integrationTest("task-session cleanup does not resolve a Thurbox title as a targ
       "--task-id", taskId,
       "--owner-session-id", "planner-1",
       "--session-host", "thurbox",
-      "--target", `coder=coder-${taskId}`,
+      "--target", `coder=${alias}`,
       "--artifact-root", artifactRoot,
       "--apply"
     ], { env: fixture.env });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.uuid), [sessionId]);
+    assert.equal(result.status, 3, result.stderr || result.stdout);
+    assert.match(result.stdout, /delete_guard_blocked count=1 reason=invalid_session_id/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [alias]);
     const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
     assert.equal(archive.sessions[0].found, false);
-    assert.equal(archive.sessions[0].delete_status, "not_found");
+    assert.equal(archive.sessions[0].delete_status, "blocked_invalid_session_id");
+    assert.equal(archive.sessions[0].delete_block_reason, "invalid_session_id");
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("task-session cleanup rejects a Thurbox get result without a canonical UUID", () => {
+  const taskId = "20260814-0749-thurbox-id-only-result";
+  const sessionId = "123e4567-e89b-42d3-a456-426614174019";
+  const fixture = makeFixture([
+    { id: sessionId, name: `coder-${taskId}`, cwd: "/tmp/work", parent_session_id: "planner-1" }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "artifacts");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--owner-session-id", "planner-1",
+      "--session-host", "thurbox",
+      "--target", `coder=${sessionId}`,
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 3, result.stderr || result.stdout);
+    assert.match(result.stdout, /delete_guard_blocked count=1 reason=session_id_mismatch/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), [sessionId]);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.equal(archive.sessions[0].found, true);
+    assert.equal(archive.sessions[0].session_id, null);
+    assert.equal(archive.sessions[0].delete_status, "blocked_session_id_mismatch");
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -417,6 +448,37 @@ integrationTest("task-session cleanup blocks a Thurbox target owned by another p
     const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
     assert.equal(archive.sessions[0].delete_status, "blocked_parent_session_id_mismatch");
     assert.equal(archive.sessions[0].delete_block_reason, "parent_session_id_mismatch");
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("task-session cleanup reports only blocked reasons in a mixed Thurbox batch", () => {
+  const taskId = "20260814-0749-thurbox-mixed-status";
+  const blockedSessionId = "123e4567-e89b-42d3-a456-426614174020";
+  const preservedSessionId = "123e4567-e89b-42d3-a456-426614174021";
+  const fixture = makeFixture([
+    { uuid: blockedSessionId, name: `coder-${taskId}`, cwd: "/tmp/work" },
+    { uuid: preservedSessionId, name: "shared-reviewer", cwd: "/tmp/work", parent_session_id: "planner-1" }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "artifacts");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--owner-session-id", "planner-1",
+      "--session-host", "thurbox",
+      "--target", `coder=${blockedSessionId}`,
+      "--target", `reviewer=${preservedSessionId}`,
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 3, result.stderr || result.stdout);
+    assert.match(result.stdout, /delete_guard_blocked count=1 reason=missing_parent_session_id/);
+    assert.doesNotMatch(result.stdout, /missing_parent_session_id,non_disposable_session/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.uuid), [blockedSessionId, preservedSessionId]);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.deepEqual(archive.sessions.map(session => session.delete_status), ["blocked_missing_parent_session_id", "skipped_non_disposable_session"]);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

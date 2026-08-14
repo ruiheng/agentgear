@@ -117,7 +117,10 @@ export function main(argv = process.argv.slice(2)) {
   });
   process.stdout.write(`archive_ok file=${archiveFile} mode=${options.apply ? "apply" : "preview"}\n`);
   if (result.blocked > 0) {
-    const blockReasons = [...new Set(result.sessions.map(session => session.delete_block_reason).filter(Boolean))];
+    const blockReasons = [...new Set(result.sessions
+      .filter(session => session.delete_status.startsWith("blocked_"))
+      .map(session => session.delete_block_reason)
+      .filter(Boolean))];
     process.stdout.write(`delete_guard_blocked count=${result.blocked} reason=${blockReasons.join(",") || "guard_failed"}\n`);
     process.stdout.write("delete_guard_action=manual_close_required\n");
     process.stdout.write("delete_guard_hint inspect the archive delete_block_reason before rerunning cleanup\n");
