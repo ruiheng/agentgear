@@ -169,6 +169,11 @@ test("technical design requester owns terminal architect cleanup", () => {
   assert.match(workflow, /Canonical Design Task Contract/);
   assert.match(draftStart, /agentgear run tech-design-workflow send-design-draft-with-review-context\.mjs/);
   assert.match(draftStart, /reviewer-first ordering/);
+  assert.match(draftStart, /Call `session_require` for each deterministic ref/);
+  assert.match(draftStart, /status = ready/);
+  assert.match(draftStart, /status = not_found/);
+  assert.match(draftStart, /every other status or error, stop/);
+  assert.match(draftStart, /instead of using a separate resolve preflight/);
   assert.match(authorRound, /Session Host: <session_host>/);
   assert.match(authorRound, /Previous reviewed artifact/);
   assert.match(authorRound, /Reuse prior evidence from unchanged source/);
