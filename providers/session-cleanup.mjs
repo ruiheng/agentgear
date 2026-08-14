@@ -131,31 +131,60 @@ function thurboxSessionByUuid(uuid) {
   return session;
 }
 
+function thurboxCanonicalId(session) {
+  return stringField(session, "uuid") || stringField(session, "id");
+}
+
+function isThurboxUuid(value) {
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function thurboxSessionForExactTarget(inventory, targetRef) {
+  if (isThurboxUuid(targetRef)) return thurboxSessionByUuid(targetRef);
+  return inventory.find(session => thurboxCanonicalId(session) === targetRef) || null;
+}
+
 function cleanupThurbox(options) {
   if (!resolveCommand("thurbox-cli")) fail("thurbox-cli not found in PATH");
   if (!options.ownerSessionId) fail("--owner-session-id is required for Thurbox cleanup");
   const inventory = thurboxInventory();
   const sessions = [];
   const output = [];
+  let blocked = 0;
   let failed = 0;
   for (const target of options.targets) {
-    const listed = inventory.find(session => [
-      stringField(session, "uuid"), stringField(session, "id"), stringField(session, "name"), stringField(session, "title")
-    ].includes(target.ref)) || null;
-    const shown = listed || (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(target.ref) ? thurboxSessionByUuid(target.ref) : null);
-    const id = stringField(shown, "uuid") || stringField(shown, "id");
+    const shown = thurboxSessionForExactTarget(inventory, target.ref);
+    const id = thurboxCanonicalId(shown);
     const title = stringField(shown, "name") || stringField(shown, "title");
+    const parentSessionId = stringField(shown, "parent_session_id");
     const deleteEligible = options.isDisposable(target.role, title, options.taskId);
     let deleted = false;
     let deleteStatus = "not_found";
+    let deleteBlockReason = null;
     let deleteError = null;
     let deleteProvider = null;
     let deleteMode = "soft-delete";
     let recoverable = true;
     if (id) {
       if (!options.apply) deleteStatus = "skipped_no_apply";
-      else if (!deleteEligible) {
+      else if (id !== target.ref) {
+        deleteStatus = "blocked_session_id_mismatch";
+        deleteBlockReason = "session_id_mismatch";
+        blocked += 1;
+        output.push(`session_preserved role=${target.role} ref=${target.ref} id=${id} title=${title} reason=${deleteBlockReason}`);
+      } else if (!parentSessionId) {
+        deleteStatus = "blocked_missing_parent_session_id";
+        deleteBlockReason = "missing_parent_session_id";
+        blocked += 1;
+        output.push(`session_preserved role=${target.role} ref=${target.ref} id=${id} title=${title} reason=${deleteBlockReason} expected_owner=${options.ownerSessionId}`);
+      } else if (parentSessionId !== options.ownerSessionId) {
+        deleteStatus = "blocked_parent_session_id_mismatch";
+        deleteBlockReason = "parent_session_id_mismatch";
+        blocked += 1;
+        output.push(`session_preserved role=${target.role} ref=${target.ref} id=${id} title=${title} reason=${deleteBlockReason} expected_owner=${options.ownerSessionId} actual_parent=${parentSessionId}`);
+      } else if (!deleteEligible) {
         deleteStatus = "skipped_non_disposable_session";
+        deleteBlockReason = "non_disposable_session";
         output.push(`session_preserved role=${target.role} ref=${target.ref} id=${id} title=${title} reason=non_disposable_session`);
       } else {
         const payload = deleteSession({ host: "thurbox", sessionId: id, profile: "" });
@@ -180,14 +209,14 @@ function cleanupThurbox(options) {
       session_id: id || null,
       session_title: title || null,
       path: stringField(shown, "cwd") || stringField(shown, "repo_path") || stringField(shown, "path") || null,
-      parent_session_id: stringField(shown, "parent_session_id") || stringField(shown, "parent") || stringField(shown, "parent_id") || null,
+      parent_session_id: parentSessionId || null,
       delete_eligible: deleteEligible,
       delete_applied: options.apply,
       delete_mode: deleteMode,
       recoverable,
       deleted,
       delete_status: deleteStatus,
-      delete_block_reason: deleteStatus === "skipped_non_disposable_session" ? "non_disposable_session" : null,
+      delete_block_reason: deleteBlockReason,
       delete_error: deleteError,
       delete_provider: deleteProvider,
       session_get: shown
@@ -204,7 +233,7 @@ function cleanupThurbox(options) {
     stateDatabasePath: null,
     sessions,
     groupCleanup: [],
-    blocked: 0,
+    blocked,
     failed,
     output
   };

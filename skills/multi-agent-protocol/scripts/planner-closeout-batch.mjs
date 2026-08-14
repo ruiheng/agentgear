@@ -89,7 +89,7 @@ function cleanupArchiveSummary(filePath) {
   const archive = readJson(filePath);
   const sessions = Array.isArray(archive.sessions) ? archive.sessions : [];
   const statuses = sessions.map(session => stringField(session, "delete_status"));
-  if (statuses.some(status => ["blocked_missing_provider_session_id", "delete_failed"].includes(status))) {
+  if (statuses.some(status => status === "delete_failed" || status.startsWith("blocked_"))) {
     return { status: "failed", failed: true, warning: true };
   }
   if (statuses.some(status => status === "skipped_non_disposable_session")) {

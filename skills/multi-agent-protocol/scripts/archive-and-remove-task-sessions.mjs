@@ -117,9 +117,10 @@ export function main(argv = process.argv.slice(2)) {
   });
   process.stdout.write(`archive_ok file=${archiveFile} mode=${options.apply ? "apply" : "preview"}\n`);
   if (result.blocked > 0) {
-    process.stdout.write(`delete_guard_blocked count=${result.blocked} reason=missing_provider_session_id\n`);
+    const blockReasons = [...new Set(result.sessions.map(session => session.delete_block_reason).filter(Boolean))];
+    process.stdout.write(`delete_guard_blocked count=${result.blocked} reason=${blockReasons.join(",") || "guard_failed"}\n`);
     process.stdout.write("delete_guard_action=manual_close_required\n");
-    process.stdout.write("delete_guard_hint set ADWF_DEBUG=1 and rerun for provider-id source diagnostics\n");
+    process.stdout.write("delete_guard_hint inspect the archive delete_block_reason before rerunning cleanup\n");
   }
   if (result.failed > 0) process.stdout.write(`delete_failed count=${result.failed}\n`);
   if (result.blocked > 0 || result.failed > 0) process.exitCode = 3;
