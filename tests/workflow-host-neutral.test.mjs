@@ -49,6 +49,17 @@ test("the shared contract uses resolver-provided launch values", () => {
   assert.match(resolverContract, /thurbox_agent_key/);
 });
 
+test("code dispatch allocates cross-workspace sessions before changing worker git state", () => {
+  const dispatch = read("skills/delegate-code-task/references/dispatch.md");
+  const hostContract = read("skills/multi-agent-protocol/references/session-host.md");
+  assert.ok(dispatch.indexOf("Resolve the coder id/ref") < dispatch.indexOf("Prepare workspace records"));
+  assert.match(dispatch, /allocation or preparation fails, stop before dispatch/);
+  assert.match(hostContract, /parent\s+may belong to a different workspace/);
+  assert.match(hostContract, /independently verifies the child against the requested workdir/);
+  assert.match(hostContract, /Do not inspect a host CLI or session inventory/);
+  assert.doesNotMatch(hostContract, /same verified\s+workdir/);
+});
+
 test("the shared contract does not auto-repair unverified wake hints", () => {
   const hostContract = read("skills/multi-agent-protocol/references/session-host.md");
   const sharedProtocol = read("skills/multi-agent-protocol/references/internal-protocol/shared-protocol.md");

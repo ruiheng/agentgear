@@ -96,7 +96,7 @@
     "code-health-review": {"tags": ["review", "workflow"], "exposure": "entry"},
     "commit-staged": {"tags": ["git", "standalone"], "exposure": "entry"},
     "tech-design-workflow": {"tags": ["design", "workflow"], "exposure": "entry"},
-    "delegate-code-task": {"tags": ["delegation", "workflow"], "exposure": "prompt-only"},
+    "delegate-code-task": {"tags": ["delegation", "workflow"], "exposure": "entry"},
     "delegate-task": {"tags": ["delegation", "workflow"], "exposure": "entry"},
     "dispatch-plan": {"tags": ["planning", "workflow"], "exposure": "entry"},
     "execute-plan": {"tags": ["planning", "workflow"], "exposure": "prompt-only"},

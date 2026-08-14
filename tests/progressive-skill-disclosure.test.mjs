@@ -17,6 +17,7 @@ const entrySkills = [
   "check-waypost-messages",
   "code-health-review",
   "commit-staged",
+  "delegate-code-task",
   "delegate-task",
   "dispatch-plan",
   "explain-for-me",

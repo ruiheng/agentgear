@@ -55,6 +55,8 @@ import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/wo
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
+const minimumWaypostVersion = [0, 5, 0];
+const minimumWaypostVersionText = minimumWaypostVersion.join(".");
 
 function print(message = "") {
   process.stdout.write(String(message) + "\n");
@@ -374,14 +376,51 @@ function sessionHostReady(catalog, hostName, targets) {
   return ready;
 }
 
+function checkWaypostVersion() {
+  const result = childProcess.spawnSync("waypost", ["--version"], {
+    encoding: "utf8",
+    env: process.env,
+    windowsHide: true
+  });
+  if (result.status !== 0) return { ready: false, detail: "--version failed" };
+  const output = String(result.stdout || "").trim();
+  const match = /^(?:waypost(?: version)?\s+)?v?(\d+)\.(\d+)\.(\d+)$/.exec(output);
+  if (!match) return { ready: false, detail: "invalid --version output" };
+  const version = match.slice(1).map(Number);
+  let comparison = 0;
+  for (let index = 0; index < version.length; index += 1) {
+    if (version[index] === minimumWaypostVersion[index]) continue;
+    comparison = version[index] > minimumWaypostVersion[index] ? 1 : -1;
+    break;
+  }
+  const ready = comparison >= 0;
+  return { ready, version: version.join(".") };
+}
+
 function doctor(catalog, options) {
   const selection = selected(catalog, options);
   const targets = resolveTargetRoots(catalog, options);
   let missing = 0;
   for (const command of selection.requirements.commands) {
-    const found = isCommandAvailable(command);
-    print((found ? "ok      " : "missing ") + command);
-    if (!found) missing += 1;
+    let ready = isCommandAvailable(command);
+    if (!ready) {
+      print("missing " + command);
+      missing += 1;
+      continue;
+    }
+    if (command === "waypost") {
+      const checked = checkWaypostVersion();
+      ready = checked.ready;
+      if (ready) {
+        print(`ok      waypost ${checked.version} (required >= ${minimumWaypostVersionText})`);
+      } else {
+        const observed = checked.version ? `; found ${checked.version}` : "";
+        print(`incompatible waypost (required >= ${minimumWaypostVersionText}${observed}; ${checked.detail ?? "version too old"})`);
+      }
+    } else {
+      print("ok      " + command);
+    }
+    if (!ready) missing += 1;
   }
   if (selection.requirements.sessionHosts.length > 0) {
     const readyHosts = selection.requirements.sessionHosts.filter(host => sessionHostReady(catalog, host, targets));

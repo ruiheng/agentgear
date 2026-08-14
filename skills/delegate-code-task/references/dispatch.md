@@ -7,7 +7,22 @@ selector-summary: Dispatch a persistent code task to its coder.
 
 For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to resolve to the same path before dispatch.
 
-1. Prepare workspace records:
+1. Resolve the coder id/ref through `agentgear skill get multi-agent-protocol/session-host`. When review is required, also resolve or create the reviewer before workspace preparation with the same planner parent, worker workspace, and session host.
+
+   - reuse a found coder with `session_require` and its returned host, real id,
+     path, and address;
+   - otherwise resolve role `coder`, then create `<coder_session_ref>` with
+     its selected opaque launch candidate and recorded planner parent.
+     `session_create` verifies the parent identity and the child workdir; do
+     not preflight the parent with `session_require`.
+
+   Record each returned host, real id, and sole address. Required review must
+   have a real reviewer id and address before workspace preparation. If
+   allocation or preparation fails, stop before dispatch, report any sessions
+   already created, and reuse their recorded refs later. Do not inspect a host
+   session inventory or substitute another parent.
+
+2. Prepare workspace records:
 
    ```bash
    agentgear run multi-agent-protocol prepare-workspaces.mjs \
@@ -18,18 +33,6 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
    ```
 
    Stop on workspace or integration-branch mismatch. Use `--override-workspaces` only after explicit user confirmation.
-
-2. Resolve the coder id/ref through `agentgear skill get multi-agent-protocol/session-host`. When review is required, also resolve or create the reviewer before coder dispatch with the same planner parent, workspace, and session host.
-
-   - reuse a found coder with `session_require` and its returned host, real id,
-     path, and address;
-   - otherwise resolve role `coder`, then create `<coder_session_ref>` with
-     its selected opaque launch candidate and recorded planner parent.
-     `session_create` verifies that parent; do not preflight it with
-     `session_require`.
-
-   Record each returned host, real id, and sole address. Required review must
-   have a real reviewer id and address before the wrapper runs.
 
 3. Send the canonical brief through the lock-owning wrapper. It publishes the planner task contract to reviewer first, then dispatches coder only after reviewer delivery returns an id:
 

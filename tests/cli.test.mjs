@@ -147,6 +147,16 @@ function writeNodeExecutable(directory, name, source) {
   return filePath;
 }
 
+function writeWaypostExecutable(directory, output = "waypost 0.5.0", status = 0) {
+  return writeNodeExecutable(directory, "waypost", `
+if (process.argv[2] === "--version") {
+  process.stdout.write(${JSON.stringify(`${output}\n`)});
+  process.exit(${status});
+}
+process.exit(0);
+`);
+}
+
 test("canonical fingerprints match fixed golden vectors on POSIX filesystems", t => {
   if (process.platform === "win32") {
     // Windows reports different mode bits and wrapper fingerprints require the
@@ -577,7 +587,8 @@ test("workflow doctor keeps optional Agent Deck documentation non-blocking acros
   try {
     const bin = path.join(fixture.temporary, "bin");
     fs.mkdirSync(bin, { recursive: true });
-    for (const command of ["git", "node", "waypost", "thurbox-cli"]) writeExecutable(bin, command);
+    for (const command of ["git", "node", "thurbox-cli"]) writeExecutable(bin, command);
+    writeWaypostExecutable(bin);
     const environment = { ...fixture.environment, PATH: bin };
 
     const thurboxReady = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
@@ -638,12 +649,45 @@ test("workflow doctor keeps optional Agent Deck documentation non-blocking acros
   }
 });
 
+test("workflow doctor requires Waypost 0.5.0 from --version output", () => {
+  const fixture = environmentFixture();
+  try {
+    const bin = path.join(fixture.temporary, "bin");
+    fs.mkdirSync(bin, { recursive: true });
+    for (const command of ["git", "node", "thurbox-cli"]) writeExecutable(bin, command);
+    const environment = { ...fixture.environment, PATH: bin };
+
+    writeWaypostExecutable(bin, "waypost 0.4.9");
+    const old = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+    assert.equal(old.status, 1);
+    assert.match(old.stdout, /incompatible waypost \(required >= 0\.5\.0; found 0\.4\.9; version too old\)/);
+
+    writeWaypostExecutable(bin, "unknown");
+    const invalid = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stdout, /invalid --version output/);
+
+    writeWaypostExecutable(bin, "unused", 2);
+    const unsupported = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+    assert.equal(unsupported.status, 1);
+    assert.match(unsupported.stdout, /--version failed/);
+
+    writeWaypostExecutable(bin, "waypost version 0.6.0");
+    const current = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
+    assert.equal(current.status, 0, current.stderr);
+    assert.match(current.stdout, /ok\s+waypost 0\.6\.0 \(required >= 0\.5\.0\)/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow doctor recognizes verified immutable Agent Deck documentation without retrieval or target mutation", () => {
   const fixture = environmentFixture();
   try {
     const bin = path.join(fixture.temporary, "bin");
     fs.mkdirSync(bin, { recursive: true });
-    for (const command of ["git", "node", "waypost", "agent-deck"]) writeExecutable(bin, command);
+    for (const command of ["git", "node", "agent-deck"]) writeExecutable(bin, command);
+    writeWaypostExecutable(bin);
     const environment = { ...fixture.environment, PATH: bin };
     const runtime = path.join(fixture.dataRoot, "current");
     const sourceTree = path.join(runtime, "skills", "agent-deck");
@@ -734,6 +778,7 @@ test("workflow installation exposes only its approved entries and provisions the
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout, /permission_migration_required/);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "check-waypost-messages", "SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "delegate-code-task", "SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol", "SKILL.md")), false);
     const state = readState(fixture);
     assert.deepEqual(Object.keys(state.commands), [path.join(fixture.localBin, "agentgear")]);
@@ -792,7 +837,7 @@ test("schema-v2 historical full-pack links reconcile install, update, and workfl
         const target = path.join(fixture.home, ".agents", "skills");
         const current = path.join(fixture.dataRoot, "current");
         const state = readState(fixture);
-        const legacySkills = ["multi-agent-protocol", "delegate-code-task"];
+        const legacySkills = ["multi-agent-protocol"];
         const historicalSkills = [...legacySkills, "agent-deck"];
         for (const skill of historicalSkills) {
           const destination = path.join(target, skill);
@@ -834,6 +879,9 @@ test("schema-v2 historical full-pack links reconcile install, update, and workfl
         }
         assert.equal(fs.existsSync(agentDeckDestination), false, `${operation} must not expose agent-deck`);
         assert.equal(after.targets[target]?.skills["agent-deck"], undefined, `${operation} must remove agent-deck state`);
+        const keepsCurrentEntries = operation === "install" || operation === "update";
+        assert.equal(fs.existsSync(path.join(target, "delegate-code-task")), keepsCurrentEntries);
+        assert.equal(Boolean(after.targets[target]?.skills["delegate-code-task"]), keepsCurrentEntries);
       } finally {
         fs.rmSync(fixture.temporary, { recursive: true, force: true });
       }

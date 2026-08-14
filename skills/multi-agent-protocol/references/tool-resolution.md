@@ -51,8 +51,7 @@ Waypost does not map roles or read this configuration.
   full command line) and may have `thurbox_agent_key`. That key is opaque
   user-maintained configuration; workflow code must not infer it from the
   command or inspect Thurbox configuration to validate it.
-- After the parent resolves as ready, select the first usable candidate for its
-  returned host:
+- Select the first usable candidate for the requested host:
   - for a command-launching host, pass `full_command_line = candidate.command`;
   - for Thurbox, require and pass
     `thurbox_agent_key = candidate.thurbox_agent_key`.

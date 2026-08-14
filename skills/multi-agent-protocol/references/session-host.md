@@ -32,14 +32,20 @@ For a target ref:
    Resolve the workflow role by `agentgear skill get multi-agent-protocol/tool-resolution`, then call
    `session_create` with the parent host when known, `session_name`, `workdir`,
    `parent_session_id`, and the selected candidate's `full_command_line` /
-   `thurbox_agent_key`. `session_create` verifies that parent and its workdir;
-   do not call `session_require` on a parent merely as creation preflight.
+   `thurbox_agent_key`. `session_create` verifies the exact parent identity and
+   independently verifies the child against the requested workdir; the parent
+   may belong to a different workspace. Do not call `session_require` on a
+   parent merely as creation preflight.
    Continue only when `status = created`.
 
-Generic creation always needs a same-host parent with the same verified
-workdir. It has no detached, parentless, group-placement, or startup-instruction
-form. An action that cannot name a portable parent must ask the user to create
-the direct session manually, then resolve and require it.
+Generic creation always needs a same-host parent. It has no detached,
+parentless, group-placement, or startup-instruction form. An action that cannot
+name a portable parent must ask the user to create the direct session manually,
+then resolve and require it.
+
+If creation rejects the recorded parent or child workdir, report that exact
+error. Do not inspect a host CLI or session inventory, and do not replace the
+recorded parent with an unrelated session.
 
 Do not retry or send work after `created_unverified`,
 `create_recovery_required`, or `ready_unverified`. Keep the returned identity,

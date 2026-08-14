@@ -58,7 +58,7 @@ Resolve a launch candidate only when creating a session:
 - coder: explicit full command -> intended current-tool continuity -> shared role `coder`
 - reviewer when review is required: explicit full command -> shared role `reviewer`
 - preserve existing session launch metadata
-- create or require the task reviewer before coder dispatch, under the same planner parent, workspace, and session host
+- resolve or allocate the coder and required reviewer before workspace preparation, under the same planner parent, worker workspace, and session host
 
 ## Canonical Task Brief
 
