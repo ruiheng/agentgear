@@ -80,8 +80,6 @@ Use this exact structure for both direct-use output and message report body:
 ```markdown
 Task: <task_id_or_N/A>
 Action: refactor_review_report
-From: refactor-reviewer <refactor_reviewer_session_id_or_N/A>
-To: <requester_role_or_user> <requester_session_id_or_N/A>
 Planner: <planner_session_id_or_N/A>
 Round: <round_or_N/A>
 
@@ -124,12 +122,8 @@ If none, write: `- None.`
 
 When invoked directly by the user instead of Waypost message workflow:
 
-- use `Task: N/A`
-- use `From: refactor-reviewer N/A`
-- use `To: user N/A`
-- use `Planner: N/A`
-- use `Round: N/A`
-- return the report directly in the conversation
+- omit the message header block through `Round`
+- start at `## Refactor Assessment` and return the report directly in the conversation
 
 ## Multi-Agent Mode
 
@@ -138,22 +132,18 @@ Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-p
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`
 - `planner_session_id`: explicit -> message body -> default `N/A`
-- `refactor_reviewer_session_id`: explicit -> message body `To` header -> bound Waypost sender context -> ask
-- `requester_session_id`: explicit -> message body `From` header -> ask
-- `requester_role`: explicit -> message body `From` header -> default `requester`
+- `refactor_reviewer_session_id`: explicit -> current bound Waypost session -> ask
+- requester reply route: received `sender_address`
+- `requester_role`: explicit -> request context -> default `requester`
 - `round`: explicit -> message body `Round` header -> default `1`
 
 Execution flow in multi-agent mode:
 1. review the requested scope
 2. produce one advisory `refactor_review_report`
 3. use `waypost`
-4. first call `session_require` with:
-   - `session_id = <requester_session_id>`
-   - `workdir = <current workspace>`
-   - retain the returned requester Waypost address
-5. send the report back with `waypost_send`
+4. send the report back with `waypost_send`
    - `from_address = <current bound refactor-reviewer Waypost address>`
-   - `to_address = <returned requester Waypost address>`
+   - `to_address = <received sender_address>`
    - `subject = "refactor review report: <task_id> r<round>"`
    - `body = <refactor review report body>`
 

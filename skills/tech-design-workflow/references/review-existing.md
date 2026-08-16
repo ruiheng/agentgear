@@ -5,9 +5,13 @@ selector-summary: Review already committed design specifications on a recorded b
 
 # Review Existing Specifications
 
-Require committed docs, `design_spec_branch`, `design_spec_base_branch`, complete requester context, and an explicit `design_specs_in_scope`. Never guess the base.
+Require committed docs, `design_spec_branch`, `design_spec_base_branch`, complete user context, and an explicit `design_specs_in_scope`. Never guess the base.
 
-Resolve the reviewer ID and host from explicit input, workflow context, and persisted Waypost history, then call `session_require` with its id or ref and reviewer workspace. If prior review context exists but identity or host is missing, stop rather than create a context-free replacement. Create a reviewer only after `status = not_found` for a clearly new lane, following the host-neutral launch contract.
+Resolve one reviewer through the shared Session Host Contract, preserving its
+real ID, host, sole address, and expected workspace. Existing review context
+requires that recorded identity; never create a context-free replacement.
+Create only for a clearly new lane. Retain both transport endpoints for each
+sent round so only that reviewer can report to that requester route.
 
 Before each request:
 
@@ -15,14 +19,18 @@ Before each request:
 2. Inspect `git diff --no-renames --name-only <design_spec_base_branch>...<reviewed_commit>`.
 3. Require every changed path to be covered by `design_specs_in_scope` and stop if implementation or unrelated paths appear.
 
-Send this target from the requester to the reviewer. On the first request, include the complete requester-authored Canonical Design Task Contract inline. On later rounds, include any requester Decision Delta and the previous reviewed commit.
+Send this target from the requester to the reviewer. On the first request,
+include the complete requester-authored Canonical Design Task Contract inline.
+On later rounds, include the previous reviewed commit and any new User Decision
+Delta. Round always identifies the review round; an included delta takes effect
+in that round. The initial contract is immutable for this lane. Retain prior
+decisions and the initial Max Review Rounds. Change the maximum only when an
+exact User Decision Delta approves the new value. Use one request per Task and
+Round; Round is the request correlation.
 
 ```markdown
 Task: <task_id>
 Action: design_spec_review_requested
-From: <requester_role> <requester_session_id>
-To: architect_reviewer <reviewer_session_id>
-Session Host: <session_host>
 Round: <round>
 Max Review Rounds: <max_review_rounds>
 
@@ -31,6 +39,11 @@ Max Review Rounds: <max_review_rounds>
 
 # Design Task Contract
 [First request only]
+
+## User Decision Delta
+- Question: <question>
+- User Answer: <exact answer>
+[Later request only; omit when none]
 
 ## Review Target
 - Mode: committed-docs

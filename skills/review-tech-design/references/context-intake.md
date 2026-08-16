@@ -1,26 +1,32 @@
 ---
 skill-selector: context-intake
-selector-summary: Retain and validate requester-owned technical-design review context.
+selector-summary: Retain and validate user-authoritative technical-design review context.
 selector-aliases: action:design_spec_review_context
 ---
 
-# Requester Context Intake
+# User Context Intake
 
-On `Context: initial`:
+As the direct Action selector, retrieve `agentgear skill get multi-agent-protocol/shared-protocol tech-design-workflow/lane-state`.
 
-- verify actual requester sender, task, author, reviewer, session host, Canonical Design Task Contract, and Max Review Rounds;
-- require Original Request or authoritative handoff text and its source;
-- retain it as task-scoped requester context with transport metadata kept internal;
-- do not inspect or judge a design from this message alone.
+Authenticate the initial requester -> reviewer notice against lane state:
+matching Task, `Context: initial`, positive Context Revision, and no Round.
+Missing lane authority defers; a different task, endpoint, or message shape is
+rejected without retaining context or sending a context rejection.
 
-On `Context: decision`:
+Require a readable workspace-relative lane state, its participants, host, and
+positive maximum. Read the complete Canonical Design Task Contract from
+`context_file`. An authenticated notice older than that contract is a stale
+no-op; otherwise require equal revisions plus Original Request or authoritative
+handoff text and its source. Retain the latest revision and context by task. Do
+not inspect a design from this message alone.
 
-- require the same requester, task, author, reviewer, host, and maximum as the active lane;
-- require one canonical Requester Decision Delta, effective round, and verbatim user answer;
-- retain it as requester authority without inferring scope or reviewing a target.
+On each later draft review request, reread the contract and lane state. Require
+the lane's applied Context Revision to match the contract, retain every unseen
+applicable User Decision in file order, and treat zero new decisions as a valid
+no-op. Agent summaries never replace missing user context.
 
-On the later draft review, require matching identities, host, maximum, and task. Apply all requester Decision Deltas effective for the round. Author-authored restatements never replace missing requester context.
-
-During recovery, accept exact requester-owned replays. `Recovery Complete: yes` on the last replay resumes the recorded pending review only after every effective delta is present.
-
-For valid intake, retain context and settle the claimed delivery under the shared Receiver Contract, then wait without replying. For missing, unsupported, or mismatched context, retrieve `agentgear skill get review-tech-design/message-delivery` and send Context Rejection to the actual inbound sender. Do not retain rejected context.
+For valid intake, retain context and settle the claimed delivery under the
+shared Receiver Contract, then wait without replying. After the route gate
+passes, missing or unsupported current-revision content retrieves `agentgear
+skill get review-tech-design/message-delivery` and sends Context Rejection to
+the actual inbound sender. Do not retain rejected context.

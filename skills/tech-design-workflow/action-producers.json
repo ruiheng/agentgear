@@ -15,6 +15,13 @@
       "export": "DESIGN_SPEC_DRAFT_REQUESTED",
       "factory": "designSpecDraftRequestedMessage",
       "sender": "sendDesignSpecDraftRequestedMessage"
+    },
+    "DESIGN_PRUNE_CONTEXT": {
+      "token": "design_prune_context",
+      "script": "send-design-draft-with-review-context.mjs",
+      "export": "DESIGN_PRUNE_CONTEXT",
+      "factory": "designPruneContextMessage",
+      "sender": "sendDesignPruneContextMessage"
     }
   }
 }

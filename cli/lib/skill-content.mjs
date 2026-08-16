@@ -425,8 +425,31 @@ export function actionAliases(index) {
   return result;
 }
 
+function validateMarkdownFences(filePath, source) {
+  let open = null;
+  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[index]);
+    if (!match) continue;
+    const marker = match[1];
+    if (open === null) {
+      open = { marker: marker[0], length: marker.length, line: index + 1 };
+      continue;
+    }
+    if (marker[0] === open.marker && marker.length >= open.length && match[2].trim() === "") {
+      open = null;
+    }
+  }
+  return open === null
+    ? []
+    : [`${filePath}:${open.line}: unclosed Markdown fence; each selector must be self-contained.`];
+}
+
 export function validateSkillContentIndex(index) {
   const errors = [...index.referenceErrors];
+  for (const record of [...index.overviews.values(), ...index.byCanonicalAddress.values()]) {
+    errors.push(...validateMarkdownFences(record.filePath, record.body));
+  }
   for (const invocation of index.referencedInvocations) {
     const upstreamAddresses = invocation.addresses.filter(address => index.upstreamEntryAddresses.has(address));
     if (upstreamAddresses.length > 0 && invocation.addresses.length !== 1) {
@@ -490,6 +513,12 @@ function markdownActionTemplateLines(filePath, source) {
     }
   }
   return candidates;
+}
+
+function markdownTransportHeaderLines(source) {
+  return source.replace(/\r\n/g, "\n").split("\n")
+    .map((line, index) => ({ line, lineNumber: index + 1 }))
+    .filter(({ line }) => /^\s*(?:From|To):/i.test(line));
 }
 
 function actionValueFromTemplateLine(line) {
@@ -620,6 +649,9 @@ function undeclaredWaypostActionProducers(index) {
 export function validateActionTemplates(index, aliases) {
   const errors = [];
   for (const record of index.byCanonicalAddress.values()) {
+    for (const candidate of markdownTransportHeaderLines(record.body)) {
+      errors.push(`${record.filePath}:${candidate.lineNumber}: ${candidate.line.trimStart().split(":", 1)[0]} duplicates Waypost transport metadata`);
+    }
     for (const candidate of markdownActionTemplateLines(record.filePath, record.body)) {
       const token = actionValueFromTemplateLine(candidate.line);
       if (!ACTION_TOKEN.test(token)) {

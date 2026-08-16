@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prune Technical Design"
+  short_description: "Remove unnecessary design concepts and prose"
+  default_prompt: "Use $prune-tech-design to remove unnecessary concepts and prose from this technical design without losing required behavior."

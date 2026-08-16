@@ -33,9 +33,10 @@ use the Waypost CLI.
 4. A status-2 result means the token is unregistered. Retrieve
    `agentgear skill get check-waypost-messages/unknown-action` and follow it.
    Otherwise follow the returned owning selector body; it is the first
-   executable workflow stage. Only the six discriminator aliases
-   (`browser_check_report`, `design_spec_review_context_recovery_requested`,
-   `design_spec_review_requested`, `group_message_available`,
+   executable workflow stage. Do not assume it remembers the shared protocol;
+   every return or outcome selector must apply its own Expected Sender Gate
+   before acting on result content. Only the five discriminator aliases
+   (`browser_check_report`, `design_spec_review_requested`, `group_message_available`,
    `rework_required`, and `stop_recommended`) make a further decision from
    the already received message.
 5. The returned selector owns claim settlement. Before ending, settle every

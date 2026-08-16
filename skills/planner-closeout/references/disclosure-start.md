@@ -12,7 +12,8 @@ Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol m
 
 ## Input
 
-Provide the body from `closeout_delivered` or `code_delivery_complete`.
+Provide the claimed delivery metadata, body from `closeout_delivered` or
+`code_delivery_complete`, and matching retained task context.
 Use this skill only after that terminal handoff is received, or after the Planner produces the `closeout_delivered` body locally through `review-closeout` in the same turn.
 
 ## Multi-Agent Mode
@@ -24,15 +25,30 @@ Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-p
 
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> ask
-- `planner_session_id`: explicit -> message body `To` / `Planner` header -> current session id -> ask
+- `planner_session_id`: explicit -> message body `Planner` header -> current session id -> ask
 - `worker_workspace`, `planner_workspace`, `task_dir`, `workspace_lifecycle` (completed workspace-closeout): message body -> ask
 - `reviewer_session_id` (review-backed closeout only): explicit -> message body `Accepted Review By` header -> omit
-- `coder_session_id`: completed code delivery -> explicit -> message body `From: coder` -> ask; review-backed closeout -> explicit -> optional `Coder session` header -> omit
+- `coder_session_id`: completed code delivery -> explicit -> `Coder session` -> task context -> ask; review-backed closeout -> explicit -> optional `Coder session` -> omit
 - `session_host`: explicit -> message body `Session host` -> ask
 - `start_branch`, `integration_branch`, `task_branch` (workspace-closeout only): explicit -> message body -> ask
 - blocked `code_delivery_complete`: require task/planner identity; use other supplied fields only
 - `delivery_id` (optional): explicit leased delivery context -> omit when unavailable
 - `lease_token` (optional): explicit leased delivery context -> omit when unavailable
+
+Inbound sender mapping for the shared Expected Sender Gate:
+- claimed `code_delivery_complete`: require the actual `sender_address` to
+  equal the coder address retained for the active delegated task;
+- claimed `closeout_delivered`: require it to equal the retained
+  `reviewer_to_address`, or the separately recorded address of an explicitly
+  designated closeout executor for that exact task;
+- for either claimed Action, require the actual `recipient_address` to equal the
+  requester address retained for that task;
+- a Planner-produced local `closeout_delivered` continuation in the same turn
+  is not an inbound claim and bypasses this gate.
+
+Authenticate before acting on Outcome, accepted-review data, Handoff, or Branch
+Plan. Missing task authority defers; do not search history merely to prove an
+otherwise absent lane.
 
 Action and Handoff gate:
 - `closeout_delivered` / completed `code_delivery_complete`: require a complete Handoff and recorded branch plan
@@ -48,7 +64,7 @@ Branch-plan rule with a Handoff:
 
 ## Execution Flow
 
-1. parse `Action:` and `Outcome` for code delivery before applying Handoff gates
+1. parse `Action:` and Task, apply the inbound sender gate for a claimed delivery, then parse `Outcome` for code delivery before applying Handoff gates
 2. for `closeout_delivered`, inspect `Residual Follow-up For Planner` and `UI Manual Confirmation Package`; for `code_delivery_complete`, inspect `Outcome` and `Checks`
 3. for a completed workspace-closeout delivery, run the planner closeout batch with the recorded branch plan; for a blocked code delivery, retain workspace/lock state, report the blocker, and ack the claimed delivery without batch closeout
 4. if this turn started from a claimed completed workspace-closeout delivery, pass `--ack-delivery-id` and `--ack-lease-token`; the batch ACK covers delivery merge/progress, not post-closeout cleanup

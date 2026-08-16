@@ -45,8 +45,8 @@ Skill-specific context resolution:
 - `worker_workspace`: explicit -> accepted Handoff `Worker workspace` -> review context -> ask
 - `closeout_sender_session_id`: explicit -> current session id -> ask
 - `closeout_sender_role`: explicit -> current workflow role -> report missing context
-- `reviewer_session_id`: explicit -> accepted review report `From` header -> review context -> ask
-- `coder_session_id` (optional): explicit -> accepted review report `To: coder` header -> review context; omit when the requester is not a coder
+- `reviewer_session_id`: explicit -> accepted report `Reviewer session` -> current bound reviewer session -> review context -> ask
+- `coder_session_id` (optional): explicit -> accepted task review context `Requester session` -> review context; omit when the requester is not a coder
 - `session_host`: explicit -> accepted review report `Session host` -> review context -> ask
 - `review_lane`: explicit -> accepted report/context -> require `task`
 - `workflow_policy` (optional): explicit -> review/report context -> default unattended

@@ -117,6 +117,22 @@ Keep it compact and evidence-linked. Cite concrete files, tests, artifacts, and 
 | Group | Problems | Combine / split rationale | Dependencies | Complexity | Recommended route |
 | --- | --- | --- | --- | --- | --- |
 
+## Recommended Sequence
+1. [validation or remediation group] — [why now; completion evidence; parallelism]
+
+## Refactoring Opportunities
+| Opportunity | Issue-derived evidence | Benefit | Relation | Complexity / risk | Timing / deferral impact |
+| --- | --- | --- | --- | --- | --- |
+
+## Recommended Next Action
+- Action: [first action only]
+- Route: [no action / monitor / direct work / delegate-code-task / tech-design-workflow]
+- User decisions or corrections: [decision points or None]
+
+## Unknowns
+- [material unknown and smallest decisive probe, or None]
+```
+
 ## Continue
 
 Retrieve `agentgear skill get fix-strategy/continue-1` before proceeding.

@@ -33,13 +33,9 @@ Waypost Message body rules (`rework_required`):
 - use the full review report above as the body
 - set `Action: rework_required`
 - use `waypost`
-- first call `session_require` with:
-  - `session_id = <requester_session_id>`
-  - `workdir = <current workspace>`
-  - retain the returned requester Waypost address
 - send it with `waypost_send`
   - `from_address = <current bound reviewer Waypost address>`
-  - `to_address = <returned requester Waypost address>`
+  - `to_address = <received review-request sender_address>`
   - `subject = "rework required: <task_id> r<round>"`
   - `body = <full review report>`
 - include enough evidence and fix guidance that the requester can continue from the message body alone
@@ -51,20 +47,34 @@ Waypost Message (`stop_recommended`, accepted non-task):
 - ACK a claimed review input only after this send succeeds
 
 Waypost Message subject (`user_requested_iteration` after user chooses iterate):
+- use only for `task`; `integration_final` / `standalone` use `rework_required`
 - `iteration requested: <task_id> r<round>`
 
 Waypost Message body rules (`user_requested_iteration`):
-- restate the user decision and the required follow-ups in the body
-- keep `Action: user_requested_iteration`
-- include enough of the prior review findings that coder can continue without opening external workflow files
+- use this minimal routing envelope and continuation body:
+
+```markdown
+Task: <task_id>
+Action: user_requested_iteration
+Reviewer session: <reviewer_session_id>
+Review lane: task
+Round: <round>
+
+### User Decision
+[the user's explicit decision]
+
+### Required Follow-ups
+- [required change]
+
+### Prior Review Findings
+[the findings the coder needs to continue]
+```
+
+- do not repeat Branch Plan or Workspace Handoff; the receiver recovers them from the matching sent `review_requested` and active-task record
 - use `waypost`
-- first call `session_require` with:
-  - `session_id = <requester_session_id>`
-  - `workdir = <current workspace>`
-  - retain the returned requester Waypost address
 - send it with `waypost_send`
   - `from_address = <current bound reviewer Waypost address>`
-  - `to_address = <returned requester Waypost address>`
+  - `to_address = <received review-request sender_address>`
   - `subject = "iteration requested: <task_id> r<round>"`
   - `body = <iteration message body>`
 
@@ -77,13 +87,13 @@ Manual-decision rule: after presenting a decision to the user, end this turn. Do
 Required interaction behavior:
 - For `rework_required`, send automatically after the report is ready
 - For accepted `integration_final` / `standalone` `stop_recommended`, send the full report to requester automatically
-- For `stop_recommended` with manual decision, do that only when `auto_accept_if_no_must_fix=false`; after the user's decision, close out task, send accepted non-task result, or send `user_requested_iteration`
+- For `stop_recommended` with manual decision, do that only when `auto_accept_if_no_must_fix=false`; after the user's decision, close out task or send the accepted non-task result when accepted; when the user chooses iterate, send `user_requested_iteration` for `task` and a full `rework_required` report containing the decision and required follow-ups for `integration_final` / `standalone`
 - In unattended flow, accepted no-must-fix task-lane reports that land with reviewer or requester must be treated as `review-closeout` input, not as another rework cycle
 - In unattended flow, accepted `integration_final` / `standalone` reports return directly to requester; do not route them into `review-closeout`
 - Preserve `workflow_policy` unchanged in outbound messages
 - Preserve `special_requirements` unchanged in outbound messages
 - Keep message JSON internal unless user explicitly asks
-- Do not naturally end after writing the review report; if this action requires `rework_required`, accepted non-task `stop_recommended`, `user_requested_iteration`, or `review-closeout`, complete that workflow step before ending the turn
+- Do not naturally end after writing the review report; if this action requires `rework_required`, accepted non-task `stop_recommended`, task-only `user_requested_iteration`, or `review-closeout`, complete that workflow step before ending the turn
 
 Sender identity rule:
 - reviewer-originated actions (`rework_required`, `stop_recommended`, `user_requested_iteration`) use `from_session_id = reviewer_session_id`

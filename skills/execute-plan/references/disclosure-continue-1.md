@@ -47,8 +47,6 @@ Ask the user only for real scope/tradeoff decisions, explicit human gates, dirty
 ```markdown
 Task: <plan_id>
 Action: plan_report_delivered
-From: planner <planner_session_id>
-To: supervisor <supervisor_session_id>
 Planner: <planner_session_id>
 Round: final
 

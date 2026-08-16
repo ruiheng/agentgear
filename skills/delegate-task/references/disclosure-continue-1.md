@@ -6,7 +6,13 @@ selector-aliases: action:execute_delegated_task
 
 ## Worker Receive
 
-On `Action: execute_delegated_task`:
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol`.
+
+On `Action: execute_delegated_task`, retain the delivery's actual
+`sender_address` as requester reply route and `recipient_address` as the only
+reply sender; resolve `worker_session_id` from the current bound session.
+
+Then:
 
 - treat the body as the task contract and own local execution within it
 - this action excludes repository/code-delivery mutation. If required, return it for `delegate-code-task`; do not edit code or Git delivery state under this contract
@@ -18,8 +24,7 @@ On `Action: execute_delegated_task`:
 ```markdown
 Task: <task_id>
 Action: delegated_task_result
-From: worker <worker_session_id>
-To: <requester_role> <requester_session_id>
+Worker session: <worker_session_id>
 Worker workspace: <worker_workspace>
 Workspace lifecycle: <workspace_lifecycle>
 Cleanup owner: <requester; temporary only>
@@ -36,7 +41,10 @@ Round: final
 - [item or `None`]
 ```
 
-- Call `waypost_send` from the current `waypost_status.default_sender` to the recorded requester address, subject `delegated task result: <task_id>`; ack the claimed input only after it succeeds. On failure, do not ack; settle it under the shared Receiver Contract.
+- Call `waypost_send` from the retained inbound `recipient_address` to its
+  `sender_address`, subject `delegated task result: <task_id>`; ack the claimed
+  input only after it succeeds. On failure, do not ack; settle it under the
+  shared Receiver Contract.
 
 For direct user-owned code sessions only:
 
@@ -46,7 +54,11 @@ For direct user-owned code sessions only:
 
 ## Requester Receive
 
-On `delegated_task_result`, treat it as the worker's terminal update and continue requester-owned work. Do not infer a code, review, commit, or closeout workflow.
+On `delegated_task_result`, retrieve and follow `agentgear skill get
+delegate-task/result` before reading Outcome or performing cleanup. Treat it as
+the worker's terminal update only after that selector's sender and retained
+dispatch-contract gates pass. Do not infer a code, review, commit, or closeout
+workflow.
 
 - For `temporary; cleanup=requester`, record and ACK the terminal result, then remove the listed non-primary worktree only when no workflow work remains. Generic workflow code does not remove or rehome host sessions. Report `cleanup=complete` on success; on failure retain it and report `cleanup=pending`. Do not delay or reopen delivery.
 

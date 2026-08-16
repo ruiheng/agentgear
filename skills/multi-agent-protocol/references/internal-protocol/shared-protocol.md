@@ -40,18 +40,48 @@ Enter multi-agent mode when any condition matches:
 Every workflow message has:
 
 - `subject`: one-line triage summary
-- `body`: full task input
+- `body`: the action-specific input
 
-Use this header when the action needs shared routing metadata:
+A workflow may put common requester-owned context in one workspace file when every recipient has the same verified workdir. Send the workspace-relative path instead of copying that context into each message, and keep the file available through workflow closeout.
+
+Use the smallest header that selects the action and correlates its work:
 
 ```markdown
 Task: <task_id_or_N/A>
 [a stable Action header chosen by the owning workflow]
-From: <role_or_sender_label> <from_session_id>
-To: <role_or_receiver_label> <to_session_id>
+[action-specific correlation fields only]
 ```
 
+`message_rejected` is the sole header exception: malformed or unknown input may
+have no trustworthy Task, so its exact templates begin with Action and correlate
+only by `Original Delivery`.
+
 `Action:` is a stable token. The action skill owns its meaning and any extra fields.
+Do not copy transport routing into body `From` or `To` headers. The claimed
+delivery's `sender_address` and `recipient_address` are authoritative. Reply to
+the received `sender_address` from the current `recipient_address`; carry a
+role, session id, host, or workspace in the body only when the action uses it
+as task data rather than as a send route.
+
+Do not use the envelope as a second workflow-state store. When an action names
+a shared workspace state file, keep mutable task, participant, round, limit,
+and artifact state there. The message only identifies the action, task, shared
+state file, and any immutable event correlation needed to reject stale work.
+
+## Expected Sender Gate
+
+Before a claimed result causes merge, acceptance, cleanup, code changes, or
+another workflow transition, match its Task and action-specific correlation to
+the active request or lane. Require the actual `sender_address` to be that
+lane's expected worker and `recipient_address` to be its recorded return route.
+Do not substitute body identity fields. Missing authority defers; an endpoint or
+lane mismatch is rejected without acting on the result. An authenticated older
+round or generation is a stale no-op, not a routing failure.
+
+Advisory-only reports do not require exact sent-history recovery. Match a known
+active reviewer when available; otherwise present the report as unsolicited and
+do not infer a workflow transition. Local same-turn continuations do not use
+this gate.
 
 ## Waypost Host Permission Boundary
 
@@ -87,7 +117,7 @@ On a wakeup nudge or explicit user message check:
 
 1. Call `waypost_recv` first.
 2. If no personal message is returned, report it; `no_message` ends this receive pass.
-3. Use `body` as the primary input. A message without an Action field is an ordinary personal message. A valid Action selects its action skill; an explicit malformed or unknown Action is rejected to its reported sender.
+3. Use `body` as the primary input and delivery metadata as routing authority. A message without an Action field is an ordinary personal message. A valid Action selects its action skill; an explicit malformed or unknown Action is rejected to its received `sender_address`.
 4. Settle each claimed delivery according to its current state:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
    - `waypost_release` or `waypost_defer` only when the delivery itself cannot be handled now

@@ -756,7 +756,7 @@ candidates = ['claude --model sonnet --permission-mode acceptEdits']
   ]);
 });
 
-test("loadToolConfig merges template overrides and applies architect compatibility per layer", () => {
+test("loadToolConfig applies architect compatibility without overriding independent roles", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-command-templates-"));
   const configPath = path.join(tmpDir, "tool-profiles.toml");
   const localConfigPath = path.join(tmpDir, "tool-profiles.local.toml");
@@ -772,12 +772,16 @@ claude_edits = "--permission-mode acceptEdits"
 architect = "architect_default"
 architect_author = "architect_default"
 architect_reviewer = "architect_default"
+design_pruner = "design_pruner_default"
 
 [profiles.architect_default]
 candidates = ["codex \${templates.codex_approval}"]
 
 [profiles.architect_local]
 candidates = ["claude \${templates.claude_edits}"]
+
+[profiles.design_pruner_default]
+candidates = ["agy"]
 `,
     "utf8"
   );
@@ -804,6 +808,7 @@ candidates = ["codex \${templates.codex_approval}"]
   assert.equal(config.roles.architect, "architect_local");
   assert.equal(config.roles.architect_author, "architect_author_explicit");
   assert.equal(config.roles.architect_reviewer, "architect_local");
+  assert.equal(config.roles.design_pruner, "design_pruner_default");
   assert.equal(
     resolveToolCommand({
       role: "architect_reviewer",
@@ -819,6 +824,14 @@ candidates = ["codex \${templates.codex_approval}"]
       config,
     }).resolved_tool_cmd,
     "codex --ask-for-approval never"
+  );
+  assert.equal(
+    resolveToolCommand({
+      role: "design_pruner",
+      inspectCommand: availableInspection,
+      config,
+    }).resolved_tool_cmd,
+    "agy"
   );
 });
 
@@ -1010,6 +1023,24 @@ test("explainer role prefers the configured agy command", () => {
     resolved.tool_candidates[0].command,
     "agy --model gemini-3.6-flash-high"
   );
+});
+
+test("design pruner prefers agy with GPT-5.6 Sol medium as fallback", () => {
+  const config = loadToolConfig(
+    path.resolve(__dirname, "../../../config/tool-profiles.toml"),
+    []
+  );
+  const resolved = resolveToolCommand({
+    role: "design_pruner",
+    showList: true,
+    inspectCommand: availableInspection,
+    config,
+  });
+
+  assert.equal(resolved.tool_profile, "design_pruner_default");
+  assert.equal(resolved.resolved_tool_cmd, "agy");
+  assert.equal(resolved.tool_candidates[0].command, "agy");
+  assert.match(resolved.tool_candidates[1].command, /codex --model gpt-5\.6-sol -c model_reasoning_effort=medium/);
 });
 
 test("resolveToolCommand prefers inherited command over role default profile", () => {

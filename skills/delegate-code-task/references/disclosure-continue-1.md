@@ -6,7 +6,13 @@ selector-aliases: action:execute_delegate_task
 
 ## Coder Receive
 
-On `Action: execute_delegate_task`, treat the body as the code-task contract. Own the recorded branch, implementation, validation, and commit; keep the session legible for user steering.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol`.
+
+On `Action: execute_delegate_task`, retain the delivery's actual `sender_address`
+as planner reply route and `recipient_address` as the only reply sender; resolve
+`coder_session_id` from the current bound session. Treat the body as the
+code-task contract. Own the recorded branch, implementation, validation, and
+commit; keep the session legible for user steering.
 
 The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`, workflow policy, and complete Branch Plan. Required review also requires the reviewer id. If any required field is missing, report a blocker instead of inferring it.
 
@@ -21,9 +27,8 @@ The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`,
 ```markdown
 Task: <task_id>
 Action: code_delivery_complete
-From: coder <coder_session_id>
-To: planner <planner_session_id>
 Planner: <planner_session_id>
+Coder session: <coder_session_id>
 Session host: <session_host>
 Planner workspace: <planner_workspace>
 Worker workspace: <worker_workspace>
@@ -43,6 +48,10 @@ Round: final
 
 ## Outcome
 [completed | blocked summary]
+
+## Checks
+- [command/result or `None`]
+```
 
 ## Continue
 

@@ -12,8 +12,6 @@ Include the `Coder session` line only when `coder_session_id` is present.
 ```markdown
 Task: <task_id>
 Action: closeout_delivered
-From: <closeout_sender_role> <closeout_sender_session_id>
-To: planner <planner_session_id>
 Planner: <planner_session_id>
 Session host: <session_host>
 Coder session: <coder_session_id>

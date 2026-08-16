@@ -29,8 +29,6 @@ Use this exact structure as the message body:
 ```markdown
 Task: <task_id>
 Action: browser_check_report
-From: browser-tester <browser_tester_session_id>
-To: <requester_role> <requester_session_id>
 Planner: <planner_session_id_or_N/A>
 Round: <round>
 Browser Check: <browser_check_id>
@@ -73,24 +71,35 @@ Resolve by `Action:` before generic fields:
 - `browser_check_requested`:
   - `task_id`, `round`: explicit -> headers -> ask/default
   - `planner_session_id` (optional): explicit -> message body -> omit when absent or `N/A`
-  - `browser_tester_session_id`, `requester_session_id`: `To`, `From`
+  - browser tester identity: current bound session; requester reply route: received `sender_address`
   - `browser_tester_workspace`, `requester_workspace`: message body -> current workspace -> ask
-  - `requester_role`: `From` -> `requester`
+  - `requester_role`: explicit request context -> `requester`
   - setup contact id/workspace/role: message body `Setup Contact` -> requester values
 - `browser_setup_requested`:
   - `task_id`, `round`: headers
-  - tester id/workspace: `From`, `Reply workspace`; contact id/role: `To`
+  - tester reply route: received `sender_address`; contact route: current delivery recipient
   - omit requester, planner, and original Setup Contact resolution
 - `browser_setup_provided`:
-  - `task_id`, `round`: headers; contact id/role: `From`; tester id: `To`
+  - `task_id`, `round`: headers; match Browser Check to the active setup frame and require its setup-contact -> tester endpoints
   - recover requester, planner, and browser frame only from the matching check history
 
 ## Setup Round Trip
 
 For a `browser_check_requested` blocked by login, auth, environment, or test data:
-- send `browser_setup_requested` with `From: browser-tester`, `To: Setup Contact`, Task/Round/Browser Check, tester reply workspace, and missing prerequisites; require target at its declared workspace, then `waypost_defer` the claimed check once with `until` set to a bounded setup deadline; never release or re-defer it
-- on `browser_setup_requested`, reply `browser_setup_provided` with `From: Setup Contact`, `To: browser-tester`, Task/Round/Browser Check, and setup or `Unavailable: <reason>`, then ACK; never send secrets through Waypost
-- on `browser_setup_provided`, ACK; do not resume a check in that turn. Recover the ACKed reply later with `waypost_read` by `Browser Check`
+
+```markdown
+Task: <task_id>
+Action: browser_setup_requested
+Round: <round>
+Browser Check: <browser_check_id>
+
+## Missing Prerequisites
+- <login, auth, environment, or test-data need>
+```
+
+- send that exact request to Setup Contact; require target at its declared workspace, then `waypost_defer` the claimed check once with `until` set to a bounded setup deadline; never release or re-defer it
+- on `browser_setup_requested`, reply to its received `sender_address` with `browser_setup_provided`, Task/Round/Browser Check, and setup or `Unavailable: <reason>`, then ACK; never send secrets through Waypost
+- on `browser_setup_provided`, follow `agentgear skill get browser-test/setup-provided`; ACK only after its sender gate passes, and do not resume a check in that turn. Recover the ACKed reply later with `waypost_read` by `Browser Check`
 - on the deferred check, read its ACKed matching reply: reply -> continue (`Unavailable` -> `UNKNOWN`); no reply at deadline -> send `UNKNOWN` (`setup unanswered`) and ACK the check. Never resume from an unclaimed reply or match by Task/Round alone
 
 Execution flow (`browser_check_requested`):
@@ -102,13 +111,9 @@ Execution flow (`browser_check_requested`):
 3. collect runtime evidence
 4. produce one `browser_check_report`
 5. use `waypost`
-6. first call `session_require` with:
-   - `session_id = <requester_session_id>`
-   - `workdir = <requester_workspace>`
-   - retain the returned requester Waypost address
-7. send it back to the requester with `waypost_send`
+6. send it back to the requester with `waypost_send`
    - `from_address = <current bound browser-tester Waypost address>`
-   - `to_address = <returned requester Waypost address>`
+   - `to_address = <received check sender_address>`
    - `subject = "browser report: <task_id> r<round>"`
    - `body = <browser-check report body>`
 
@@ -122,5 +127,5 @@ Execution flow (`browser_check_requested`):
 - prefer setup-contact-provided login/auth/setup context over re-discovering it from scratch
 - treat `Browser Check` as the check correlation key; Task/Round describe scope only
 - return the report to requester, not Setup Contact
-- use the requester workspace from the message body for reply-path session verification; do not substitute the browser-tester's current workspace
+- preserve the requester workspace for setup routing and workflow recovery; report delivery itself uses the received check `sender_address`
 - Do not naturally end after writing the report; this workflow turn is complete only after the required `waypost_send` back to the requester has succeeded

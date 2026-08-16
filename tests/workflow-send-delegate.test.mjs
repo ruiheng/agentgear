@@ -235,8 +235,8 @@ test("delegated-code dispatch preserves opaque non-newline routes and Git refs",
     });
     const record = JSON.parse(fs.readFileSync(log, "utf8").trim());
     assert.match(record.body, /Task: task\+safe/);
-    assert.match(record.body, /From: planner planner\+safe/);
-    assert.match(record.body, /To: coder coder\+safe/);
+    assert.doesNotMatch(record.body, /^(?:From|To):/m);
+    assert.match(record.body, /Planner: planner\+safe/);
     assert.match(record.body, /Session host: agent-deck\+safe/);
     assert.match(record.body, /Start branch: feature\+safe/);
     assert.match(record.body, /Integration branch: release\+safe/);

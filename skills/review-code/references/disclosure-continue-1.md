@@ -43,8 +43,7 @@ Omit `### User Decision Summary` when no user scope decision exists.
 ```markdown
 Task: <task_id>
 Action: rework_required
-From: reviewer <reviewer_session_id>
-To: <requester_role> <requester_session_id>
+Reviewer session: <reviewer_session_id>
 Review lane: <task | integration_final | standalone>
 Round: <round>
 
@@ -116,7 +115,7 @@ When UI impact is detected or a human UI gate applies, append:
 - Notes: [optional]
 ```
 
-For `task` / `integration_final`, insert after `To`:
+For `task` / `integration_final`, insert after `Round`:
 
 ```markdown
 Planner: <planner_session_id>

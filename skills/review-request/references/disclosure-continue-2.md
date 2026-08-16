@@ -3,11 +3,7 @@ skill-selector: continue-2
 selector-summary: Complete review-request instructions, part 3.
 ---
 
-## Author-Noted Issues or Limitations (Optional)
-[Non-exhaustive author notes]
-```
-
-For `task` / `integration_final`, insert after `To` in either template:
+For `task` / `integration_final`, insert after `Round` in either template:
 
 ```markdown
 Planner: <planner_session_id>
@@ -47,9 +43,8 @@ Use this structure. Omit task Branch Plan and Handoff for `integration_final` / 
 ```markdown
 Task: <task_id>
 Action: review_requested
-From: <requester_role> <requester_session_id>
-To: reviewer {{TO_SESSION_ID}}
 Round: <round>
+Requester session: <requester_session_id>
 
 ## Summary
 [One-line delta summary]
@@ -107,13 +102,12 @@ Preferred path: use the `waypost` MCP tools.
 
 Workflow send sequence:
 1. use `waypost`
-2. compose the body with `{{TO_SESSION_ID}}` where the real reviewer session id must appear
-3. delegated task from coder: require the recorded reviewer real id in the recorded workspace and host; stop on missing or mismatch
-4. other lanes: call `session_require` with the known `reviewer_session_id` or `reviewer_session_ref`, known host, and `workdir = <current workspace>`
-5. on `ready`, reuse the returned real id and address
-6. on `not_found`, resolve role `reviewer` through `agentgear skill get multi-agent-protocol/tool-resolution`, then call `session_create` for `<reviewer_session_ref>` with the selected opaque launch candidate and the recorded parent: `<planner_session_id>` for planner-owned task / `integration_final` or `<requester_session_id>` for `standalone`. It verifies that parent; do not preflight it with `session_require`.
-7. record the returned host, real id, and sole address as the authoritative reviewer route; for a task lane, require that host to match the recorded task session host
-8. fill the final body and call `waypost_send` with:
+2. delegated task from coder: require the recorded reviewer real id in the recorded workspace and host; stop on missing or mismatch
+3. other lanes: call `session_require` with the known `reviewer_session_id` or `reviewer_session_ref`, known host, and `workdir = <current workspace>`
+4. on `ready`, reuse the returned real id and address
+5. on `not_found`, resolve role `reviewer` through `agentgear skill get multi-agent-protocol/tool-resolution`, then call `session_create` for `<reviewer_session_ref>` with the selected opaque launch candidate and the recorded parent: `<planner_session_id>` for planner-owned task / `integration_final` or `<requester_session_id>` for `standalone`. It verifies that parent; do not preflight it with `session_require`.
+6. record the returned host, real id, and sole address as the authoritative reviewer route; for a task lane, require that host to match the recorded task session host
+7. compose the final body and call `waypost_send` with:
    - `from_address = waypost_status.default_sender`
    - `to_address = <reviewer returned address>`
    - `subject = "review request: <task_id> r<round>"`

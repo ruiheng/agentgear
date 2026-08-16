@@ -140,8 +140,6 @@ ${footer}`
 function reviewerBody(options, brief) {
   const before = [{ name: "Task", value: options.taskId }];
   const after = [
-    { name: "From", value: `planner ${options.plannerSessionId}` },
-    { name: "To", value: `reviewer ${options.reviewerSessionId}` },
     { name: "Planner", value: options.plannerSessionId },
     { name: "Session host", value: options.sessionHost },
     { name: "Planner workspace", value: options.plannerWorkspace },
@@ -166,8 +164,6 @@ ${workspaceHandoff(options)}
 function coderBody(options, brief) {
   const before = [{ name: "Task", value: options.taskId }];
   const after = [
-    { name: "From", value: `planner ${options.plannerSessionId}` },
-    { name: "To", value: `coder ${options.coderSessionId}` },
     { name: "Planner", value: options.plannerSessionId },
     { name: "Session host", value: options.sessionHost },
     { name: "Planner workspace", value: options.plannerWorkspace },

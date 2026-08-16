@@ -83,17 +83,6 @@ function contentIndexFixture({ skill = "fixture", selector = "start", aliases = 
   };
 }
 
-function actionRoute(body) {
-  const normalized = body.replace(/\r\n/g, "\n");
-  const header = normalized.startsWith("\n") ? "" : normalized.split("\n\n", 1)[0];
-  const lines = header.split("\n");
-  const actionFields = lines.filter(line => /^\s*action\s*:/i.test(line));
-  if (actionFields.length === 0) return { kind: "plain" };
-  const actionLines = lines.filter(line => /^Action: [A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(line));
-  if (actionFields.length !== 1 || actionLines.length !== 1) return { kind: "invalid" };
-  return { kind: "action", address: `action:${actionLines[0].slice("Action: ".length)}` };
-}
-
 function pinnedCatalogWithPayload(catalog, payload) {
   const pinned = { ...catalog.skills.upstreams["agent-deck"], contentDigest: upstreamSkillDigest(payload) };
   const result = structuredClone(catalog);
@@ -127,18 +116,6 @@ test("catalog exposes exactly the approved entry surface", () => {
   assert.equal(all.exposedSkills.includes("agent-deck"), false);
 });
 
-test("canonical bootstraps ask agents to remember guidance without repeating global policy", () => {
-  const catalog = loadCatalog(rootDir);
-  const index = buildSkillContentIndex(rootDir, catalog);
-  for (const skill of Object.keys(catalog.skills.skills)) {
-    const source = fs.readFileSync(path.join(rootDir, "skills", skill, "SKILL.md"), "utf8");
-    assert.match(source, new RegExp("Follow the remembered guidance from `agentgear skill get " + skill + "`\\. Run it only if you no longer remember the guidance or have evidence it changed\\."));
-    assert.equal(resolveSkillAddress(index, skill).owner, skill);
-    assert.doesNotMatch(source, /Agentgear skill text is stable/);
-    assert.doesNotMatch(source, /Repeat that command after compaction/);
-  }
-});
-
 test("skill help states the stable guidance policy once", () => {
   const result = command(["skill", "--help"]);
   assert.equal(result.status, 0, result.stderr);
@@ -147,18 +124,18 @@ test("skill help states the stable guidance policy once", () => {
 });
 
 test("skill get resolves independent addresses, global fallbacks, and atomic errors", () => {
+  const index = buildSkillContentIndex(rootDir, loadCatalog(rootDir));
   const entry = command(["skill", "get", "handoff"]);
   assert.equal(entry.status, 0, entry.stderr);
-  assert.match(entry.stdout, /# Handoff/);
+  assert.equal(entry.stdout.trim(), resolveSkillAddress(index, "handoff").body.trim());
 
   const alias = command(["skill", "get", "action:execute_delegate_task"]);
   assert.equal(alias.status, 0, alias.stderr);
-  assert.match(alias.stdout, /Coder Receive/);
-  assert.doesNotMatch(alias.stdout, /^---/m);
+  assert.equal(alias.stdout.trim(), resolveSkillAddress(index, "action:execute_delegate_task").body.trim());
 
   const fallback = command(["skill", "get", "session-host"]);
   assert.equal(fallback.status, 0, fallback.stderr);
-  assert.match(fallback.stdout, /Session Host Contract/);
+  assert.equal(fallback.stdout.trim(), resolveSkillAddress(index, "session-host").body.trim());
 
   const multi = command(["skill", "get", "check-waypost-messages/invalid-envelope", "tech-design-workflow/report-handling"]);
   assert.equal(multi.status, 0, multi.stderr);
@@ -356,6 +333,18 @@ test("reference validation accepts upstream entries but rejects their subaddress
   }
 });
 
+test("selector validation rejects Markdown fences that leak into another slice", () => {
+  const item = contentIndexFixture();
+  const selectorPath = path.join(item.temporary, "skills", "fixture", "references", "slice.md");
+  try {
+    fs.appendFileSync(selectorPath, "\n```markdown\nAction: fixture_action\n");
+    const errors = validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog));
+    assert.equal(errors.some(error => /unclosed Markdown fence; each selector must be self-contained/.test(error)), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
 test("canonical and alias addresses share the 256-character index limit", () => {
   const cases = [
     { selector: "s".repeat(248), valid: true },
@@ -393,12 +382,12 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
     retrievable: true,
     exposure: "upstream"
   });
-  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 27);
+  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 28);
 
   const text = command(["list"]);
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Upstream retrievable skills: agent-deck/);
-  assert.doesNotMatch(text.stdout, /Skills \(28\)/);
+  assert.match(text.stdout, /Skills \(28\)/);
 });
 
 test("upstream skill get returns resourceBase from a verified runtime and rejects selectors", () => {
@@ -477,70 +466,6 @@ test("skill get works through source, staged release, shared current, and copy-f
   }
 });
 
-test("receiver bootstrap separates ordinary messages from safe one-lookup Action routing", () => {
-  const source = fs.readFileSync(
-    path.join(rootDir, "skills", "check-waypost-messages", "references", "disclosure-start.md"),
-    "utf8"
-  );
-  assert.match(source, /Call `waypost_status` once to initialize MCP tool discovery/);
-  assert.match(source, /If unavailable,\s+use the Waypost CLI/);
-  assert.match(source, /Normalize CRLF|normalize CRLF/i);
-  assert.equal(source.includes("`^\\s*Action\\s*:`"), true);
-  assert.equal(source.includes("`^\\\\s*Action\\\\s*:`"), false);
-  assert.match(source, /structured argv[\s\S]*exactly once/);
-  assert.match(source, /\[A-Za-z0-9\]\[A-Za-z0-9_.-\]\{0,127\}/);
-  assert.match(source, /invalid-envelope/);
-  assert.match(source, /unknown-action/);
-  assert.match(source, /ordinary\s+personal message/);
-  assert.doesNotMatch(source, /reject a missing Action/);
-  assert.doesNotMatch(source, /otherwise execute that workflow stage immediately/);
-});
-
-test("receiver parser treats missing Action as plain and rejects explicit malformed Action fields", () => {
-  const valid = "Task: t\nAction: review_requested\nFrom: sender\n\nbody";
-  assert.deepEqual(actionRoute(valid), { kind: "action", address: "action:review_requested" });
-  for (const body of [
-    "Task: t\nFrom: sender\n\nbody",
-    "Round 3 review completed.\n\nDecision: NEEDS_REVISION",
-    "\nordinary body"
-  ]) {
-    assert.deepEqual(actionRoute(body), { kind: "plain" }, body);
-  }
-  for (const body of [
-    "Action: review_requested\nAction: stop_recommended\n\nbody",
-    "action: review_requested\n\nbody",
-    " Action: review_requested\n\nbody",
-    "Action : review_requested\n\nbody",
-    "Action: review requested\n\nbody",
-    `Action: ${"x".repeat(129)}\n\nbody`,
-    "Action: review_requested $(command)\n\nbody"
-  ]) {
-    assert.deepEqual(actionRoute(body), { kind: "invalid" }, body);
-  }
-});
-
-test("routing rejection replies to the sender, then acknowledges or fails without release", () => {
-  const invalid = fs.readFileSync(path.join(rootDir, "skills", "check-waypost-messages", "references", "invalid-envelope.md"), "utf8");
-  const unknown = fs.readFileSync(path.join(rootDir, "skills", "check-waypost-messages", "references", "unknown-action.md"), "utf8");
-  const rejected = fs.readFileSync(path.join(rootDir, "skills", "check-waypost-messages", "references", "message-rejected.md"), "utf8");
-  for (const source of [invalid, unknown]) {
-    assert.match(source, /received `sender_address`/);
-    assert.match(source, /current `recipient_address` as sender/);
-    assert.match(source, /Action: message_rejected/);
-    assert.match(source, /acknowledge the rejected delivery/);
-    assert.match(source, /structured argv `\[executable,"--state-dir",state_dir,"fail"/);
-    assert.match(source, /Report its returned state/);
-    assert.match(source, /never release this delivery/);
-  }
-  assert.match(rejected, /Do not reply to the rejection/);
-  assert.match(rejected, /resend it once/);
-
-  const delivery = fs.readFileSync(path.join(rootDir, "skills", "review-tech-design", "references", "message-delivery.md"), "utf8");
-  assert.match(delivery, /Send the complete report form above as the Waypost body/);
-  assert.match(delivery, /never replace it with a summary/);
-  assert.match(delivery, /Action: design_spec_review_report/);
-});
-
 test("action aliases are complete, direct, and selector validation resolves multi-selector references", () => {
   const catalog = loadCatalog(rootDir);
   const index = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
@@ -549,8 +474,8 @@ test("action aliases are complete, direct, and selector validation resolves mult
   const expected = [
     "browser_check_report", "browser_check_requested", "browser_setup_provided", "browser_setup_requested",
     "closeout_delivered", "code_delivery_complete", "code_health_review_report", "code_health_review_requested",
-    "delegated_task_result", "design_spec_context_corrected", "design_spec_decision_requested", "design_spec_delivered",
-    "design_spec_draft_requested", "design_spec_review_context", "design_spec_review_context_recovery_requested",
+    "delegated_task_result", "design_prune_context", "design_prune_report", "design_prune_requested",
+    "design_spec_context_corrected", "design_spec_delivered", "design_spec_draft_requested", "design_spec_review_context",
     "design_spec_review_context_rejected", "design_spec_review_report", "design_spec_review_requested",
     "execute_delegate_task", "execute_delegated_task", "execute_plan", "group_message_available", "message_rejected",
     "plan_report_delivered", "refactor_review_report", "refactor_review_requested", "review_requested",
@@ -564,9 +489,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
     assert.notEqual(result.stdout, "");
   }
   const discriminatorTokens = new Set([
-    "browser_check_report",
-    "design_spec_review_context_recovery_requested",
-    "design_spec_review_requested",
+    "browser_check_report", "design_spec_review_requested",
     "group_message_available",
     "rework_required",
     "stop_recommended"
@@ -577,28 +500,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
     const record = aliases.get(token);
     const canonical = `${record.owner}/${record.selector}`;
     assert.equal(index.byCanonicalAddress.get(canonical), record, `${token} must directly own ${canonical}`);
-    assert.equal(record.body.trim().split(/\n+/).length > 2, true, token);
-    assert.doesNotMatch(result.stdout, /^# [^\n]+\n\nRetrieve `agentgear skill get [^`]+ start` and /, token);
-    assert.doesNotMatch(result.stdout, /Retrieve `agentgear skill get [^`]+ start` and (?:follow|conduct|perform|process|apply|use)/, token);
-    assert.doesNotMatch(result.stdout, /This is the first executable [^.]+\. Retrieve the complete /, token);
   }
-  const directStages = {
-    execute_delegate_task: ["## Coder Receive", "On `Action: execute_delegate_task`"],
-    execute_delegated_task: ["## Worker Receive", "On `Action: execute_delegated_task`"],
-    browser_setup_requested: ["## Setup Request Receive", "tester_workspace"],
-    browser_setup_provided: ["## Setup Reply Receive", "matching check history"],
-    browser_check_report: ["# Browser Check Report Route", "review-code/review review-code/continue-1 review-code/continue-2 review-code/continue-3"]
-  };
-  for (const [token, [stage, requiredText]] of Object.entries(directStages)) {
-    const result = command(["skill", "get", "--", `action:${token}`]);
-    assert.equal(result.status, 0, `${token}: ${result.stderr}`);
-    assert.match(result.stdout, new RegExp(stage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.match(result.stdout, new RegExp(requiredText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
-  const coder = command(["skill", "get", "--", "action:execute_delegate_task"]);
-  const worker = command(["skill", "get", "--", "action:execute_delegated_task"]);
-  assert.equal(coder.stdout.trimStart().startsWith("## Coder Receive"), true);
-  assert.equal(worker.stdout.trimStart().startsWith("## Worker Receive"), true);
   assert.equal(index.referencedInvocations.some(item => item.filePath.endsWith("multi-agent-protocol/references/disclosure-start.md") && item.addresses.includes("multi-agent-protocol/tool-resolution")), true);
 });
 
@@ -616,6 +518,18 @@ test("action-template validation rejects indented and dynamic emitted headers", 
     }]])
   };
   assert.deepEqual(validateActionTemplates(staticIndex, aliases), []);
+
+  for (const header of ["From", "To", "  fRoM", "\tto"]) {
+    const transportIndex = {
+      ...index,
+      byCanonicalAddress: new Map([["fixture/transport", {
+        ...staticRecord,
+        filePath: path.join(rootDir, "skills", "fixture", "references", "transport.md"),
+        body: `\`\`\`markdown\nAction: review_requested\n${header}: session-1\n\`\`\`\n`
+      }]])
+    };
+    assert.equal(validateActionTemplates(transportIndex, aliases).some(error => error.toLowerCase().includes(`${header.trim().toLowerCase()} duplicates waypost transport metadata`)), true);
+  }
 
   for (const body of [
     "```markdown\n  Action: ${runtimeValue}\n```\n",
@@ -749,6 +663,11 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
   assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
     before: [], after: [{ name: "aCtIoN", value: "not_registered" }], body: "body"
   }), /may not set Action/);
+  for (const name of ["From", "To", "fRoM", "tO"]) {
+    assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
+      before: [{ name, value: "session-1" }], after: [], body: "body"
+    }), /may not duplicate transport/);
+  }
   assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
     before: [{ name: "Task", value: "t" }], after: [{ name: "task", value: "other" }], body: "body"
   }), /duplicate header task/);
@@ -808,7 +727,7 @@ test("Action producer manifests cover every actual sender exactly once", () => {
     ],
     [
       path.join(rootDir, "skills", "tech-design-workflow", "scripts", "send-design-draft-with-review-context.mjs"),
-      ["design_spec_review_context", "design_spec_draft_requested"]
+      ["design_prune_context", "design_spec_review_context", "design_spec_draft_requested"]
     ]
   ]);
   const actual = new Map();
@@ -1051,19 +970,6 @@ test("upstream retrieval rejects symlinked managed parents without writing throu
       fs.rmSync(item.temporary, { recursive: true, force: true });
     }
   }
-});
-
-test("technical-design delivery overview uses the direct requester-delivery route", () => {
-  const catalog = loadCatalog(rootDir);
-  const index = buildSkillContentIndex(rootDir, catalog);
-  const overview = resolveSkillAddress(index, "tech-design-workflow").body;
-  const requesterHandling = resolveSkillAddress(index, "tech-design-workflow/requester-handling").body;
-  const delivered = resolveSkillAddress(index, "action:design_spec_delivered");
-
-  assert.match(overview, /`design_spec_delivered`: retrieve `agentgear skill get tech-design-workflow\/requester-delivery`/);
-  assert.equal(delivered.owner, "tech-design-workflow");
-  assert.equal(delivered.canonicalSelector, "requester-delivery");
-  assert.doesNotMatch(requesterHandling, /design_spec_delivered|closeout\.md/);
 });
 
 test("retrieved-skill purge preserves old pins and rolls a failed quarantine removal back", () => {

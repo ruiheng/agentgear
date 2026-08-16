@@ -6,51 +6,99 @@ selector-aliases: action:design_spec_draft_requested, action:design_spec_context
 
 # Author Round
 
-This is the first executable author stage. Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/session-host` before transport or session operations.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol tech-design-workflow/lane-state`.
 
-## Route Corrections and Recovery
+## Inbound Gate
 
-On `design_spec_context_corrected`, update only named shared lane fields. Keep the current artifact unchanged. Authority or design-content changes require a new `design_spec_draft_requested` round.
+Authenticate Task and both transport endpoints against lane state before acting.
+`design_spec_draft_requested` comes from the requester, is addressed to the
+author, has the current Round, and requires `dispatch_ready`. A
+`design_spec_context_corrected` notice comes from the requester with
+`Context: initial`, a positive Context Revision, and no Round.
 
-On `design_spec_review_context_recovery_requested` with `Relay: requester`, recover the requester route and relay Task, Reviewer, Author, Session Host, Round, maximum, Missing Context, and Pending Review unchanged. Do not supply, reconstruct, or summarize requester context.
+An authenticated older Round or revision is a stale wake: settle it without
+redoing completed work. Defer missing authority; reject a different task or
+endpoint. Never overwrite an existing artifact. On a duplicate current request,
+resume only work that is visibly incomplete.
 
-## Draft Execution
+## Context and Design
 
-On `design_spec_draft_requested`:
+Read lane state and the requester-owned Canonical Contract. On a corrected
+contract, compare its latest revision with lane state. If the current artifact
+still satisfies it, keep the snapshot and refresh affected reviews. If the
+design must change, create a Replacement Snapshot. Never edit the contract.
 
-1. Recover requester, reviewer, host, round, maximum, canonical contract, artifact, archive branch, and prior reviewed target when round > 1.
-2. For round 1, inspect the relevant repository and user-aligned context. For later rounds, start from the prior review findings and copied prior artifact. Reuse prior evidence from unchanged source; reinspect only source affected by the findings, artifact changes, repository changes, or a current contradiction.
-3. Write the complete, proportional, implementation-ready design to the named round path. Only the author writes `.agent-artifacts/design-spec/<author_session_id>/`.
-4. Keep accepted constraints and rationale in the artifact, not only in messages.
-5. Send the review request below, leave the artifact unchanged, and follow the Async sender rule.
+For round 1, inspect the repository as needed. Later rounds start from the
+previous artifact, findings, and diff, while rechecking evidence affected by the
+change. Write the smallest self-contained implementation-ready design at
+`current_artifact`. Include only mechanisms required by the goal, repository, or
+hard constraints.
 
-Resolve core approach, data structures, interfaces, ownership, boundaries, material flows, migration and validation choices, relevant state/configuration/compatibility effects, failure behavior, benefits, risks, alternatives, and user-owned decisions. Every material component must link directly to the requester goal or a hard constraint. Exclude speculative flexibility, duplicate paths, unnecessary abstraction, and unrequested cross-domain capability.
+Ask the user directly for a blocking product decision and append the exact
+answer once. Multiple answers may share a round. Decide whether the current
+artifact remains valid, then prepare the required review work in the same state
+write as the authority change.
 
-## Review Request
+## Replacement Snapshot
 
-Send from `waypost_status.default_sender` to the recorded reviewer address with subject `design-spec review: <task_id> r<round>`:
+Use a replacement after a complete report set requires document changes, or a
+corrected initial contract changes an already-dispatched design. At the maximum,
+first ask the user whether to stop or approve a higher exact value.
+
+Create the next complete `rNNN.md` from the immutable current artifact. Only
+after it is ready, atomically advance Round, move the old current path to
+`previous_artifact`, point to the new path, apply any new context/decision/
+maximum authority, prepare new review epochs for reviewer and enabled pruner,
+clear their reports, and clear acceptance. State must never point to an
+incomplete snapshot.
+
+## Review Dispatch
+
+Before a new review request, atomically increment `review_epoch`, assign it to
+each affected role's expected epoch, clear that role's stale report, and clear
+acceptance. Do not allocate another epoch when the preceding authority or
+replacement write already prepared it.
+
+Send from `author_to_address` to the role recorded in lane state. Review messages
+carry only the current Task, lane path, Round, and Review Epoch:
 
 ```markdown
 Task: <task_id>
 Action: design_spec_review_requested
-From: architect_author <author_session_id>
-To: architect_reviewer <reviewer_session_id>
-Session Host: <session_host>
+Lane State: <workspace-relative lane state file>
+Review Epoch: <positive epoch>
 Round: <round>
-Max Review Rounds: <max_review_rounds>
-
-## Requester Context
-- Source: pre-delivered requester contract and Decision Deltas
-
-## Review Target
-- Mode: draft-round
-- Artifact: .agent-artifacts/design-spec/<author_session_id>/rNNN.md
-- Previous reviewed artifact: <exact rNNN-1 path | none for round 1>
-- Review state: .agent-artifacts/design-review/<reviewer_session_id>/<task_id>/
 ```
 
-For round 2 and later, the previous artifact is required and must be the exact target reviewed in the preceding report. Do not paste or summarize the design, provide a hand-written diff, restate requester context, or declare evidence valid. The reviewer generates the machine diff and owns evidence state.
+For an enabled pruner:
+
+```markdown
+Task: <task_id>
+Action: design_prune_requested
+Lane State: <workspace-relative lane state file>
+Review Epoch: <positive epoch>
+Round: <round>
+```
+
+Receipts and send status are transport diagnostics, not lane state. If a send
+result is unclear, stop and report it. An explicit retry may repeat the same
+message: receivers recognize a completed or stale epoch and do not redo work.
+
+When authority changes without changing the artifact, request normal full
+review of the same snapshot under a new epoch. When reports disagree, resolve
+the conflict from evidence or ask the relevant role to review the same snapshot
+again with a short factual rationale. This remains an ordinary review request.
 
 ## Final Notification
 
-After an accepted report, send `design_spec_delivered` to the requester with task, author, requester, reviewer, host, final artifact, archive branch, accepted decision, and report message ID. Do not repeat design content or implementation advice. The requester owns archival and closeout.
+When lane state satisfies its acceptance predicate, record the accepted Round
+and artifact, then notify the requester:
+
+```markdown
+Task: <task_id>
+Action: design_spec_delivered
+Lane State: <workspace-relative lane state file>
+Round: <accepted_round>
+```
+
+The requester owns archival and closeout.

@@ -71,8 +71,6 @@ Message mode uses the full structure below:
 ```markdown
 Task: <task_id_or_N/A>
 Action: simplify_review_report
-From: simplify-reviewer <simplify_reviewer_session_id_or_N/A>
-To: <requester_role_or_user> <requester_session_id_or_N/A>
 Planner: <planner_session_id_or_N/A>
 Round: <round_or_N/A>
 
@@ -128,18 +126,17 @@ Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-p
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`
 - `planner_session_id`: explicit -> message body -> default `N/A`
-- `simplify_reviewer_session_id`: explicit -> message body `To` header -> bound Waypost sender context -> ask
-- `requester_session_id`: explicit -> message body `From` header -> ask
-- `requester_role`: explicit -> message body `From` header -> default `requester`
+- `simplify_reviewer_session_id`: explicit -> current bound Waypost session -> ask
+- requester reply route: received `sender_address`
+- `requester_role`: explicit -> request context -> default `requester`
 - `round`: explicit -> message body `Round` header -> default `1`
 
 Execution flow in multi-agent mode:
 1. review the requested scope
 2. produce one advisory `simplify_review_report`
-3. call `session_require` for the requester session in the current workdir and retain its returned Waypost address
-4. send the report with `waypost_send`
+3. send the report with `waypost_send`
    - `from_address = <current bound simplify-reviewer Waypost address>`
-   - `to_address = <returned requester Waypost address>`
+   - `to_address = <received sender_address>`
    - `subject = "simplify review report: <task_id> r<round>"`
    - `body = <simplify review report body>`
 

@@ -45,7 +45,7 @@ Review-request continuity rule:
 - a task review remains `task` through every round
 - task repeats its complete Handoff and Branch Plan every round; a full request includes all User Decisions and a delta includes decisions made since the prior review
 - delegated coder requests omit task content, Special Requirements, and workflow policy; reviewer already has planner context
-- every delta retains `Task`, `Action`, `From`, `To`, `Round`, and Lane; task / `integration_final` also retain Planner fields
+- every delta retains `Task`, `Action`, `Round`, `Requester session`, and Lane; task / `integration_final` also retain Planner fields
 - delta-only means terse:
   - task-content description, file list, and unchanged verification do not need to be included; task always carries Branch Plan and Handoff
   - summarize only changed scope, responses to prior findings, and new verification evidence; let the reviewer decide what to re-check
@@ -72,9 +72,8 @@ Use this structure as the message body. Omit task Branch Plan and Handoff for `i
 ```markdown
 Task: <task_id>
 Action: review_requested
-From: <requester_role> <requester_session_id>
-To: reviewer {{TO_SESSION_ID}}
 Round: <round>
+Requester session: <requester_session_id>
 
 ## Summary
 [One-line review request summary]
@@ -116,6 +115,10 @@ Round: <round>
 
 ## Special Requirements
 [only when present]
+
+## Author-Noted Issues or Limitations (Optional)
+[Non-exhaustive author notes]
+```
 
 ## Continue
 

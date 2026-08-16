@@ -5,48 +5,10 @@ selector-summary: Complete review-tech-design instructions, part 1.
 
 # Review Technical Design
 
-Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol` for shared transport. Determine the mode from the input, then read only the reference needed for that mode.
+Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol` for shared transport. Route message actions to their direct selector; load review details only after that selector chooses the mode.
 
 ## Route First
 
-- Any Waypost body with `Action: design_spec_review_context` uses context intake mode; retrieve `agentgear skill get review-tech-design/context-intake`.
-- For `design_spec_review_requested` with `Mode: draft-round`, retrieve `agentgear skill get review-tech-design/draft-round-review review-tech-design/message-delivery`.
-- For `design_spec_review_requested` with `Mode: committed-docs`, retrieve `agentgear skill get review-tech-design/committed-docs-review review-tech-design/message-delivery`.
-- Every other invocation is direct-use mode; review the readable target named by the user and retrieve `agentgear skill get review-tech-design/message-delivery` for the report form. Do not send Waypost.
-
-## Authority and Independence
-
-- Treat the requester Design Task Contract and requester-delivered Decision Deltas as authority.
-- Treat author-authored task framing, decision restatements, change summaries, and evidence conclusions as non-authoritative.
-- Retain requester context by task. Missing requester context is a completeness failure, not permission to infer.
-- Remain review-only. Do not edit a review target or reviewer-external state.
-- For draft-review, write reviewer state only under `.agent-artifacts/design-review/<reviewer_session_id>/<task_id>/`; the author must not write it.
-- Require a readable, self-contained target. A complete current target remains mandatory even when later-round review starts from a diff.
-
-## Independent Review Frame
-
-Before opening the target, derive from requester-owned context:
-
-- intended user outcome;
-- required behavior and compatibility constraints;
-- explicit non-goals and ownership boundaries;
-- the smallest coherent change that could satisfy the request.
-
-Do not derive this frame from the author's design. Apply a deletion test before hardening any component: if removing it still satisfies the explicit goal and required compatibility, require removal or a requester decision.
-
-Review as a skeptical senior engineer. Prioritize problem framing, smallest coherent approach, scope and over-design, ownership and boundaries, relevant state/configuration/compatibility effects, material risks and tradeoffs, failure behavior, and unresolved requester-owned decisions. This is not code review. Focus on the few findings most likely to change implementation confidence.
-
-## Decision Rules
-
-- `SOUND`: implementation-ready with no unresolved design findings or unapproved scope.
-- `SOUND_WITH_CAVEATS`: deliverable with only non-blocking caveats already recorded in the target.
-- `NEEDS_REVISION`: the design must change and receive another reviewed snapshot.
-- `NEEDS_INPUT`: message-review input is incomplete or the target cannot be identified/read.
-
-Do not use `SOUND_WITH_CAVEATS` when a document revision is required. Put requester-owned decisions under Questions To Resolve. Always report Persisted Data Changes.
-
-## Review Limit
-
-Require a positive Max Review Rounds in message review mode and require `Round <= Max Review Rounds`. Return NEEDS_INPUT without inspecting the target when the round exceeds the authorized maximum. A replacement snapshot advances the round; NEEDS_INPUT and same-snapshot reconsideration do not.
-
-At a final-round NEEDS_REVISION, pause before sending the report. Explain why prior rounds did not converge and what another iteration could resolve; ask the user whether to stop or continue. If continued, choose a suitable next stopping point, record the new maximum in the held report, and resume the same lane.
+- `design_spec_review_context`: retrieve `agentgear skill get review-tech-design/context-intake`.
+- `design_spec_review_requested`: retrieve `agentgear skill get review-tech-design/review-request-route`; that selector owns mode choice, authentication, and downstream references.
+- Every non-message invocation is direct-use mode: retrieve `agentgear skill get review-tech-design/review-contract review-tech-design/message-delivery`, review the readable target named by the user, and do not send Waypost.

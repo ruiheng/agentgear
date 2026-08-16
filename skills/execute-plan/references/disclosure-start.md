@@ -38,8 +38,9 @@ Final-review continuation:
 - miss/ambiguity: defer; do not send final report
 
 - `plan_id`: explicit -> message body -> ask
-- `supervisor_session_id`: final-review continuation -> matching/recovered plan context; otherwise explicit -> message body `From` header -> ask
-- `planner_session_id`: explicit -> message body `To` / `Planner` header -> current session id -> ask
+- supervisor reply route: final-review continuation -> matching/recovered plan context; otherwise received `sender_address`
+- `supervisor_session_id`: explicit -> message body `Supervisor session` -> matching/recovered plan context -> ask
+- `planner_session_id`: explicit -> message body `Planner` header -> current session id -> ask
 - `workspace`: explicit -> message body `Workspace path` -> ask
 - `planner_workspace`: derive internally from `workspace`
 - `worker_workspace`: derive internally from `workspace`

@@ -22,8 +22,12 @@ agentgear run multi-agent-protocol archive-and-remove-task-sessions.mjs \
   --apply
 ```
 
+When a pruner was enabled, add `--target design-pruner=<pruner_session_id>`.
+
 For review-existing, use one target: `--target architect=<reviewer_session_id>`.
 
 Run cleanup once. Deleted or already absent targets are complete. Preserve and report non-disposable sessions and unsupported hosts. On guard or deletion failure, report cleanup pending with the generated archive and exact manual unblock step; do not retry automatically or reopen review.
+
+After the authoritative design commit and successful session cleanup, remove the exact `.agent-artifacts/design-spec-dispatch/<task_id>.lock/` lane state directory. Preserve it when cleanup is incomplete so recovery keeps the shared context.
 
 Report final design paths, authoritative commit, and cleanup status. Include the cleanup archive and manual unblock step only when cleanup remains pending.

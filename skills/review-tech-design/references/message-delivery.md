@@ -12,22 +12,18 @@ Use this form for message review; omit the envelope in direct-use mode:
 ```markdown
 Task: <task_id>
 Action: design_spec_review_report
-From: architect_reviewer <reviewer_session_id>
-To: <review_sender_role> <review_sender_session_id>
 Round: <round>
-Max Review Rounds: <max_review_rounds>
 
 ## Summary
 [One-line conclusion]
 
 ## Reviewed Scope
-- Mode: <draft-round | committed-docs>
+- Mode: <draft-round | committed-docs | direct>
 - Artifact/Commit/Docs: <exact reviewed target>
-- Previous reviewed target: <exact target | none>
-- Review state: <reviewer-owned path | none>
+- Previous target: <exact target | none>
 
 ## Persisted Data Changes
-[Required]
+[Material changes, or None]
 
 ## Decision
 SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
@@ -35,21 +31,48 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 ## Findings
 - [Stable Finding ID: consequence and recommended direction, or None]
 
-## Questions To Resolve
-- [requester-owned decision or blocker, or None]
+## User Decisions
+- [question and exact user answer, or None]
 
 ## Residual Risk
 [remaining uncertainty or None]
 ```
 
-In message review, resolve task, round, reviewer identity, actual inbound From identity, maximum, requester context, and target through shared context rules. Send the complete report form above as the Waypost body; never replace it with a summary, and keep `Action: design_spec_review_report` in its initial header block. Require inbound From through the shared session-host contract before sending completed reviews or NEEDS_INPUT, using the current bound reviewer Waypost address and subject `design-spec review report: <task_id> r<round>`. Follow the shared Async sender rule.
+For draft-round, insert this after `Action`:
 
-## Context Recovery
+```markdown
+Lane State: <workspace-relative lane state file>
+Review Epoch: <positive review generation>
+```
 
-When draft-round requester context is missing, record the pending exact target and send `design_spec_review_context_recovery_requested` directly to the retained requester, or to inbound author with `Relay: requester` only when the requester route is unavailable. Include reviewer, author, host, round, maximum, Missing Context, and Pending Review unchanged. Settle the inbound review claim after the send succeeds. Do not send NEEDS_INPUT or accept author-supplied replacement context. Resume only after exact requester replays, marking the last `Recovery Complete: yes`.
+Draft-round resolves task, epoch, round, reviewer identity, maximum, user
+context, and target from that shared lane state. Committed-docs omits Lane State
+and Review Epoch and resolves context from the inline request plus preceding
+rounds. Message reports use only their routed mode; direct-use sets
+`Mode: direct`. Never require draft-only state from committed-docs.
+
+Send the complete report form above as the Waypost body; never replace it with a summary, and keep `Action: design_spec_review_report` in its initial header block. Send completed reviews or NEEDS_INPUT to the received request `sender_address` from the current bound reviewer address with subject `design-spec review report: <task_id> r<round>`. Follow the shared Async sender rule.
+
+If required user context is unavailable, send `NEEDS_INPUT` and stop. Do not accept an agent-written substitute.
 
 ## Context Rejection
 
-For invalid context, send `design_spec_review_context_rejected` to the actual inbound sender address with task/received value, context kind, round, and precise correction needed. Use subject `design context rejected: <task_id>`. Settle only after send success; wait for corrected requester context and do not route the failure through the author.
+For invalid context, send `design_spec_review_context_rejected` to the actual
+inbound `sender_address` with this body:
+
+```markdown
+Task: <task_id>
+Action: design_spec_review_context_rejected
+Context: initial
+Context Revision: <received context revision>
+Lane State: <workspace-relative lane state file or received value>
+
+## Correction Needed
+<precise correction>
+```
+
+Use no Round. Echo the rejected revision. Send
+subject `design context rejected: <task_id>`. Settle only after send success and
+wait for corrected context.
 
 In context intake mode, valid intake is retained and settled without a reply. In direct-use mode, do not send Waypost.

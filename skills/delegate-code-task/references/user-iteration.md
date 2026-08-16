@@ -6,7 +6,13 @@ selector-aliases: action:user_requested_iteration
 
 # User Requested Iteration
 
-On `user_requested_iteration`, treat the body as the recorded code-task continuation. Own the recorded branch, implementation, validation, and commit; keep the session legible for user steering.
+On `user_requested_iteration`, require `Review lane: task` and match Task, Round,
+and both transport endpoints to the active review: recorded reviewer -> coder.
+The callback cannot override the active task's Branch Plan or Workspace Handoff.
+Missing authority defers; a lane or route mismatch is rejected without changing
+code, Git, or task state.
+
+After that gate passes, treat the body as the recorded code-task continuation. Own the recorded branch, implementation, validation, and commit; keep the session legible for user steering.
 
 - Keep the recorded Branch Plan fixed for this dispatch. If the user requests a branch-plan change, do not send a review request; report it to planner for a new dispatch context.
 - Keep all user decisions and copy the accumulated list into the next review request or terminal handoff under `## User Decisions`; omit the section when no decision exists.

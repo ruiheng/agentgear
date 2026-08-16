@@ -8,11 +8,16 @@ selector-aliases: action:browser_setup_provided
 
 ## Setup Reply Receive
 
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol`.
+
 On `browser_setup_provided`, resolve the received route before settlement:
 
 - require `Browser Check`; if it is absent, fail the claimed reply and request a fresh setup reply. Never infer it from Task or Round.
-- resolve `task_id` and `round` from the received headers;
-- resolve setup-contact identity and role from `From`, and tester identity from `To`;
-- recover requester, planner, tester workspace, and the browser-validation frame only from the matching check history keyed by `Browser Check`. A missing or ambiguous history match is a blocker: defer or fail under the Receiver Contract; never default a different check from Task/Round.
+- match Task, Round, and Browser Check to the active setup request or retained check frame;
+- require the actual `sender_address` to equal that frame's setup-contact target and the current recipient to equal its tester route. Missing context defers; a mismatch is rejected without using setup details;
+- after the gate passes, use the recorded target as the setup-contact route and the current delivery recipient as tester;
+- recover requester, planner, tester workspace, and the browser-validation frame only from the matching check history keyed by `Browser Check`. Never default a different check from Task or Round.
+- require the complete `## Setup` section; it contains setup details or one
+  `Unavailable: <reason>` result.
 
 After the matching frame is recovered, acknowledge the claimed reply; do not resume a check in this turn. Recover the ACKed reply later by `Browser Check` only. Use the received setup details only for the active browser-validation flow, never to infer a different requester, planner, or check.

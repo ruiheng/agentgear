@@ -102,8 +102,6 @@ Use this body for participant personal message:
 ```markdown
 Task: <roundtable_id>
 Action: roundtable_participant_turn
-From: moderator <moderator_session_id>
-To: participant {{TO_SESSION_ID}}
 Round: <round>
 
 ## Roundtable

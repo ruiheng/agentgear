@@ -65,8 +65,6 @@ Round `1` or new reviewer session: use the full body below.
 ```markdown
 Task: <task_id>
 Action: refactor_review_requested
-From: <requester_role> <requester_session_id>
-To: refactor-reviewer {{TO_SESSION_ID}}
 Planner: <planner_session_id_or_N/A>
 Round: <round>
 
@@ -100,8 +98,6 @@ Round `>1` to the same reviewer session: send only delta.
 ```markdown
 Task: <task_id>
 Action: refactor_review_requested
-From: <requester_role> <requester_session_id>
-To: refactor-reviewer {{TO_SESSION_ID}}
 Planner: <planner_session_id_or_N/A>
 Round: <round>
 
@@ -126,12 +122,11 @@ Recommended subject:
 
 Use the `waypost` MCP tools:
 1. use `waypost`
-2. compose the body with `{{TO_SESSION_ID}}` where the real reviewer session id must appear
-3. call `session_require` for the reviewer id or ref with the known host and `workdir = <current workspace>`.
-4. on `ready`, reuse its returned host, real id, and address.
-5. on `not_found`, resolve role `reviewer`, then call `session_create` for `<refactor_reviewer_session_ref>` with the selected opaque launch candidate and recorded requester parent. It verifies that parent; do not preflight it with `session_require`. Record the returned host, real id, and sole address for later turns.
-6. use the returned real id as the authoritative `refactor_reviewer_session_id`
-7. fill the final body and call `waypost_send` with:
+2. call `session_require` for the reviewer id or ref with the known host and `workdir = <current workspace>`.
+3. on `ready`, reuse its returned host, real id, and address.
+4. on `not_found`, resolve role `reviewer`, then call `session_create` for `<refactor_reviewer_session_ref>` with the selected opaque launch candidate and recorded requester parent. It verifies that parent; do not preflight it with `session_require`. Record the returned host, real id, and sole address for later turns.
+5. use the returned real id as the authoritative `refactor_reviewer_session_id`
+6. compose the final body and call `waypost_send` with:
    - `from_address = waypost_status.default_sender`
    - `to_address = <refactor reviewer returned address>`
    - `subject = "refactor review request: <task_id> r<round>"`

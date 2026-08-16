@@ -57,6 +57,7 @@ currently rejects the Claude-only field; retain it as a cross-harness exception.
 - Agent 2, **Coder** (implementation): executes tasks and applies code changes
 - Agent 3, **Reviewer** (`review-code`): review agent, produces the full review report directly in message body
 - Agent 4, **Architect** (`review-tech-design`): per-topic reviewer for an exact immutable technical-design artifact or committed specification snapshot
+- **Design Pruner** (`prune-tech-design`): optional draft-design reviewer that blocks unnecessary concepts without proposing a replacement architecture
 - Agent 5, **Browser Tester** (`browser-test`): usually a reusable long-lived runtime validation agent, keeps browser state warm when available, checks behavior with `agent-browser`, and reports evidence back to the requester session
 - Refactor Reviewer (`refactor-review`): advisory reviewer that inspects existing code for duplication and simplification opportunities without making changes
 - Roundtable Moderator (`roundtable`): user-facing discussion controller; creates Waypost group, selects participants, drains group updates, and presents synthesis
@@ -139,11 +140,11 @@ flowchart TD
     W -->|message: delegated_task_result| Q
     P[Planner] -->|message: review_task_context| R[Reviewer]
     P -->|message: execute_delegate_task| C[Coder]
-    X[Original Requester] -->|canonical context: design_spec_review_context| A[Architect Reviewer]
-    X -->|same canonical contract: design_spec_draft_requested| DA[Architect Author]
+    X[Original Requester] -->|lane-state notice: design_spec_review_context| A[Architect Reviewer]
+    X -->|same lane state: design_spec_draft_requested| DA[Architect Author]
     DA -->|message: design_spec_review_requested| A[Architect Reviewer]
     A -->|message: design_spec_review_report| DA
-    DA -->|terse message: design_spec_delivered| X
+    DA -->|lane-state notice: design_spec_delivered| X
     X -->|archives and commits accepted artifact| D[Tracked Design Specification]
     P -->|mature committed design: design_spec_review_requested| A
     C -->|mature committed design: design_spec_review_requested| A
@@ -165,11 +166,11 @@ flowchart TD
 ## Operational Notes
 
 - `review-code` remains the authoritative full review output
-- `review-tech-design` is a separate advisory lane for immutable draft artifacts or committed technical design specifications; it does not replace code review
-- `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
-- in the two-architect lane, the requester sends one canonical Design Task Contract to the reviewer first and then to the author; the reviewer retains it as original-task authority before any draft review
-- in the two-architect lane, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and the reviewer is read-only
-- the author sends only the accepted artifact pointer and review decision; the original requester archives that artifact to the formal docs path and commits it
+- `review-tech-design` reviews immutable draft artifacts or committed technical design specifications; it does not replace code review
+- `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions, with an optional design pruner for non-local designs; mature committed specifications may go directly to one reviewer
+- in draft-review, the requester writes one canonical Design Task Contract; initial dispatch creates shared lane state that points to it and sends only lane-state notifications to the reviewer, optional pruner, and author
+- in draft-review, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and reviewers remain read-only
+- the author records terminal acceptance in shared lane state and sends only a lane-state notification; the original requester reads that state, archives the accepted artifact to the formal docs path, and commits it
 - after the archive commit or accepted design-branch merge succeeds, the requester removes verified task-scoped disposable architect sessions through the shared host adapter and reports any preserved or pending cleanup
 - draft-review does not transfer workspace ownership, switch branches, or commit intermediate rounds
 - review-existing keeps committed branch history; after acceptance, merge the recorded design branch into its recorded base with normal `git merge`
@@ -192,6 +193,7 @@ flowchart TD
 - A received workflow message is executable work, not a notification to acknowledge and ignore
 - Use `check-waypost-messages` as the receiver-side wake handler
 - cross-session progress is asynchronous; follow the shared Async sender rule after dispatch
+- Waypost Action bodies do not repeat transport `From` or `To`; replies use the claimed delivery's sender and recipient addresses, while action-specific identity fields remain only when workflow ownership or cleanup needs them
 - in a shared workspace, the active task worktree state is coder-owned until planner closeout begins; planner must not alter that workspace state while other agents may still be working there
 - when planner self-implements a trivial code task, it must create an explicit task branch from the planner-owned integration branch, commit without routine user confirmation, run any required review, close out the task, and still send `plan_report_delivered`
 - planner may skip per-task review when its current plan policy allows it; final integrated review can be requested later from the planner-owned integration branch

@@ -93,6 +93,9 @@ function headerFields(fields, label, seen) {
     if (normalizedName === "action") {
       fail("Waypost Action message headers may not set Action");
     }
+    if (normalizedName === "from" || normalizedName === "to") {
+      fail(`Waypost Action message headers may not duplicate transport ${name}`);
+    }
     if (seen.has(normalizedName)) {
       fail(`Waypost Action message has duplicate header ${name}`);
     }

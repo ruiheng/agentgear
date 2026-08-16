@@ -11,6 +11,7 @@
 # reviewer = "reviewer_local"
 # architect = "architect_local"
 # This also applies to architect_author and architect_reviewer unless this file overrides either.
+# Override design_pruner explicitly when a different pruning profile is wanted.
 
 # [profiles.reviewer_local]
 # [[profiles.reviewer_local.candidates]]

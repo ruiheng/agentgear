@@ -58,9 +58,8 @@ When allocating a new planner lane:
 ```markdown
 Task: <plan_id>
 Action: execute_plan
-From: supervisor <supervisor_session_id>
-To: planner {{TO_SESSION_ID}}
 Planner: {{TO_SESSION_ID}}
+Supervisor session: <supervisor_session_id>
 Round: 1
 
 ## Summary

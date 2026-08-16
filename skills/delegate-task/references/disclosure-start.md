@@ -101,6 +101,25 @@ Use this as the direct task contract. Prepend the Waypost envelope below for a W
 - If Task kind is `generic` and Skill would change repository or code-delivery state, report a lane mismatch; do not run it.
 - If Skill is not `N/A`, load and run it with Input plus this task contract. Missing skill -> report blocker.
 
+## Context
+- Parent goal: [only if it affects local choices]
+- Must preserve: [upstream invariant]
+- Established facts: [facts the worker can rely on]
+- Known files: [already-known relevant paths; mark required reading; omit when absent]
+- Other known context: [refs, excerpts, and facts; omit when absent]
+
+## Boundaries
+- [fixed decision or hard constraint]
+- Watch for: [material risk]
+
+## Done When
+- [testable outcome]
+- Report: [result, evidence, and open items; artifact locations as full paths or URIs]
+
+## Special Requirements
+[verbatim; only when present]
+```
+
 ## Continue
 
 Retrieve `agentgear skill get delegate-task/dispatch` before dispatching.

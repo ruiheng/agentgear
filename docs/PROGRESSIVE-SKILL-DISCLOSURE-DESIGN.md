@@ -131,15 +131,16 @@ The initial action-alias set is complete for the current workflow surface:
 | code_health_review_report | code-health-review/report-received | Direct result delivery. |
 | code_health_review_requested | code-health-review/review | Direct execution. |
 | delegated_task_result | delegate-task/result | Direct result handling. |
+| design_prune_context | prune-tech-design/start | Direct pruner context intake. |
+| design_prune_report | tech-design-workflow/report-handling | Direct result handling by the request sender. |
+| design_prune_requested | prune-tech-design/start | Direct pruner execution. |
 | design_spec_context_corrected | tech-design-workflow/author-round | Direct author execution. |
-| design_spec_decision_requested | tech-design-workflow/requester-decision | Direct requester handling. |
 | design_spec_delivered | tech-design-workflow/requester-delivery | Direct requester closeout. |
 | design_spec_draft_requested | tech-design-workflow/author-round | Direct author execution. |
 | design_spec_review_context | review-tech-design/context-intake | Direct reviewer context intake. |
-| design_spec_review_context_recovery_requested | tech-design-workflow/context-recovery-route | Branches on actual recipient and Relay. |
-| design_spec_review_context_rejected | tech-design-workflow/requester-context-correction | Direct requester handling. |
+| design_spec_review_context_rejected | tech-design-workflow/context-correction | Direct correction by the context sender. |
 | design_spec_review_report | tech-design-workflow/report-handling | Direct author or review-existing requester handling. |
-| design_spec_review_requested | review-tech-design/review-request-route | Branches on draft-round versus committed-docs Mode. |
+| design_spec_review_requested | review-tech-design/review-request-route | Selects draft-round from Lane State or committed-docs from the inline target. |
 | execute_delegate_task | delegate-code-task/execute | Direct coder execution. |
 | execute_delegated_task | delegate-task/execute | Direct non-code worker execution. |
 | execute_plan | execute-plan/start | Direct planner execution. |
@@ -159,7 +160,7 @@ The initial action-alias set is complete for the current workflow surface:
 
 The action set deliberately excludes retired review_completed and other unsupported legacy actions. Adding, renaming, or removing an action requires changing the owning slice's selector-aliases metadata and any producer template in the same change.
 
-Validation collects every exact Action: <token> line in indexed selector bodies. JavaScript Waypost senders are an explicit producer boundary instead of a source-text heuristic: every skill-owned sender that writes a Waypost --body-file must be named in its owning action-producers.json manifest, and each manifest entry declares one alias-registered token, exact script, factory export, and sender export. The shared helper snapshots each caller-supplied header name and value exactly once into primitive locals, constructs the initial envelope from those structured `{ name, value }` snapshots, inserts the one declared `Action` itself, rejects caller-supplied `Action` headers, duplicate header names (case-insensitively), and empty or CR/LF/NUL header values, then appends a separately supplied body. Header-bound provider values remain opaque apart from that envelope-safety rule; existing path or provider validators retain their own authority. Its manifest-bound sender closure unwraps only a message branded for that exact declaration; callers cannot supply a module URL to claim a different sender. Raw strings, copied objects, and computed tokens cannot become an Action header or reach the declared sender path. Dynamic, placeholder, duplicate-choice, or shell-expanded Action values are invalid at the producer boundary; conditional outputs use separately declared exact values. Generic protocol prose must describe the header without an Action: placeholder line. Transport-originated actions such as group_message_available may be registered without a local producer. Tests assert the full declared producer set against the aliases, not a representative subset.
+Validation collects every exact Action: <token> line in indexed selector bodies. JavaScript Waypost senders are an explicit producer boundary instead of a source-text heuristic: every skill-owned sender that writes a Waypost --body-file must be named in its owning action-producers.json manifest, and each manifest entry declares one alias-registered token, exact script, factory export, and sender export. The shared helper snapshots each caller-supplied header name and value exactly once into primitive locals, constructs the initial envelope from those structured `{ name, value }` snapshots, inserts the one declared `Action` itself, rejects caller-supplied `Action`, transport-owned `From`/`To`, duplicate header names (case-insensitively), and empty or CR/LF/NUL header values, then appends a separately supplied body. Indexed prompt validation likewise rejects physical `From:` or `To:` template lines. Waypost delivery `sender_address` and `recipient_address` own reply routing; session identities appear only as action-specific task data when continuity, ownership, or cleanup needs them. Header-bound provider values remain opaque apart from that envelope-safety rule; existing path or provider validators retain their own authority. Its manifest-bound sender closure unwraps only a message branded for that exact declaration; callers cannot supply a module URL to claim a different sender. Raw strings, copied objects, and computed tokens cannot become an Action header or reach the declared sender path. Dynamic, placeholder, duplicate-choice, or shell-expanded Action values are invalid at the producer boundary; conditional outputs use separately declared exact values. Generic protocol prose must describe the header without an Action: placeholder line. Transport-originated actions such as group_message_available may be registered without a local producer. Tests assert the full declared producer set against the aliases, not a representative subset.
 
 This validation is static documentation and template consistency checking. The CLI still does not interpret or emit workflow messages, and no central routing manifest duplicates the owning slice metadata.
 
@@ -486,7 +487,7 @@ Later-round design review may use an ordinary diff between immutable design arti
 1. The user invokes check-waypost-messages; the harness loads only its small bootstrap.
 2. The agent claims one delivery and applies the strict envelope parser.
 3. For a valid token, it invokes `agentgear skill get -- action:<token>` with argv-safe arguments.
-4. The alias resolves directly to the owning executable selector, or to one tiny discriminator selector for the six branching actions listed above.
+4. The alias resolves directly to the owning executable selector, or to one tiny discriminator selector for the five branching actions listed above.
 5. The agent retrieves any additional addresses named by that stage, optionally batching cross-skill needs in one ordered invocation, executes them, and settles the claim.
 6. The agent reuses remembered guidance. It repeats the exact alias or selector lookup only when it no longer remembers that guidance, the user asks, or there is evidence it changed.
 
@@ -535,7 +536,7 @@ Claude ordinary repeated Skill calls are not presented as faulty or repeatedly r
 
 All current Agentgear-owned names remain canonical, listable through agentgear list, and explicitly installable with --skill. Their detailed instructions are independently addressable, with action aliases globally available as bare unique addresses. The upstream agent-deck name is listed as an upstream retrievable skill and uses skill get rather than --skill installation. The fifteen accepted canonical entries remain installed by default.
 
-No Waypost message envelope or current Action token is renamed. The action-alias set makes current routing explicit and rejects unsupported retired tokens.
+Current Action tokens remain unchanged. Agentgear-owned message envelopes drop body `From`/`To` routing fields in favor of Waypost delivery metadata; the action-alias set makes routing explicit and rejects unsupported retired tokens.
 
 Third-party tools may read dist/universal/skills as canonical source input, but must not install it as a runnable skill collection. Executable consumers use the same-release npm package or normal installer. Target-specific layouts intentionally represent only the minimal entry surface and are likewise not standalone without the matching launcher/runtime.
 
@@ -553,7 +554,7 @@ Add or update tests for:
 4. catalog exposure validation, global alias uniqueness, list --json reporting, and the exact fifteen-entry set with no implicit upstream host skill;
 5. the complete current action-alias set, with every exact message-template Action covered and every alias target present; include all current design, review, browser, plan, delegation, advisory, group, and result actions rather than representative samples;
 6. strict receiver parsing: missing, duplicate, case-variant, malformed, overlong, whitespace-bearing, and shell-metacharacter Action values never reach dynamic lookup; a valid token uses one argv element after --;
-7. direct one-lookup routing for one-to-one actions and small discriminator routing only for browser_check_report, design_spec_review_context_recovery_requested, design_spec_review_requested, group_message_available, rework_required, and stop_recommended;
+7. direct one-lookup routing for one-to-one actions and small discriminator routing only for browser_check_report, design_spec_review_requested, group_message_available, rework_required, and stop_recommended;
 8. implicit/default all installation exposing exactly the fifteen accepted canonical entry names on every target, and each explicit pack exposing exactly the entry subset in its resolved closure: core exposes its six entries, workflow exposes its nine entries, browser exposes the same nine through workflow inclusion, and explicit pack unions plus --skill expose the corresponding union; agent-deck is never implicit in any case;
 9. explicit installation of a prompt-only canonical skill, mixed pack-plus-skill retention for that invocation, explicit-skill-only additive behavior, and later authoritative pack withdrawal;
 10. schema-v2 pre-change full-pack fixtures proving install/update reconciliation and uninstall --pack workflow/browser/all remove recorded, ownership-matching legacy prompt-only and historical agent-deck links;

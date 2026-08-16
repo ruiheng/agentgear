@@ -12,10 +12,14 @@ Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol m
 
 ## Input
 
-Provide the message body from `plan_report_delivered`.
+Provide the claimed delivery metadata, message body from
+`plan_report_delivered`, and the matching retained plan-dispatch context.
 
 ## Rules
 
+- before acting on the report, require Task and both transport endpoints to
+  match the active dispatched plan: recorded planner -> recorded supervisor;
+  the body's Planner header never supplies a route
 - treat this report as the final summary for that planner lane unless the body says it is blocked
 - surface completion status, integration branch, completed tasks, review summary, and open items
 - default completed-plan action is: merge the planner integration branch into the current supervisor branch, then report the planner session as provider-managed

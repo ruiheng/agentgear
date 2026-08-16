@@ -30,7 +30,7 @@ For `browser_check_report`, `explicit -> matching/recovered frame` owns all revi
 
 - `task_id`: explicit -> message body -> ask
 - `browser_check_id` (browser report): required header -> matching sent check; never infer from task/round
-- `reviewer_session_id`: explicit -> message body `To` header -> bound Waypost sender context -> ask
+- `reviewer_session_id`: explicit -> current bound Waypost session -> ask
 - `session_host`: task -> message body `Session host` -> matched review context -> ask; other lanes -> omit
 - `browser_tester_session_id` (optional): explicit actual id -> message/review context -> omit
 - `browser_tester_session_ref` (optional): explicit -> message/review context -> default `browser-tester`
@@ -41,8 +41,8 @@ For non-browser inputs:
 - `review_lane`: explicit -> message body -> `task` for an active delegated task -> `standalone`
 - `planner_session_id`: `task` / `integration_final` -> explicit -> message body -> ask; `standalone` -> omit
 - `planner_workspace`: `task` / `integration_final` -> explicit -> message body `Planner workspace` -> ask; `standalone` -> omit
-- `requester_role`: explicit -> message body `From` -> default `coder`
-- `requester_session_id`: explicit -> message body `From` -> ask
+- `requester_role`: explicit -> review lane (`coder` for task, otherwise requester) -> current context
+- `requester_session_id`: explicit -> message body `Requester session` -> current review context -> ask
 - `setup_contact_workspace` (browser): task -> Worker workspace; `integration_final` -> Planner workspace; standalone -> current workspace
 - `workspace_handoff`: task -> explicit/message body complete -> preserve; missing/partial -> completeness FAIL; `integration_final` / `standalone` -> omit
 - `start_branch`, `integration_branch`, `task_branch` (task only): explicit -> message body -> ask; otherwise omit

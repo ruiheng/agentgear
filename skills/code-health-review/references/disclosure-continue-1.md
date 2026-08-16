@@ -28,8 +28,6 @@ Message mode uses the full structure below:
 ```markdown
 Task: <task_id_or_N/A>
 Action: code_health_review_report
-From: code-health-reviewer <code_health_reviewer_session_id_or_N/A>
-To: <requester_role_or_user> <requester_session_id_or_N/A>
 Planner: <planner_session_id_or_N/A>
 Round: <round_or_N/A>
 
@@ -101,25 +99,21 @@ Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-p
 Skill-specific context resolution:
 - `task_id`: explicit -> message body -> default `N/A`
 - `planner_session_id`: explicit -> message body -> default `N/A`
-- `code_health_reviewer_session_id`: explicit -> message body `To` header -> bound Waypost sender context -> ask
-- `requester_session_id`: explicit -> message body `From` header -> ask
-- `requester_role`: explicit -> message body `From` header -> default `requester`
+- `code_health_reviewer_session_id`: explicit -> current bound Waypost session -> ask
+- requester reply route: received `sender_address`
+- `requester_role`: explicit -> request context -> default `requester`
 - `round`: explicit -> message body `Round` header -> default `1`
 
 Execution flow in multi-agent mode:
 1. review the requested scope
 2. produce one advisory `code_health_review_report`
 3. use `waypost`
-4. first call `session_require` with:
-   - `session_id = <requester_session_id>`
-   - `workdir = <current workspace>`
-   - retain the returned requester Waypost address
-5. send the report back with `waypost_send`
+4. send the report back with `waypost_send`
    - `from_address = <current bound code-health-reviewer Waypost address>`
-   - `to_address = <returned requester Waypost address>`
+   - `to_address = <received sender_address>`
    - `subject = "code health review report: <task_id> r<round>"`
    - `body = <code health review report body>`
-6. do not naturally end after drafting the report; this workflow turn is complete only after the required `waypost_send` back to the requester has succeeded
+5. do not naturally end after drafting the report; this workflow turn is complete only after the required `waypost_send` back to the requester has succeeded
 
 ## Rules
 

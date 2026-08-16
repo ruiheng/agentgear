@@ -69,8 +69,6 @@ Use this exact structure:
 ```markdown
 Task: <task_id>
 Action: browser_check_requested
-From: <requester_role> <requester_session_id>
-To: browser-tester {{TO_SESSION_ID}}
 Planner: <planner_session_id_or_N/A>
 Round: <round>
 Browser Check: <browser_check_id>
@@ -142,7 +140,6 @@ Use the `waypost` MCP tools:
   - do not treat any other `session_require` error as `not_found`
 - record the returned host, real id, and sole address as the authoritative
   `browser_tester_session_id` route
-- fill `{{TO_SESSION_ID}}` in the message body before sending
 - call `waypost_send` with:
   - `from_address = waypost_status.default_sender`
   - `to_address = <browser tester returned address>`
@@ -156,7 +153,7 @@ Use the `waypost` MCP tools:
 - prefer reusing the long-lived `browser-tester` session for this environment
 - if a browser-tester ref is occupied in another workspace, use the unique local ref derived from `browser_check_id`; never retry creation with the conflicting ref
 - if no reusable `browser-tester` session exists in the requested workspace, create it from this request flow and continue
-- carry both requester and browser-tester workspaces in the message body so later `session_require` calls can verify the correct worktree
+- carry both requester and browser-tester workspaces in the message body for setup routing and workflow recovery
 - on require paths, preserve existing session launch metadata
 - once this request resolves or creates the target, use the returned real `browser_tester_session_id` for the actual message send
 - a review-driven report returns to reviewer; otherwise it returns to the supplied requester

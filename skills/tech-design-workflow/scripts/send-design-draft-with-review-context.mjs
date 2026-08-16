@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -18,11 +17,13 @@ import {
 import {
   designSpecDraftRequestedMessage,
   designSpecReviewContextMessage,
+  designPruneContextMessage,
   sendDesignSpecDraftRequestedMessage,
-  sendDesignSpecReviewContextMessage
+  sendDesignSpecReviewContextMessage,
+  sendDesignPruneContextMessage
 } from "./action-producers.mjs";
 
-const usage = `Send one canonical design task contract to reviewer first, then author.
+const usage = `Initialize one design lane and notify reviewer, optional pruner, then author.
 
 Required:
   --workdir <path>
@@ -32,7 +33,7 @@ Required:
   --author-session-id <id>
   --reviewer-session-id <id>
   --session-host <host>
-  --round <positive-integer>
+  --round 1
   --max-review-rounds <positive-integer>
   --artifact-path <path>
   --archive-branch <branch>
@@ -42,12 +43,17 @@ Required:
   --contract-file <path>
 
 Optional:
+  --pruner-session-id <id>      Enable the pruner; requires --pruner-to-address
+  --pruner-to-address <address> Enable the pruner; requires --pruner-session-id
   --artifact-root <path>         Default: <workdir>/.agent-artifacts/design-spec-dispatch
   --content-type <type>          Default: text/markdown
   --schema-version <value>       Default: 1
-  --send-timeout-ms <ms>         Default: 0 (disabled; diagnostic override)
+  --send-timeout-ms <ms>         Default: 0
   --json
-  -h, --help`;
+  -h, --help
+
+Rerunning the same command is safe. Existing matching state is preserved and
+initial notifications are repeated; receivers treat duplicates as no-ops.`;
 
 export const DEFAULT_SEND_TIMEOUT_MS = 0;
 
@@ -55,17 +61,6 @@ function requirePlainHeaderText(value, label) {
   if (typeof value !== "string" || value.length === 0 || /[\r\n\0]/.test(value)) {
     fail(`${label} has an unsafe header value`);
   }
-}
-
-function validateEnvelopeOptions(options) {
-  for (const [key, label] of [
-    ["taskId", "--task-id"],
-    ["requesterRole", "--requester-role"],
-    ["requesterSessionId", "--requester-session-id"],
-    ["authorSessionId", "--author-session-id"],
-    ["reviewerSessionId", "--reviewer-session-id"],
-    ["sessionHost", "--session-host"]
-  ]) requirePlainHeaderText(options[key], label);
 }
 
 function optionalOutputString(value) {
@@ -115,13 +110,8 @@ function requireSinglePathSegment(value, label) {
   }
 }
 
-function expectedArtifactPath(authorSessionId, round) {
-  return path.posix.join(
-    ".agent-artifacts",
-    "design-spec",
-    authorSessionId,
-    `r${String(round).padStart(3, "0")}.md`
-  );
+function expectedArtifactPath(authorSessionId) {
+  return path.posix.join(".agent-artifacts", "design-spec", authorSessionId, "r001.md");
 }
 
 function requireSymlinkFreeContainedPath(root, candidate, label) {
@@ -137,67 +127,58 @@ function requireSymlinkFreeContainedPath(root, candidate, label) {
   }
 }
 
-export function readContract(contractFile, readFileSync = fs.readFileSync) {
+export function readContract(contractFile, readFileSync = fs.readFileSync, requireInitialRevision = true) {
   if (!fs.statSync(contractFile, { throwIfNoEntry: false })?.isFile()) {
     fail(`contract file not found: ${contractFile}`);
   }
   const contract = readFileSync(contractFile, "utf8");
   if (!contract.trim()) fail("design task contract is empty");
-  return contract;
+  const revisionMatch = /^Context Revision: ([1-9]\d*)(?:\r?\n|$)/.exec(contract);
+  if (!revisionMatch || (requireInitialRevision && revisionMatch[1] !== "1")) {
+    fail(requireInitialRevision
+      ? "initial design task contract must start with Context Revision: 1"
+      : "design task contract must start with a positive Context Revision");
+  }
+  return { contract, revision: Number(revisionMatch[1]) };
 }
 
-function messageWithContract(messageFactory, before, after, contract, footer) {
-  const terminator = contract.endsWith("\n") ? "" : "\n";
-  return messageFactory({
-    before,
-    after,
-    body: `# Design Task Contract\n${contract}${terminator}\n${footer}`
-  });
+function laneNotification(messageFactory, before, after) {
+  return messageFactory({ before, after, body: "" });
 }
 
-function reviewerBody(options, contract) {
-  const before = [{ name: "Task", value: options.taskId }];
-  const after = [
-    { name: "Context", value: "initial" },
-    { name: "From", value: `${options.requesterRole} ${options.requesterSessionId}` },
-    { name: "To", value: `architect_reviewer ${options.reviewerSessionId}` },
-    { name: "Author", value: `architect_author ${options.authorSessionId}` },
-    { name: "Session Host", value: options.sessionHost },
-    { name: "Round", value: "context" },
-    { name: "Max Review Rounds", value: String(options.maxReviewRounds) }
-  ];
-  const footer = `# Review Context Contract
-- Treat the requester Design Task Contract as original-task authority
-- Retain it as task-scoped design-review context and wait for the matching \`design_spec_review_requested\`
-- Do not inspect or judge a design from this context message alone
-- Before opening the review target, reconstruct the goal, constraints, explicit non-goals, and smallest acceptable change from this contract
-`;
-  return messageWithContract(designSpecReviewContextMessage, before, after, contract, footer);
+function reviewerBody(options) {
+  return laneNotification(
+    designSpecReviewContextMessage,
+    [{ name: "Task", value: options.taskId }],
+    [
+      { name: "Context", value: "initial" },
+      { name: "Context Revision", value: String(options.contextRevision) },
+      { name: "Lane State", value: options.laneStateFile }
+    ]
+  );
 }
 
-function authorBody(options, contract) {
-  const before = [{ name: "Task", value: options.taskId }];
-  const after = [
-    { name: "From", value: `${options.requesterRole} ${options.requesterSessionId}` },
-    { name: "To", value: `architect_author ${options.authorSessionId}` },
-    { name: "Reviewer", value: `architect_reviewer ${options.reviewerSessionId}` },
-    { name: "Session Host", value: options.sessionHost },
-    { name: "Round", value: String(options.round) },
-    { name: "Max Review Rounds", value: String(options.maxReviewRounds) }
-  ];
-  const footer = `# Draft Contract
-## Artifact
-- Target: ${options.artifactPath}
+function prunerBody(options) {
+  return laneNotification(
+    designPruneContextMessage,
+    [{ name: "Task", value: options.taskId }],
+    [
+      { name: "Context", value: "initial" },
+      { name: "Context Revision", value: String(options.contextRevision) },
+      { name: "Lane State", value: options.laneStateFile }
+    ]
+  );
+}
 
-## Archive Target
-- Branch: ${options.archiveBranch}
-
-## Rules
-- Treat the requester Design Task Contract as original-task authority
-- Draft the smallest complete design that satisfies it
-- Do not restate task content in the later review request; the reviewer already has this contract
-`;
-  return messageWithContract(designSpecDraftRequestedMessage, before, after, contract, footer);
+function authorBody(options) {
+  return laneNotification(
+    designSpecDraftRequestedMessage,
+    [{ name: "Task", value: options.taskId }],
+    [
+      { name: "Lane State", value: options.laneStateFile },
+      { name: "Round", value: "1" }
+    ]
+  );
 }
 
 export function sendWaypost(sendMessage, options, toAddress, subject, message, runCommand = run) {
@@ -228,41 +209,122 @@ export function sendWaypost(sendMessage, options, toAddress, subject, message, r
     : { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
 }
 
-function mutateState(stateFile, mutate) {
-  const state = readJson(stateFile);
-  mutate(state);
-  writeJsonAtomic(stateFile, state);
+function failDelivery(label, result) {
+  if (result.status === "interrupted") fail(`${label} send interrupted; rerun the same command`, 4, "SEND_INTERRUPTED");
+  if (result.status === "receipt_unknown") fail(`${label} send result is unclear; rerun the same command`, 5, "SEND_RECEIPT_UNKNOWN");
+  fail(`${label} send failed: ${result.detail || "unknown error"}`, 3, "SEND_FAILED");
 }
 
-function recordNotification(state, prefix, notification) {
-  state[`${prefix}_notify_status`] = notification.status;
-  state[`${prefix}_notify_scheme`] = notification.scheme;
-  state[`${prefix}_notify_error`] = notification.error;
+function authorHasProgress(state, options) {
+  return state.current_round !== 1
+    || state.context_revision !== 1
+    || state.review_epoch !== 0
+    || state.correctness_epoch !== null
+    || state.prune_epoch !== null
+    || state.correctness_report !== null
+    || state.prune_report !== null
+    || state.acceptance !== null
+    || state.previous_artifact !== null
+    || (Array.isArray(state.user_decisions) && state.user_decisions.length > 0)
+    || fs.statSync(path.join(options.workdir, expectedArtifactPath(options.authorSessionId)), { throwIfNoEntry: false })?.isFile();
 }
 
-function rollbackPendingState(stateFile, stateDir, taskId) {
-  let state;
-  try {
-    state = readJson(stateFile);
-  } catch {
-    return;
+function validateExistingState(state, options) {
+  if (state?.schema_version !== 1) fail("existing design lane has an unsupported schema");
+  for (const [field, expected] of [
+    ["task_id", options.taskId],
+    ["requester_session_id", options.requesterSessionId],
+    ["requester_address", options.fromAddress],
+    ["author_session_id", options.authorSessionId],
+    ["author_to_address", options.authorToAddress],
+    ["reviewer_session_id", options.reviewerSessionId],
+    ["reviewer_to_address", options.reviewerToAddress],
+    ["session_host", options.sessionHost],
+    ["context_file", options.contextFile],
+    ["archive_branch", options.archiveBranch]
+  ]) {
+    if (stringField(state, field) !== expected) fail(`existing design lane has different ${field}`);
   }
-  if (stringField(state, "task_id") === taskId && stringField(state, "state") === "pending_reviewer") {
-    fs.rmSync(stateDir, { recursive: true, force: true });
+  if (stringField(state, "pruner_session_id") !== (options.prunerSessionId || "")
+    || stringField(state, "pruner_to_address") !== (options.prunerToAddress || "")) {
+    fail("existing design lane has a different pruner");
   }
+  if (!authorHasProgress(state, options) && state.max_review_rounds !== options.maxReviewRounds) {
+    fail("existing design lane has a different max_review_rounds");
+  }
+  if (authorHasProgress(state, options) && state.dispatch_ready !== true) {
+    fail("existing design lane has author progress before dispatch_ready");
+  }
+}
+
+function initialState(options) {
+  return {
+    schema_version: 1,
+    task_id: options.taskId,
+    requester_role: options.requesterRole,
+    requester_session_id: options.requesterSessionId,
+    requester_address: options.fromAddress,
+    author_session_id: options.authorSessionId,
+    author_to_address: options.authorToAddress,
+    reviewer_session_id: options.reviewerSessionId,
+    reviewer_to_address: options.reviewerToAddress,
+    ...(options.prunerSessionId ? {
+      pruner_session_id: options.prunerSessionId,
+      pruner_to_address: options.prunerToAddress
+    } : {}),
+    session_host: options.sessionHost,
+    context_file: options.contextFile,
+    context_revision: 1,
+    archive_branch: options.archiveBranch,
+    dispatch_ready: false,
+    current_round: 1,
+    max_review_rounds: options.maxReviewRounds,
+    current_artifact: options.artifactPath,
+    previous_artifact: null,
+    review_epoch: 0,
+    correctness_epoch: null,
+    prune_epoch: null,
+    user_decisions: [],
+    correctness_report: null,
+    prune_report: null,
+    acceptance: null,
+    created_at: nowIso()
+  };
+}
+
+function validateOptions(options) {
+  for (const [key, label] of [
+    ["taskId", "--task-id"], ["requesterRole", "--requester-role"],
+    ["requesterSessionId", "--requester-session-id"], ["authorSessionId", "--author-session-id"],
+    ["reviewerSessionId", "--reviewer-session-id"], ["sessionHost", "--session-host"]
+  ]) requirePlainHeaderText(options[key], label);
+  if (options.prunerSessionId) requirePlainHeaderText(options.prunerSessionId, "--pruner-session-id");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(options.taskId)) {
+    fail("--task-id must use letters, digits, dot, underscore, or hyphen");
+  }
+  if (Boolean(options.prunerSessionId) !== Boolean(options.prunerToAddress)) {
+    fail("--pruner-session-id and --pruner-to-address must be provided together");
+  }
+  const ids = [options.requesterSessionId, options.authorSessionId, options.reviewerSessionId];
+  if (options.prunerSessionId) ids.push(options.prunerSessionId);
+  if (new Set(ids).size !== ids.length) fail("requester, author, reviewer, and pruner session ids must be distinct");
+  const addresses = [options.fromAddress, options.authorToAddress, options.reviewerToAddress];
+  if (options.prunerToAddress) addresses.push(options.prunerToAddress);
+  if (new Set(addresses).size !== addresses.length) fail("requester, author, reviewer, and pruner Waypost addresses must be distinct");
+  requireSinglePathSegment(options.authorSessionId, "--author-session-id");
+  if (options.prunerSessionId) requireSinglePathSegment(options.prunerSessionId, "--pruner-session-id");
 }
 
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
-  const requireWaypost = dependencies.requireCommand || requireCommand;
   const runWaypost = dependencies.runWaypost || run;
-  const writeInitialState = dependencies.writeJsonAtomic || writeJsonAtomic;
   const options = parseArgs(argv, {
     values: [
       "--workdir", "--task-id", "--requester-role", "--requester-session-id",
       "--author-session-id", "--reviewer-session-id", "--session-host", "--round",
       "--max-review-rounds", "--artifact-path", "--archive-branch", "--from-address",
       "--author-to-address", "--reviewer-to-address", "--contract-file", "--artifact-root",
-      "--content-type", "--schema-version", "--send-timeout-ms"
+      "--pruner-session-id", "--pruner-to-address", "--content-type", "--schema-version",
+      "--send-timeout-ms"
     ],
     flags: ["--json"],
     defaults: {
@@ -286,174 +348,109 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     ["archiveBranch", "--archive-branch"], ["fromAddress", "--from-address"],
     ["authorToAddress", "--author-to-address"], ["reviewerToAddress", "--reviewer-to-address"],
     ["contractFile", "--contract-file"]
-  ]) {
-    if (!options[key]) fail(`${label} is required`);
-  }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(options.taskId)) {
-    fail("--task-id must use letters, digits, dot, underscore, or hyphen");
-  }
-  validateEnvelopeOptions(options);
-  if (options.authorSessionId === options.reviewerSessionId) {
-    fail("author and reviewer session ids must be distinct");
-  }
-  requireSinglePathSegment(options.authorSessionId, "--author-session-id");
+  ]) if (!options[key]) fail(`${label} is required`);
+
+  validateOptions(options);
   options.round = positiveInteger(options.round, "--round");
+  if (options.round !== 1) fail("--round must be 1 for initial design dispatch");
   options.maxReviewRounds = positiveInteger(options.maxReviewRounds, "--max-review-rounds");
-  if (options.round > options.maxReviewRounds) fail("--round must not exceed --max-review-rounds");
-  if (options.round > 999) fail("--round must be at most 999 for an rNNN artifact path");
-  const requiredArtifactPath = expectedArtifactPath(options.authorSessionId, options.round);
-  if (options.artifactPath !== requiredArtifactPath) {
-    fail(`--artifact-path must equal ${requiredArtifactPath}`);
-  }
   options.sendTimeoutMs = nonNegativeInteger(options.sendTimeoutMs, "--send-timeout-ms");
-  requireWaypost("waypost");
-  if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) {
-    fail(`workdir does not exist: ${options.workdir}`);
+  if (options.artifactPath !== expectedArtifactPath(options.authorSessionId)) {
+    fail(`--artifact-path must equal ${expectedArtifactPath(options.authorSessionId)}`);
   }
+  (dependencies.requireCommand || requireCommand)("waypost");
+  if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) fail(`workdir does not exist: ${options.workdir}`);
+
   const requestedWorkdir = path.resolve(options.workdir);
   const requestedArtifactRoot = options.artifactRoot ? path.resolve(options.artifactRoot) : null;
   options.workdir = fs.realpathSync(options.workdir);
-  const contract = readContract(options.contractFile);
   options.contractFile = fs.realpathSync(options.contractFile);
+  const contract = readContract(options.contractFile, fs.readFileSync, false);
+  options.contextRevision = contract.revision;
   const messageRoot = path.join(options.workdir, ".agent-artifacts", "message");
-  if (!pathIsInside(messageRoot, options.contractFile)) {
-    fail("--contract-file must be under <workdir>/.agent-artifacts/message/");
-  }
+  if (!pathIsInside(messageRoot, options.contractFile)) fail("--contract-file must be under <workdir>/.agent-artifacts/message/");
+  options.contextFile = path.relative(options.workdir, options.contractFile).split(path.sep).join(path.posix.sep);
+  if (/[\r\n]/.test(options.contextFile)) fail("--contract-file path must not contain CR or LF");
+
   if (!options.artifactRoot) {
     options.artifactRoot = path.join(options.workdir, ".agent-artifacts", "design-spec-dispatch");
   } else {
-    const relativeArtifactRoot = path.relative(requestedWorkdir, requestedArtifactRoot);
-    if (relativeArtifactRoot === ".." || relativeArtifactRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeArtifactRoot)) {
+    const relative = path.relative(requestedWorkdir, requestedArtifactRoot);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       fail("--artifact-root must be inside --workdir");
     }
-    options.artifactRoot = path.join(options.workdir, relativeArtifactRoot);
+    options.artifactRoot = path.join(options.workdir, relative);
   }
   options.artifactRoot = path.resolve(options.artifactRoot);
   requireSymlinkFreeContainedPath(options.workdir, options.artifactRoot, "--artifact-root");
   fs.mkdirSync(options.artifactRoot, { recursive: true });
   requireSymlinkFreeContainedPath(options.workdir, options.artifactRoot, "--artifact-root");
+
   const stateDir = path.join(options.artifactRoot, `${options.taskId}.lock`);
   const stateFile = path.join(stateDir, "state.json");
-  if (fs.lstatSync(stateDir, { throwIfNoEntry: false })) {
-    fail(`design dispatch state already exists: ${stateFile}; inspect it before any retry`);
-  }
-  fs.mkdirSync(stateDir, { recursive: false });
-  const reviewerSubject = `design-spec context: ${options.taskId} -> reviewer`;
-  const authorSubject = `design-spec draft: ${options.taskId} r${options.round}`;
-  try {
+  options.laneStateFile = path.relative(options.workdir, stateFile).split(path.sep).join(path.posix.sep);
+  if (/[\r\n]/.test(options.laneStateFile)) fail("--artifact-root path must not contain CR or LF");
+  const existing = fs.lstatSync(stateDir, { throwIfNoEntry: false });
+  if (existing) {
     requireSymlinkFreeContainedPath(options.workdir, stateDir, "design dispatch state directory");
-    writeInitialState(stateFile, {
-      schema_version: 1,
-      task_id: options.taskId,
-      state: "pending_reviewer",
-      created_at: nowIso(),
-      requester_role: options.requesterRole,
-      requester_session_id: options.requesterSessionId,
-      author_session_id: options.authorSessionId,
-      reviewer_session_id: options.reviewerSessionId,
-      session_host: options.sessionHost,
-      round: options.round,
-      max_review_rounds: options.maxReviewRounds,
-      contract_file: options.contractFile,
-      contract_sha256: crypto.createHash("sha256").update(contract).digest("hex"),
-      reviewer_to_address: options.reviewerToAddress,
-      reviewer_subject: reviewerSubject,
-      author_to_address: options.authorToAddress,
-      author_subject: authorSubject
-    });
-  } catch (error) {
-    fs.rmSync(stateDir, { recursive: true, force: true });
-    throw error;
+    const stateInfo = fs.lstatSync(stateFile, { throwIfNoEntry: false });
+    if (!stateInfo?.isFile() || stateInfo.isSymbolicLink()) fail(`unsafe design lane state: ${stateFile}`);
+    validateExistingState(readJson(stateFile), options);
+  } else {
+    if (contract.revision !== 1) fail("a new design lane requires Context Revision: 1");
+    fs.mkdirSync(stateDir, { recursive: false });
+    try {
+      requireSymlinkFreeContainedPath(options.workdir, stateDir, "design dispatch state directory");
+      (dependencies.writeJsonAtomic || writeJsonAtomic)(stateFile, initialState(options));
+    } catch (error) {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      throw error;
+    }
   }
 
-  let rollback = true;
-  const retainInterrupted = (stage, result) => {
-    rollback = false;
-    mutateState(stateFile, state => {
-      state.state = "send_interrupted_unknown";
-      state.send_stage = stage;
-      state.interruption_kind = result.timedOut ? "timeout" : "signal";
-      state.interrupted_by_signal = result.signal;
-      state.interrupted_at = nowIso();
-      state.send_timeout_ms = options.sendTimeoutMs;
-    });
-  };
-  const retainUnknownReceipt = (stage, raw) => {
-    rollback = false;
-    mutateState(stateFile, state => {
-      state.state = "queued_receipt_unknown";
-      state.send_stage = stage;
-      state.queued_at = nowIso();
-      state.send_receipt_raw = raw;
-    });
+  const send = (sender, address, subject, body, label) => {
+    const result = sendWaypost(sender, options, address, subject, body, runWaypost);
+    if (result.status !== "sent") failDelivery(label, result);
+    return result;
   };
 
-  try {
-    process.stderr.write("sending reviewer...\n");
-    const reviewerSent = sendWaypost(sendDesignSpecReviewContextMessage, options, options.reviewerToAddress, reviewerSubject, reviewerBody(options, contract), runWaypost);
-    if (reviewerSent.status === "interrupted") {
-      retainInterrupted("reviewer", reviewerSent);
-      fail("reviewer context send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
-    }
-    if (reviewerSent.status === "failed") {
-      fail(`reviewer context send failed: ${reviewerSent.detail}`, 3, "SEND_FAILED");
-    }
-    if (reviewerSent.status === "receipt_unknown") {
-      retainUnknownReceipt("reviewer", reviewerSent.raw);
-      fail("reviewer context sent without a delivery id; inspect Waypost before retry", 5, "SEND_RECEIPT_UNKNOWN");
-    }
-    rollback = false;
-    mutateState(stateFile, state => {
-      state.state = "review_context_sent";
-      state.review_context_delivery_id = reviewerSent.receipt.delivery_id;
-      state.review_context_message_id = reviewerSent.receipt.message_id || null;
-      state.review_context_sent_at = nowIso();
-      recordNotification(state, "review_context", reviewerSent.notification);
-    });
-
-    process.stderr.write("sending author...\n");
-    const authorSent = sendWaypost(sendDesignSpecDraftRequestedMessage, options, options.authorToAddress, authorSubject, authorBody(options, contract), runWaypost);
-    if (authorSent.status === "interrupted") {
-      retainInterrupted("author", authorSent);
-      fail("author draft send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
-    }
-    if (authorSent.status === "failed") {
-      mutateState(stateFile, state => {
-        state.state = "author_send_failed";
-        state.author_send_failed_at = nowIso();
-        state.author_send_error = authorSent.detail;
-      });
-      fail("reviewer context was delivered but author send failed; dispatch state retained", 3, "SEND_FAILED");
-    }
-    if (authorSent.status === "receipt_unknown") {
-      retainUnknownReceipt("author", authorSent.raw);
-      fail("author draft message sent without a delivery id; inspect Waypost before retry", 5, "SEND_RECEIPT_UNKNOWN");
-    }
-    mutateState(stateFile, state => {
-      state.state = "sent";
-      state.author_delivery_id = authorSent.receipt.delivery_id;
-      state.author_message_id = authorSent.receipt.message_id || null;
-      state.sent_at = nowIso();
-      recordNotification(state, "author", authorSent.notification);
-    });
-
-    const finalState = readJson(stateFile);
-    const summary = {
-      status: finalState.state,
-      review_context_delivery_id: finalState.review_context_delivery_id,
-      review_context_notify_status: finalState.review_context_notify_status,
-      review_context_notify_scheme: finalState.review_context_notify_scheme,
-      review_context_notify_error: finalState.review_context_notify_error,
-      author_delivery_id: finalState.author_delivery_id,
-      author_notify_status: finalState.author_notify_status,
-      author_notify_scheme: finalState.author_notify_scheme,
-      author_notify_error: finalState.author_notify_error,
-      state_file: stateFile
-    };
-    process.stdout.write(options.json ? `${JSON.stringify(summary)}\n` : `Design draft dispatched: ${options.taskId}\n`);
-  } finally {
-    if (rollback) rollbackPendingState(stateFile, stateDir, options.taskId);
+  send(
+    sendDesignSpecReviewContextMessage,
+    options.reviewerToAddress,
+    `design-spec context: ${options.taskId} -> reviewer`,
+    reviewerBody(options),
+    "reviewer context"
+  );
+  if (options.prunerSessionId) {
+    send(
+      sendDesignPruneContextMessage,
+      options.prunerToAddress,
+      `design-spec context: ${options.taskId} -> pruner`,
+      prunerBody(options),
+      "pruner context"
+    );
   }
+
+  const stateBeforeAuthor = readJson(stateFile);
+  if (stateBeforeAuthor.dispatch_ready !== true) {
+    if (authorHasProgress(stateBeforeAuthor, options)) fail("cannot finalize context dispatch after author progress");
+    stateBeforeAuthor.dispatch_ready = true;
+    writeJsonAtomic(stateFile, stateBeforeAuthor);
+  }
+
+  send(
+    sendDesignSpecDraftRequestedMessage,
+    options.authorToAddress,
+    `design-spec draft: ${options.taskId} r1`,
+    authorBody(options),
+    "author draft"
+  );
+
+  const summary = {
+    status: "sent",
+    state_file: stateFile
+  };
+  process.stdout.write(options.json ? `${JSON.stringify(summary)}\n` : `Design draft dispatched: ${options.taskId}\n`);
 }
 
 if (isMain(import.meta.url)) execute(main);
