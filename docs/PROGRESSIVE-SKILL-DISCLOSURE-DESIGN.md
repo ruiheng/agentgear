@@ -223,7 +223,7 @@ The exact accepted entry set is:
 - simplify-review
 - tech-design-workflow
 
-The remaining current canonical skills are prompt-only: browser-test, browser-test-request, execute-plan, multi-agent-protocol, plan-report, planner-closeout, refactor-review-request, review-closeout, review-code, review-request, review-tech-design, and roundtable-participant. The supervisor-to-planner instructions live under `multi-agent-protocol` as the qualified internal selector `multi-agent-protocol/internal/dispatch-plan`; there is no `dispatch-plan` skill entry or bare selector.
+The remaining current canonical skills are prompt-only: browser-test, browser-test-request, execute-plan, multi-agent-protocol, plan-report, planner-closeout, review-closeout, review-code, review-request, review-tech-design, and roundtable-participant. The supervisor-to-planner instructions live under `multi-agent-protocol` as `multi-agent-protocol/internal/dispatch-plan`, and the refactor-review request contract lives under `refactor-review` as `refactor-review/internal/request`; neither internal protocol has an independent skill entry or bare selector.
 
 The choice preserves the directly useful advisory reviews while keeping request helpers, persistent worker handlers, and receiver-selected workflow stages out of default discovery. It exists only in per-skill exposure metadata; there is no second entry-name array in implementation code. The list above is the accepted product contract and its test expectation.
 
@@ -332,7 +332,7 @@ uninstall has separate exact semantics:
 
 These rules close the legacy gap where upgrading the catalog before running uninstall could otherwise leave the old full skill set partially installed.
 
-The installer prints every withdrawn name and a final notice to restart existing agent sessions so discovery and permission state reload. The removed `dispatch-plan` skill name is listed in `retiredSkills`, allowing owned historical discovery entries to be reconciled while the internal selector remains available through `multi-agent-protocol`.
+The installer prints every withdrawn name and a final notice to restart existing agent sessions so discovery and permission state reload. The removed `dispatch-plan` and `refactor-review-request` skill names are listed in `retiredSkills`, allowing owned historical discovery entries to be reconciled while their internal selectors remain available through their owning canonical skills.
 
 --no-launcher remains supported only for users who already provide a compatible agentgear command. Help and completion output state that every bootstrap entry requires agentgear skill get. The installer warns when --no-launcher is combined with exposed Agentgear entries and does not attempt to adopt an unrelated launcher.
 

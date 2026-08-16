@@ -127,6 +127,21 @@ test("plan dispatch is an internal protocol selector rather than a skill", () =>
   assert.match(direct.stderr, /Unknown skill address: dispatch-plan/);
 });
 
+test("refactor review requests use an internal selector rather than a skill", () => {
+  const catalog = loadCatalog(rootDir);
+  const all = resolveSelection(catalog, { packs: ["all"] });
+  assert.equal(catalog.skills.skills["refactor-review-request"], undefined);
+  assert.equal(all.capabilitySkills.includes("refactor-review-request"), false);
+
+  const internal = command(["skill", "get", "refactor-review/internal/request"]);
+  assert.equal(internal.status, 0, internal.stderr);
+  assert.match(internal.stdout, /# Refactor Review Request/);
+
+  const direct = command(["skill", "get", "refactor-review-request"]);
+  assert.equal(direct.status, 2);
+  assert.match(direct.stderr, /Unknown skill address: refactor-review-request/);
+});
+
 test("skill help states the stable guidance policy once", () => {
   const result = command(["skill", "--help"]);
   assert.equal(result.status, 0, result.stderr);
@@ -393,12 +408,12 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
     retrievable: true,
     exposure: "upstream"
   });
-  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 27);
+  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 26);
 
   const text = command(["list"]);
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Upstream retrievable skills: agent-deck/);
-  assert.match(text.stdout, /Skills \(27\)/);
+  assert.match(text.stdout, /Skills \(26\)/);
 });
 
 test("upstream skill get returns resourceBase from a verified runtime and rejects selectors", () => {

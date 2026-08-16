@@ -12,6 +12,12 @@ This skill is advisory only.
 
 Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
+## Internal Collaborator Request
+
+When workflow orchestration needs a collaborator to perform the advisory review,
+retrieve `agentgear skill get refactor-review/internal/request`. This is an
+internal sender-side protocol selector, not a standalone skill.
+
 ## Hard Boundary
 
 - inspect code and surrounding context

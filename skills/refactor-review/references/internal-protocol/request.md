@@ -1,6 +1,6 @@
 ---
-skill-selector: start
-selector-summary: Complete refactor-review-request instructions, part 1.
+skill-selector: internal/request
+selector-summary: Apply the internal sender-side protocol for requesting an advisory refactor review.
 ---
 
 # Refactor Review Request

@@ -229,6 +229,6 @@ Canonical workflow content:
 - Browser check request: `browser-test-request`
 - Browser tester: `browser-test`
 - Audience-adapted HTML explainer: `explain-for-me`
-- Refactor review request: `refactor-review-request`
+- Internal refactor-review request selector: `refactor-review/internal/request`
 - Refactor advisor: `refactor-review`
 - Agent Deck integration (optional): use `agent-deck`; its host-specific docs live under its `references/`
