@@ -109,7 +109,7 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 
 ## Supervisor-To-Planner Plan Execution
 
-1. Supervisor runs `dispatch-plan` and sends one `execute_plan` message to a planner.
+1. Internal supervisor orchestration follows `multi-agent-protocol/internal/dispatch-plan` and sends one `execute_plan` message to a planner. It is an internal protocol selector, not a public skill.
 2. That planner owns one workspace and the internal task decomposition needed to complete the assigned goal.
 3. Planner chooses local execution, a native harness subagent when available, or a persistent host session for each implementation task. Persistent Waypost code work uses `delegate-code-task`; local and harness code work use planner-owned branch, commit, review, and closeout.
 4. For each task, planner may choose `Per-task review: required` or `skip`.
@@ -187,7 +187,7 @@ flowchart TD
 - `$explain-for-me` writes `.agent-artifacts/explain-for-me/<id>/index.html`; remote viewing uses an on-demand artifact URI or loopback/SSH tunnel.
 - delegated task/integration reviewers are parented to planner, not coder; standalone reviewers are parented to requester
 - Prefer same-host child sessions when the provider can represent parent ownership directly.
-- A planner may be top-level outside `dispatch-plan`; do not assume every planner is a child session.
+- A planner may be top-level outside the internal plan-dispatch protocol; do not assume every planner is a child session.
 - Generic workflow contracts do not rely on host groups or provider-specific cleanup semantics.
 - The receiver should always read message `body` first
 - A received workflow message is executable work, not a notification to acknowledge and ignore
@@ -215,12 +215,12 @@ Current recommended operating mode:
 7. When supervisor finishes integrating a planner lane result, release workflow workspace state and report provider-managed sessions; do not delete them through generic workflow code.
 8. Supervisor-side integration uses `git merge`; do not switch to `cherry-pick`, `rebase`, or manual history surgery unless the user explicitly asks.
 
-Use skills:
+Canonical workflow content:
 
 - Project workflow skill: `multi-agent-protocol`
 - Receiver wake handler: `check-waypost-messages`
 - Planner closeout: `planner-closeout`
-- Plan dispatch: `dispatch-plan`
+- Internal plan-dispatch protocol selector: `multi-agent-protocol/internal/dispatch-plan`
 - Plan execution: `execute-plan`
 - Plan report: `plan-report`
 - Technical design workflow: `tech-design-workflow`

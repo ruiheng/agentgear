@@ -19,7 +19,6 @@ const entrySkills = [
   "commit-staged",
   "delegate-code-task",
   "delegate-task",
-  "dispatch-plan",
   "explain-for-me",
   "explore-defects",
   "fix-strategy",
@@ -110,10 +109,22 @@ test("catalog exposes exactly the approved entry surface", () => {
   const catalog = loadCatalog(rootDir);
   const all = resolveSelection(catalog, { packs: ["all"] });
   assert.deepEqual([...all.exposedSkills].sort(), entrySkills);
+  assert.equal(catalog.skills.skills["dispatch-plan"], undefined);
+  assert.equal(all.capabilitySkills.includes("dispatch-plan"), false);
   assert.deepEqual(resolveSelection(catalog, { packs: ["core"] }).exposedSkills.sort(), entrySkills.filter(skill => [
     "assess-tech-design", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff"
   ].includes(skill)));
   assert.equal(all.exposedSkills.includes("agent-deck"), false);
+});
+
+test("plan dispatch is an internal protocol selector rather than a skill", () => {
+  const internal = command(["skill", "get", "multi-agent-protocol/internal/dispatch-plan"]);
+  assert.equal(internal.status, 0, internal.stderr);
+  assert.match(internal.stdout, /# Dispatch Plan/);
+
+  const direct = command(["skill", "get", "dispatch-plan"]);
+  assert.equal(direct.status, 2);
+  assert.match(direct.stderr, /Unknown skill address: dispatch-plan/);
 });
 
 test("skill help states the stable guidance policy once", () => {
@@ -382,12 +393,12 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
     retrievable: true,
     exposure: "upstream"
   });
-  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 28);
+  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 27);
 
   const text = command(["list"]);
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Upstream retrievable skills: agent-deck/);
-  assert.match(text.stdout, /Skills \(28\)/);
+  assert.match(text.stdout, /Skills \(27\)/);
 });
 
 test("upstream skill get returns resourceBase from a verified runtime and rejects selectors", () => {

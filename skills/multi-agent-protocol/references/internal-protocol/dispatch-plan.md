@@ -1,6 +1,6 @@
 ---
-skill-selector: start
-selector-summary: Complete dispatch-plan instructions, part 1.
+skill-selector: internal/dispatch-plan
+selector-summary: Apply the internal supervisor-to-planner dispatch protocol, part 1.
 ---
 
 # Dispatch Plan
@@ -97,4 +97,4 @@ Round: 1
 
 ## Continue
 
-Retrieve `agentgear skill get dispatch-plan/continue-1` before proceeding.
+Retrieve `agentgear skill get multi-agent-protocol/internal/dispatch-plan/continue-1` before proceeding.

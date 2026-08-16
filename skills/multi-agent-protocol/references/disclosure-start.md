@@ -22,6 +22,12 @@ Interpret references to the shared workflow protocol as:
 - use `agentgear skill get multi-agent-protocol` as the entry point
 - then follow the returned shared protocol
 
+## Internal Plan Dispatch
+
+When supervisor orchestration assigns one goal to a planner lane, retrieve
+`agentgear skill get multi-agent-protocol/internal/dispatch-plan`. This is an
+internal protocol selector, not a user- or model-selected skill.
+
 ## Session Hosts
 
 Before resolving, creating, requiring, or addressing a collaborator session,

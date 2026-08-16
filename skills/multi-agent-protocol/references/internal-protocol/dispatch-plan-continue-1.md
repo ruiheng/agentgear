@@ -1,6 +1,6 @@
 ---
-skill-selector: continue-1
-selector-summary: Complete dispatch-plan instructions, part 2.
+skill-selector: internal/dispatch-plan/continue-1
+selector-summary: Apply the internal supervisor-to-planner dispatch protocol, part 2.
 ---
 
 ## Waypost Message Send
