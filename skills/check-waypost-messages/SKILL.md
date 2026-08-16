@@ -1,10 +1,6 @@
 ---
 name: check-waypost-messages
-description: Claim and process pending Waypost messages.
+description: How to retrieve and process Waypost messages.
 ---
 
-# check-waypost-messages
-
-Claim and process pending Waypost messages.
-
-Follow the remembered guidance from `agentgear skill get check-waypost-messages`. Run it only if you no longer remember the guidance or have evidence it changed.
+To retrieve Waypost messages, follow the guidance from `agentgear skill get check-waypost-messages`; run the command only if the guidance is not already remembered or may have changed.
