@@ -115,6 +115,7 @@ test("initial dispatch writes minimal shared state and marks it ready before aut
       "design_spec_review_context",
       "design_spec_draft_requested"
     ]);
+    assert.equal(stateDuringAuthor.schema_version, 2);
     assert.equal(stateDuringAuthor.dispatch_ready, true);
     assert.equal(stateDuringAuthor.review_epoch, 0);
     assert.equal(stateDuringAuthor.correctness_epoch, null);

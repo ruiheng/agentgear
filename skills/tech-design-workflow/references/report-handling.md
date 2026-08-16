@@ -32,16 +32,21 @@ context rejection into a review report.
 ## Apply
 
 Store a valid draft result in its role slot as epoch, decision, and exact report
-User Decisions. A duplicate for the stored epoch is a no-op. With a pruner, wait
-for every currently requested role before changing design or authority.
+User Decisions. For correctness, also store the exact ordered Caveats list;
+require it to be nonempty only for `SOUND_WITH_CAVEATS`. A duplicate for the
+stored epoch is a no-op. With a pruner, wait for every currently requested role
+before changing design or authority.
 
 - `NEEDS_INPUT`: correct missing context or target and retry the same snapshot;
   initial-context correction uses `tech-design-workflow/context-correction`.
 - `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after all required reports arrive,
   create one Replacement Snapshot addressing the smallest supported set of
   changes. In committed-docs, revise and commit on the same design branch.
-- `SOUND` / `SOUND_WITH_CAVEATS`: accept correctness when no document change is
-  required. `MINIMAL`: accept pruning.
+- `SOUND`: accept correctness only with an empty Caveats list.
+- `SOUND_WITH_CAVEATS`: accept correctness only when every report caveat is
+  non-blocking and appears verbatim, in order, under `## Caveats` in the reviewed
+  target. Otherwise create a Replacement Snapshot that records them and review
+  it again. `MINIMAL`: accept pruning.
 - disagreement: resolve from repository evidence and user authority. If another
   opinion is useful, send the relevant role an ordinary same-snapshot review
   request with a concise rationale; do not create a special finding protocol.
@@ -57,7 +62,9 @@ before creating another artifact.
 ## Finish
 
 - draft-review: after accepted correctness and enabled pruning, author sends
-  `design_spec_delivered`; requester archives and commits;
+  `design_spec_delivered` with the exact accepted decision and caveats; requester
+  verifies them, archives and commits the caveat-bearing target, and reports the
+  caveats in the final delivery;
 - review-existing: require the accepted commit at design tip and committed specs,
   rerun the path gate, merge into the recorded base, then close out the reviewer.
 

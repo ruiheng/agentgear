@@ -99,6 +99,12 @@ Task: <task_id>
 Action: design_spec_delivered
 Lane State: <workspace-relative lane state file>
 Round: <accepted_round>
+Decision: <SOUND | SOUND_WITH_CAVEATS>
+
+## Caveats
+- <exact accepted caveat in lane order | None>
 ```
 
-The requester owns archival and closeout.
+Copy Caveats exactly from `correctness_report`. Use `None` for `SOUND`; require
+at least one list item for `SOUND_WITH_CAVEATS`. The requester owns archival and
+closeout.

@@ -28,6 +28,9 @@ Round: <round>
 ## Decision
 SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 
+## Caveats
+- [Exact caveat copied from the reviewed target, or None]
+
 ## Findings
 - [Stable Finding ID: consequence and recommended direction, or None]
 
@@ -37,6 +40,11 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 ## Residual Risk
 [remaining uncertainty or None]
 ```
+
+Use `None` under Caveats for every decision except `SOUND_WITH_CAVEATS`.
+`SOUND_WITH_CAVEATS` requires at least one caveat, copied verbatim and in the
+same order from the reviewed target's `## Caveats` section. Never leave a caveat
+only in Findings, Summary, or Residual Risk.
 
 For draft-round, insert this after `Action`:
 

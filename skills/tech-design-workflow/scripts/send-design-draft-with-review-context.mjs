@@ -230,7 +230,7 @@ function authorHasProgress(state, options) {
 }
 
 function validateExistingState(state, options) {
-  if (state?.schema_version !== 1) fail("existing design lane has an unsupported schema");
+  if (state?.schema_version !== 2) fail("existing design lane has an unsupported schema");
   for (const [field, expected] of [
     ["task_id", options.taskId],
     ["requester_session_id", options.requesterSessionId],
@@ -259,7 +259,7 @@ function validateExistingState(state, options) {
 
 function initialState(options) {
   return {
-    schema_version: 1,
+    schema_version: 2,
     task_id: options.taskId,
     requester_role: options.requesterRole,
     requester_session_id: options.requesterSessionId,

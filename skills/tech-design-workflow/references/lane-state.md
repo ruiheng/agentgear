@@ -9,11 +9,11 @@ Use this state only for draft-review. The requester initializes the contract;
 the dispatcher initializes this file and marks context dispatch ready. After
 that, the author is its only writer. Reviewer and pruner are read-only.
 
-Require `schema_version: 1`. Keep one stable shape:
+Require `schema_version: 2`. Keep one stable shape:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "task_id": "<task_id>",
   "requester_session_id": "<real id>",
   "requester_address": "<Waypost address>",
@@ -74,13 +74,16 @@ artifact but use different authority. Increment it when preparing a new request
 for one or both roles. Set each requested role's `*_epoch` to that value and
 clear only reports invalidated by the new artifact, authority, or request.
 
-A report slot contains:
+The correctness report slot contains:
 
 ```json
-{"epoch": 1, "decision": "SOUND", "user_decisions": []}
+{"epoch": 1, "decision": "SOUND", "caveats": [], "user_decisions": []}
 ```
 
-Report `user_decisions` is an ordered array of exact `{question, answer}` pairs.
+The prune report slot omits `caveats`. Report `user_decisions` is an ordered
+array of exact `{question, answer}` pairs. Correctness `caveats` is an ordered
+array copied exactly from the report. It is nonempty only for
+`SOUND_WITH_CAVEATS`; every other correctness decision requires an empty array.
 Correctness decisions are `SOUND`, `SOUND_WITH_CAVEATS`, `NEEDS_REVISION`, or
 `NEEDS_INPUT`; prune decisions are `MINIMAL`, `NEEDS_SIMPLIFICATION`, or
 `NEEDS_INPUT`.
@@ -98,5 +101,7 @@ before pointing state to it.
 
 Accept only when every enabled role has a report for its current expected epoch
 and current snapshot, correctness accepts, pruning is `MINIMAL`, every report
-answer is already retained, and the current contract revision is applied. Store
-acceptance as `{ "round": <round>, "artifact": "<path>" }`.
+answer is already retained, and the current contract revision is applied.
+`SOUND` requires no caveats. `SOUND_WITH_CAVEATS` requires a nonempty caveat list
+that appears verbatim and in the same order under `## Caveats` in the current
+artifact. Store acceptance as `{ "round": <round>, "artifact": "<path>" }`.

@@ -28,11 +28,17 @@ Do not derive this frame from the author's design. Review material design risks 
 ## Decision Rules
 
 - `SOUND`: implementation-ready with no unresolved design findings or unapproved scope.
-- `SOUND_WITH_CAVEATS`: deliverable with only non-blocking caveats that may remain in the review report.
+- `SOUND_WITH_CAVEATS`: deliverable with only non-blocking caveats that are
+  recorded verbatim as the same ordered list under `## Caveats` in the reviewed
+  target and the review report.
 - `NEEDS_REVISION`: the design must change and receive another reviewed snapshot.
 - `NEEDS_INPUT`: message-review input is incomplete or the target cannot be identified/read.
 
-Do not use `SOUND_WITH_CAVEATS` when a document revision is required. Ask the user directly when a product or strategy decision blocks review, and record the exact answer under User Decisions. Report persisted-data effects only when relevant.
+Do not use `SOUND_WITH_CAVEATS` when a document revision is required. If a
+non-blocking caveat is absent from the target, return `NEEDS_REVISION` so the
+author can add it before acceptance. Ask the user directly when a product or
+strategy decision blocks review, and record the exact answer under User
+Decisions. Report persisted-data effects only when relevant.
 
 ## Review Limit
 

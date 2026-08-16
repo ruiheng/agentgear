@@ -232,6 +232,20 @@ test("skill get resolves independent addresses, global fallbacks, and atomic err
   assert.match(unknown.stderr, /Unknown skill address: not-real/);
 });
 
+test("draft technical-design caveats remain durable through requester delivery", () => {
+  const index = buildSkillContentIndex(rootDir, loadCatalog(rootDir));
+  const body = address => resolveSkillAddress(index, address).body;
+
+  assert.match(body("review-tech-design/review-contract"), /same ordered list under `## Caveats` in the reviewed\n  target and the review report/);
+  assert.match(body("review-tech-design/message-delivery"), /## Caveats\n- \[Exact caveat copied from the reviewed target, or None\]/);
+  assert.match(body("tech-design-workflow/lane-state"), /"decision": "SOUND", "caveats": \[\], "user_decisions": \[\]/);
+  assert.match(body("tech-design-workflow/report-handling"), /store the exact ordered Caveats list/);
+  assert.match(body("tech-design-workflow/author-round"), /Decision: <SOUND \| SOUND_WITH_CAVEATS>[\s\S]*## Caveats/);
+  assert.match(body("tech-design-workflow/requester-delivery"), /notification Decision and ordered Caveats to exactly match/);
+  assert.match(body("tech-design-workflow/requester-delivery"), /final response[\s\S]*every caveat/);
+  assert.match(body("tech-design-workflow/closeout"), /exact accepted decision and\n+caveats/);
+});
+
 test("skill list is deterministic and emits directly resolvable owned addresses", () => {
   const result = command(["skill", "list", "check-waypost-messages", "--json"]);
   assert.equal(result.status, 0, result.stderr);
