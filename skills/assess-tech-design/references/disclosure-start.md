@@ -27,6 +27,7 @@ Assess only relevant areas:
 - material rationale, user fit, simplicity/over-design, ownership, boundaries, cohesion, and coupling
 - flexibility/foresight: readiness for credible future change within demonstrated need
 - persisted data/state and configuration: need, migration/rollback, defaults, deployment, and operations
+- sensitive and privacy data: categories and necessity, allowed uses, lifecycle, and trust boundaries across collection, processing, storage, logs/telemetry, backups, export/sharing, retention, and deletion; access, encryption, residency, third parties, user controls, auditability, and failure/incident handling
 - compatibility in both directions—new-to-old and old-to-new data, configuration, and interfaces—and whether it is necessary
 - benefits, risks, mitigations/rollback, alternatives, and key tradeoffs
 - user-owned decisions, options, and consequences
@@ -56,6 +57,9 @@ Keep the report compact. Focus on material issues, tradeoffs, and decisions; do 
 - Data/state: [impact, migration/rollback, or None]
 - Configuration/operations: [impact, or None]
 - Compatibility: [both directions and need, or None]
+
+## Sensitive And Privacy Data
+[categories, necessity/minimization, allowed uses, lifecycle and trust boundaries, controls, third parties, user controls, and failure/incident handling, or None]
 
 ## Risks And Tradeoffs
 [benefits, risks, mitigations, alternatives, and tradeoffs, or None]
