@@ -205,7 +205,17 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
     if (validateBootstraps && Buffer.byteLength(overviewSource) > MAX_BOOTSTRAP_BYTES) {
       throw new SkillContentError(`SKILL.md exceeds ${MAX_BOOTSTRAP_BYTES} bytes: ${overviewPath}`);
     }
-    const overview = splitFrontmatter(overviewSource, overviewPath).body;
+    const { fields: overviewFields, body: overview } = splitFrontmatter(overviewSource, overviewPath);
+    if (validateBootstraps) {
+      const paragraphs = overview.trim().split(/\n[ \t]*\n/).map(paragraph => paragraph.trim());
+      const duplicateNameHeading = overviewFields.name && paragraphs[0] === `# ${overviewFields.name}`;
+      if (duplicateNameHeading) {
+        throw new SkillContentError(`SKILL.md repeats its frontmatter name as a heading: ${overviewPath}`);
+      }
+      if (overviewFields.description && paragraphs[0] === overviewFields.description) {
+        throw new SkillContentError(`SKILL.md repeats its frontmatter description as its first body paragraph: ${overviewPath}`);
+      }
+    }
     overviews.set(name, { owner: name, body: overview, filePath: overviewPath });
 
     const referenceRoot = path.join(skillRoot, "references");

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadCatalog, resolveSelection } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
-import { actionAliases, buildSkillContentIndex, listSkillSelectors, resolveSkillAddress, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { actionAliases, buildSkillContentIndex, formatSkillText, listSkillSelectors, resolveSkillAddress, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
 import { actionHeader, loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
@@ -104,6 +104,60 @@ function materializeRetrievedSkill(root, plan, contents = "# Agent Deck\n") {
     payload: "payload/SKILL.md"
   })}\n`);
 }
+
+test("bootstrap validation rejects metadata duplicated into the body", () => {
+  const item = contentIndexFixture();
+  const skillFile = path.join(item.temporary, "skills", "fixture", "SKILL.md");
+  const writeBootstrap = body => fs.writeFileSync(skillFile, [
+    "---",
+    "name: fixture",
+    "description: Fixture description.",
+    "---",
+    "",
+    body,
+    ""
+  ].join("\n"));
+  try {
+    writeBootstrap("Fixture description.");
+    assert.throws(
+      () => buildSkillContentIndex(item.temporary, item.catalog, { validateBootstraps: true }),
+      /repeats its frontmatter description as its first body paragraph/
+    );
+
+    writeBootstrap("# fixture\n\nDistinct guidance.");
+    assert.throws(
+      () => buildSkillContentIndex(item.temporary, item.catalog, { validateBootstraps: true }),
+      /repeats its frontmatter name as a heading/
+    );
+
+    writeBootstrap("Distinct guidance.");
+    assert.doesNotThrow(() => buildSkillContentIndex(item.temporary, item.catalog, { validateBootstraps: true }));
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("skill text formatting preserves exact single and multi-selection framing", () => {
+  const first = { requestedAddress: "alpha/start", body: "first\n\nsecond" };
+  const second = { requestedAddress: "beta/end", body: "# Heading\nbody\n" };
+
+  assert.equal(formatSkillText({ selections: [first] }), "first\n\nsecond\n");
+  assert.equal(formatSkillText({ selections: [second, first, second] }), [
+    "agentgear skill: beta/end",
+    "  # Heading",
+    "  body",
+    "",
+    "agentgear skill: alpha/start",
+    "  first",
+    "  ",
+    "  second",
+    "",
+    "agentgear skill: beta/end",
+    "  # Heading",
+    "  body",
+    ""
+  ].join("\n"));
+});
 
 test("catalog exposes exactly the approved entry surface", () => {
   const catalog = loadCatalog(rootDir);
