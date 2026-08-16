@@ -27,7 +27,8 @@ function writeWaypostExecutable(directory, name = "waypost") {
   fs.writeFileSync(executable, `#!${process.execPath}
 const args = process.argv.slice(2);
 const supported = (args[0] === "mcp" && args[1] === "--help") ||
-  (args[0] === "--state-dir" && (args[2] === "read" || args[2] === "list" || args[2] === "fail") && args[3] === "--help");
+  (args[0] === "doc" && args[1] === "--help") ||
+  (args[0] === "--state-dir" && ["read", "list", "fail", "forward", "wait", "undefer", "group", "address", "renew"].includes(args[2]) && args[3] === "--help");
 process.exit(supported ? 0 : 1);
 `);
   fs.chmodSync(executable, 0o755);
@@ -342,6 +343,7 @@ test("workflow permissions add explicit Waypost MCP approvals for Claude and Cod
     for (const tool of workflowWaypostMcpTools) {
       assert.equal(claude.permissions.allow.includes(`mcp__waypost__${tool}`), true, `Claude permits ${tool}`);
     }
+    assert.equal(claude.permissions.allow.includes("mcp__waypost__waypost_claim_history"), true);
 
     const codex = fs.readFileSync(projectCodexConfig, "utf8");
     assert.match(fs.readFileSync(codexConfig, "utf8"), /\[mcp_servers\.waypost\.tools\.user_owned\]\napproval_mode = "deny"/);
@@ -738,36 +740,69 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     const expectedReadWildcard = `${expectedRead.slice(0, -1)} *)`;
     const expectedFail = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} fail)`;
     const expectedFailWildcard = `${expectedFail.slice(0, -1)} *)`;
+    const expectedRenew = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} renew)`;
+    const expectedRenewWildcard = `${expectedRenew.slice(0, -1)} *)`;
+    const additionalActions = ["forward", "wait", "undefer", "group", "address"];
+    const additionalPermissions = additionalActions.flatMap(action => {
+      const exact = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} ${action})`;
+      return [exact, `${exact.slice(0, -1)} *)`];
+    });
+    const expectedDoc = `Bash(${fs.realpathSync(waypost)} doc)`;
+    const expectedDocWildcard = `${expectedDoc.slice(0, -1)} *)`;
     const claude = JSON.parse(fs.readFileSync(claudeSettings, "utf8"));
     assert.equal(claude.permissions.allow.includes(expectedRead), true);
     assert.equal(claude.permissions.allow.includes(expectedReadWildcard), true);
     assert.equal(claude.permissions.allow.includes(expectedFail), true);
     assert.equal(claude.permissions.allow.includes(expectedFailWildcard), true);
+    assert.equal(claude.permissions.allow.includes(expectedRenew), true);
+    assert.equal(claude.permissions.allow.includes(expectedRenewWildcard), true);
+    for (const permission of additionalPermissions) {
+      assert.equal(claude.permissions.allow.includes(permission), true, `Claude permits ${permission}`);
+    }
+    assert.equal(claude.permissions.allow.includes(expectedDoc), true);
+    assert.equal(claude.permissions.allow.includes(expectedDocWildcard), true);
     assert.equal(claude.permissions.allow.includes("Bash(waypost)"), false);
     assert.equal(claude.permissions.allow.includes("Bash(waypost *)"), false);
 
     const manifest = JSON.parse(fs.readFileSync(path.join(project, ".claude", ".agentgear-workflow-permissions.json"), "utf8"));
-    assert.equal(manifest.version, 3);
-    assert.equal(manifest.rules.length, 6);
+    assert.equal(manifest.version, 4);
+    assert.equal(manifest.rules.length, 20);
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));
 
     const codex = fs.readFileSync(path.join(project, ".codex", "rules", "agentgear-workflow.rules"), "utf8");
     assert.match(codex, new RegExp(escapeRegex(waypost)));
     assert.match(codex, /"fail"/);
+    assert.match(codex, /"renew"/);
+    for (const action of additionalActions) assert.match(codex, new RegExp(`"${action}"`));
+    assert.match(codex, new RegExp(`pattern = \\[${escapeRegex(JSON.stringify(fs.realpathSync(waypost)))}, "doc"\\]`));
     assert.doesNotMatch(codex, /pattern = \["waypost"/);
 
     const gemini = fs.readFileSync(path.join(project, ".gemini", "policies", "agentgear-workflow.toml"), "utf8");
     assert.match(gemini, /mcpName = "waypost"/);
     assert.match(gemini, new RegExp(escapeRegex(waypost)));
     assert.match(gemini, /"fail"/);
+    assert.match(gemini, /"renew"/);
+    for (const action of additionalActions) assert.match(gemini, new RegExp(`"${action}"`));
+    assert.match(gemini, new RegExp(`commandPrefix = \\[${escapeRegex(JSON.stringify(fs.realpathSync(waypost)))}, "doc"\\]`));
 
     const userPermission = "Bash(/opt/custom-waypost --state-dir /tmp/custom-state read)";
     const retiredMcpFail = "mcp__waypost__waypost_fail";
+    claude.permissions.allow = claude.permissions.allow.filter(permission =>
+      permission !== expectedDoc
+      && permission !== expectedDocWildcard
+      && permission !== expectedRenew
+      && permission !== expectedRenewWildcard
+      && !additionalPermissions.includes(permission)
+      && permission !== "mcp__waypost__waypost_claim_history"
+    );
     claude.permissions.allow.push(userPermission, retiredMcpFail);
     fs.writeFileSync(claudeSettings, `${JSON.stringify(claude, null, 2)}\n`);
     const manifestFile = path.join(project, ".claude", ".agentgear-workflow-permissions.json");
     const legacyManifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
     legacyManifest.version = 2;
+    legacyManifest.permissions = legacyManifest.permissions.filter(permission => !/ doc(?: \*)?\)$/.test(permission));
+    legacyManifest.permissions = legacyManifest.permissions.filter(permission => !/ (?:renew|forward|wait|undefer|group|address)(?: \*)?\)$/.test(permission));
+    legacyManifest.rules = legacyManifest.rules.filter(rule => rule.action !== "doc" && !["renew", ...additionalActions].includes(rule.action));
     delete legacyManifest.mcp_permissions;
     fs.writeFileSync(manifestFile, `${JSON.stringify(legacyManifest)}\n`);
     withEnvironment({ ...environment, PATH: "" }, () => initializePermissions({ scope: "project", project }));
@@ -935,7 +970,7 @@ test("workflow permissions migrate a verified legacy v1 Waypost manifest", () =>
     assert.equal(settings.permissions.allow.includes(userPermission), true);
     assert.equal(settings.permissions.allow.includes(`Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} read)`), true);
     const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
-    assert.equal(manifest.version, 3);
+    assert.equal(manifest.version, 4);
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));
     assert.equal(fs.existsSync(legacyManifestFile), false);
   } finally {

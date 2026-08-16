@@ -3,8 +3,25 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const ACTIONS = ["read", "list", "fail"];
-const MANIFEST_VERSION = 3;
+const WAYPOST_CLI_ACTIONS = [
+  { action: "read", stateScoped: true },
+  { action: "list", stateScoped: true },
+  { action: "fail", stateScoped: true },
+  { action: "forward", stateScoped: true },
+  { action: "wait", stateScoped: true },
+  { action: "undefer", stateScoped: true },
+  { action: "group", stateScoped: true },
+  { action: "address", stateScoped: true },
+  { action: "renew", stateScoped: true },
+  { action: "doc", stateScoped: false }
+];
+const WAYPOST_CLI_ACTIONS_BY_NAME = new Map(WAYPOST_CLI_ACTIONS.map(item => [item.action, item]));
+// At most two command forms, two state-directory forms, and exact/wildcard variants.
+const MAX_WAYPOST_RULES = 2 * WAYPOST_CLI_ACTIONS.reduce(
+  (count, item) => count + (item.stateScoped ? 4 : 2),
+  0
+);
+const MANIFEST_VERSION = 4;
 const WAYPOST_MCP_PERMISSION = /^mcp__waypost__[A-Za-z0-9_]+$/;
 const WAYPOST_EXECUTABLE = /^waypost(?:[._-].*)?$/;
 const SAFE_SHELL_WORD = /^[A-Za-z0-9_@%+=:,./-]+$/;
@@ -156,9 +173,9 @@ function commandAndStateForms(command, stateDir, home) {
 function supportsWaypostCapabilities(command, stateDir, env) {
   const checks = [
     ["mcp", "--help"],
-    ["--state-dir", stateDir, "read", "--help"],
-    ["--state-dir", stateDir, "list", "--help"],
-    ["--state-dir", stateDir, "fail", "--help"]
+    ...WAYPOST_CLI_ACTIONS.map(item => item.stateScoped
+      ? ["--state-dir", stateDir, item.action, "--help"]
+      : [item.action, "--help"])
   ];
   return checks.every(args => run(command, args, { env }).status === 0);
 }
@@ -214,17 +231,26 @@ export function resolveWaypostPermissionContext({
     return { trusted: false, rules: [], reason: "waypost command or target is inside the project workspace" };
   }
   if (!supportsWaypostCapabilities(canonicalCommand, stateDir, env)) {
-    return { trusted: false, rules: [], reason: "waypost lacks mcp/read/list/fail support" };
+    return {
+      trusted: false,
+      rules: [],
+      reason: `waypost lacks mcp/${WAYPOST_CLI_ACTIONS.map(item => item.action).join("/")} support`
+    };
   }
 
   const { commandForms, stateForms } = commandAndStateForms(canonicalCommand, stateDir, home);
   const rules = [];
   for (const command of commandForms) {
-    for (const ruleStateDir of stateForms) {
-      for (const action of ACTIONS) {
+    for (const item of WAYPOST_CLI_ACTIONS) {
+      for (const ruleStateDir of item.stateScoped ? stateForms : [undefined]) {
+        const baseRule = {
+          command,
+          ...(ruleStateDir === undefined ? {} : { stateDir: ruleStateDir }),
+          action: item.action
+        };
         rules.push(
-          { command, stateDir: ruleStateDir, action, wildcard: false },
-          { command, stateDir: ruleStateDir, action, wildcard: true }
+          { ...baseRule, wildcard: false },
+          { ...baseRule, wildcard: true }
         );
       }
     }
@@ -234,7 +260,7 @@ export function resolveWaypostPermissionContext({
 
 function normalizedRule(rule) {
   const stateDir = rule?.stateDir ?? rule?.state_dir;
-  if (!rule || hasUnsafeControlCharacters(rule.command) || hasUnsafeControlCharacters(stateDir)) {
+  if (!rule || hasUnsafeControlCharacters(rule.command)) {
     throw new Error("invalid Waypost ownership rule");
   }
   if (!(path.isAbsolute(rule.command) || rule.command.startsWith("~/"))) {
@@ -243,11 +269,22 @@ function normalizedRule(rule) {
   if (!WAYPOST_EXECUTABLE.test(path.basename(rule.command))) {
     throw new Error("Waypost ownership command has an unsupported executable name");
   }
-  if (!(stateDir === "~" || path.isAbsolute(stateDir) || stateDir.startsWith("~/"))) {
-    throw new Error("Waypost ownership state directory must be absolute or home-relative");
-  }
-  if (!ACTIONS.includes(rule.action) || typeof rule.wildcard !== "boolean") {
+  if (typeof rule.wildcard !== "boolean") {
     throw new Error("invalid Waypost ownership rule action");
+  }
+  const actionSpec = WAYPOST_CLI_ACTIONS_BY_NAME.get(rule.action);
+  if (!actionSpec) {
+    throw new Error("invalid Waypost ownership rule action");
+  }
+  if (!actionSpec.stateScoped) {
+    if (stateDir !== undefined && stateDir !== null) {
+      throw new Error("global Waypost ownership rule must not include a state directory");
+    }
+    return { command: rule.command, action: rule.action, wildcard: rule.wildcard };
+  }
+  if (hasUnsafeControlCharacters(stateDir)
+    || !(stateDir === "~" || path.isAbsolute(stateDir) || stateDir.startsWith("~/"))) {
+    throw new Error("Waypost ownership state directory must be absolute or home-relative");
   }
   return { command: rule.command, stateDir, action: rule.action, wildcard: rule.wildcard };
 }
@@ -256,17 +293,21 @@ export function claudeWaypostPermission(rule) {
   const normalized = normalizedRule(rule);
   const command = [
     shellQuote(normalized.command),
-    "--state-dir",
-    shellQuote(normalized.stateDir),
+    ...(normalized.stateDir === undefined ? [] : ["--state-dir", shellQuote(normalized.stateDir)]),
     normalized.action
   ].join(" ");
   return `Bash(${command}${normalized.wildcard ? " *" : ""})`;
 }
 
-function stableRules(rules) {
+function stableRules(rules, { allowGlobalActions = true } = {}) {
   const normalized = rules.map(normalizedRule);
+  if (!allowGlobalActions && normalized.some(rule => rule.stateDir === undefined)) {
+    throw new Error("invalid Waypost ownership rule action for manifest version");
+  }
   const identities = normalized.map(rule => JSON.stringify(rule));
-  if (normalized.length === 0 || normalized.length > 24 || new Set(identities).size !== normalized.length) {
+  if (normalized.length === 0
+    || normalized.length > MAX_WAYPOST_RULES
+    || new Set(identities).size !== normalized.length) {
     throw new Error("invalid Waypost ownership rule set");
   }
   return normalized;
@@ -355,10 +396,10 @@ export function readWaypostOwnershipManifest(configRoot) {
     }
     return { present: true, version: 1, permissions: manifest.permissions, rules: [], mcpPermissions: [], manifestPath };
   }
-  if (![2, MANIFEST_VERSION].includes(manifest.version) || !Array.isArray(manifest.rules)) {
+  if (![2, 3, MANIFEST_VERSION].includes(manifest.version) || !Array.isArray(manifest.rules)) {
     throw new Error(`refusing invalid Claude Waypost ownership manifest: ${manifestPath}`);
   }
-  const rules = stableRules(manifest.rules);
+  const rules = stableRules(manifest.rules, { allowGlobalActions: manifest.version === MANIFEST_VERSION });
   const permissions = permissionsForRules(rules);
   const storedPermissions = manifest.permissions;
   if (!storedPermissions.every(value => typeof value === "string") || storedPermissions.length !== permissions.length) {
@@ -383,7 +424,7 @@ export function writeWaypostOwnershipManifest(configRoot, rules, mcpPermissions 
     mcp_permissions: normalizedMcpPermissions,
     rules: normalizedRules.map(rule => ({
       command: rule.command,
-      state_dir: rule.stateDir,
+      ...(rule.stateDir === undefined ? {} : { state_dir: rule.stateDir }),
       action: rule.action,
       wildcard: rule.wildcard
     }))

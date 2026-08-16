@@ -82,6 +82,7 @@ export const workflowWaypostMcpTools = [
   "session_require",
   "waypost_ack",
   "waypost_bind",
+  "waypost_claim_history",
   "waypost_defer",
   "waypost_group_add_member",
   "waypost_group_add_subscriber",
@@ -587,7 +588,7 @@ function configureClaude(configRoot, waypost) {
   const ownership = readWaypostOwnershipManifest(configRoot);
   // Version 2 predated MCP ownership records but generated this exact static
   // list whenever Waypost was trusted. Treat it as legacy installer-owned
-  // during one migration pass, then persist explicit v3 ownership.
+  // during one migration pass, then persist explicit current ownership.
   const legacyMcpPermissions = ownership.version === 2
     ? legacyV2WorkflowWaypostMcpTools.map(name => `mcp__waypost__${name}`)
     : [];
@@ -638,6 +639,14 @@ function tomlString(value) {
 
 function codexRule(pattern, justification, extra = "") {
   return `prefix_rule(\n    pattern = [${pattern.map(tomlString).join(", ")}],\n    decision = "allow",\n    justification = ${tomlString(justification)},${extra}\n)\n`;
+}
+
+function waypostRulePattern(rule) {
+  return [
+    rule.command,
+    ...(rule.stateDir === undefined ? [] : ["--state-dir", rule.stateDir]),
+    rule.action
+  ];
 }
 
 function codexCommandValue(line) {
@@ -906,7 +915,7 @@ function codexRulesSource(waypost) {
     ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill => codexRule([command, "run", skill], "Workflow scripts through the managed agentgear launcher"))),
     ...launcherForms().map(command => codexRule([command, "skill", "get"], "Read canonical Agentgear skill instructions through the managed launcher")),
     ...launcherForms().map(command => codexRule([command, "resolve-tool-command"], "Workflow launch-candidate resolver through Agentgear")),
-    ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule([item.command, "--state-dir", item.stateDir, item.action], "Waypost query; host permission required")),
+    ...waypost.rules.filter(item => !item.wildcard).map(item => codexRule(waypostRulePattern(item), "Waypost query; host permission required")),
     "# Waypost reads and writes require host permission.\n"
   ].join("\n");
 }
@@ -986,7 +995,7 @@ function geminiPolicySource(waypost) {
     )),
     ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_skill_get_${index}`, [command, "skill", "get"])),
     ...launcherForms().map((command, index) => geminiRule(`allow_agentgear_resolve_tool_command_${index}`, [command, "resolve-tool-command"])),
-    ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, [item.command, "--state-dir", item.stateDir, item.action])),
+    ...waypost.rules.filter(item => !item.wildcard).map((item, index) => geminiRule(`allow_waypost_cli_${item.action}_${index}`, waypostRulePattern(item))),
     "# Waypost reads and writes require host permission.\n"
   ].join("\n");
 }
