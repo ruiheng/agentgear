@@ -216,6 +216,34 @@ integrationTest("task-session cleanup reads provider ids from Agent Deck's XDG h
   }
 });
 
+integrationTest("task-session cleanup does not require provider resume metadata", () => {
+  const taskId = "20260817-1200-optional-provider-id";
+  const fixture = makeFixture([
+    { id: "planner-1", title: "planner", tool: "shell", group: "", current: true },
+    { id: "reviewer-1", title: `reviewer-${taskId}`, tool: "codex", group: "" }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "artifacts");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--planner-session-id", "planner-1",
+      "--reviewer-session-id", "reviewer-1",
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), ["planner-1"]);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.deepEqual(archive.sessions[0].provider_resume_ids, {});
+    assert.equal(archive.sessions[0].has_provider_resume_id, false);
+    assert.equal(archive.sessions[0].delete_status, "deleted");
+    assert.equal("provider_guard_required" in archive.sessions[0], false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 integrationTest("task-session cleanup reports a failed Agent Deck removal", () => {
   const taskId = "20260809-1201-remove-failure";
   const fixture = makeFixture([
