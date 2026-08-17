@@ -457,6 +457,7 @@ test("permissions is available through the Agentgear CLI with user scope by defa
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /agentgear permissions init/);
     assert.match(result.stdout, /agentgear permissions check/);
+    assert.match(result.stdout, /agentgear permissions preset list\|show\|add/);
     assert.match(result.stdout, /--scope user/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });

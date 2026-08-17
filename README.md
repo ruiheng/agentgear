@@ -240,9 +240,14 @@ Built-ins cover Go, Haskell, Node.js, JavaScript, TypeScript, frontend tools,
 Vue, React, Svelte, Python, and Rust. To copy and customize a small preset file:
 
 ```bash
-agentgear permissions preset show vue --output ./vue-permissions.json
+agentgear permissions preset show vue
 agentgear permissions preset add --file ./vue-permissions.json
 ```
+
+`preset show` writes `<name>-permissions.json` in the current directory by
+default. If that name exists, it selects the next free numbered name instead.
+Pass `--file PATH` to choose an exact destination; existing files are never
+overwritten.
 
 Custom presets use the same JSON shape as files under
 `catalog/permission-presets/`: a kebab-case `name`, a `description`, and

@@ -16,19 +16,21 @@ import {
   writeWaypostOwnershipManifest
 } from "./waypost-permission-spec.mjs";
 
-const usage = `Manage Agentgear workflow permissions for Claude Code, Codex, and Gemini CLI.
+const usage = `Manage Agentgear permissions for Claude Code, Codex, and Gemini CLI.
 
 Usage:
   agentgear permissions init [--scope user|project] [--project DIR]
   agentgear permissions check [--scope user|project] [--project DIR] [--json]
+  agentgear permissions preset list|show|add [options]
 
-Defaults:
+Init/check defaults:
   --scope user
   --project current directory
 
 The generated rules invoke the stable ~/.local/bin/agentgear launcher. User
 scope writes harness user configuration; project scope writes trusted-project
-configuration under DIR.`;
+configuration under DIR. Use permissions preset for reusable development-stack
+grants such as Go, Node.js, TypeScript, and frontend toolchains.`;
 
 const colors = {
   info: "\x1b[0;34m",

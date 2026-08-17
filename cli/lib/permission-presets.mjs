@@ -11,7 +11,7 @@ const usage = `Manage reusable development-stack permission presets.
 
 Usage:
   agentgear permissions preset list [--json]
-  agentgear permissions preset show NAME [--output FILE]
+  agentgear permissions preset show NAME [--file FILE]
   agentgear permissions preset add NAME... [--scope user|project] [--project DIR]
                                       [--target claude,codex,gemini,agy]
   agentgear permissions preset add --file FILE [--scope user|project] [--project DIR]
@@ -25,8 +25,9 @@ Defaults:
 Agy currently stores permission grants at user scope. Select it explicitly with
 --scope user --target agy (or combine it with other user-scoped targets).
 
-Built-in presets are small JSON files. Use preset show to inspect or copy one,
-then pass the customized JSON back with preset add --file.`;
+Built-in presets are small JSON files. Preset show writes NAME-permissions.json
+in the current directory unless --file overrides the path. Customize that file,
+then pass it back with preset add --file.`;
 
 function catalog(rootDir = repositoryRoot) {
   return JSON.parse(fs.readFileSync(path.join(rootDir, "catalog", "skills.json"), "utf8"));
@@ -76,6 +77,31 @@ function writeAtomic(filePath, source) {
   } catch (error) {
     fs.rmSync(temporary, { force: true });
     throw error;
+  }
+}
+
+function tryWriteNewFile(filePath, source) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  try {
+    fs.writeFileSync(filePath, source, { flag: "wx" });
+    return true;
+  } catch (error) {
+    if (error.code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+function writeNewFile(filePath, source) {
+  if (!tryWriteNewFile(filePath, source)) {
+    throw new Error(`permission preset file already exists: ${filePath}`);
+  }
+}
+
+function writeDefaultPresetFile(name, source, directory = process.cwd()) {
+  for (let suffix = 1; ; suffix += 1) {
+    const qualifier = suffix === 1 ? "" : `-${suffix}`;
+    const candidate = path.resolve(directory, `${name}-permissions${qualifier}.json`);
+    if (tryWriteNewFile(candidate, source)) return candidate;
   }
 }
 
@@ -217,7 +243,6 @@ function parse(argv) {
     else if (argument === "--project") options.project = next();
     else if (argument === "--target") options.targets = next().split(",").filter(Boolean);
     else if (argument === "--file") options.file = next();
-    else if (argument === "--output") options.output = next();
     else if (argument === "--json") options.json = true;
     else if (argument === "--help" || argument === "-h") options.help = true;
     else throw new Error(`unknown permissions preset option: ${argument}`);
@@ -232,21 +257,27 @@ export function runPermissionPresetCommand(argv, { rootDir = repositoryRoot, env
     return;
   }
   if (options.action === "list") {
-    if (options.names.length || options.file || options.output) throw new Error("preset list does not accept names or files");
+    if (options.names.length || options.file) throw new Error("preset list does not accept names or files");
     const presets = listPermissionPresets({ rootDir });
     if (options.json) process.stdout.write(`${JSON.stringify(presets, null, 2)}\n`);
     else for (const preset of presets) process.stdout.write(`${preset.name.padEnd(24)} ${preset.description}\n`);
     return;
   }
   if (options.action === "show") {
-    if (options.names.length !== 1 || options.file) throw new Error("preset show requires exactly one built-in preset name");
+    if (options.names.length !== 1) throw new Error("preset show requires exactly one built-in preset name");
     const preset = loadBuiltIn(options.names[0], rootDir);
     const source = `${JSON.stringify(preset, null, 2)}\n`;
-    if (options.output) writeAtomic(path.resolve(options.output), source);
-    else process.stdout.write(source);
+    let output;
+    if (options.file) {
+      output = path.resolve(options.file);
+      writeNewFile(output, source);
+    } else {
+      output = writeDefaultPresetFile(preset.name, source);
+    }
+    process.stdout.write(`Wrote permission preset ${preset.name} to ${output}.\n`);
     return;
   }
-  if (options.json || options.output) throw new Error("--json and --output are not valid with preset add");
+  if (options.json) throw new Error("--json is not valid with preset add");
   if (options.file && options.names.length) throw new Error("preset add accepts names or --file, not both");
   if (!options.file && options.names.length === 0) throw new Error("preset add requires at least one name or --file");
   const presets = options.file ? [readPresetFile(options.file)] : options.names.map(name => loadBuiltIn(name, rootDir));

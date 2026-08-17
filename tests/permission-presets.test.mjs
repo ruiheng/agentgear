@@ -39,6 +39,22 @@ function removeGitDiffWorkflowClaims(project) {
   fs.writeFileSync(claimFile, `${JSON.stringify(claims, null, 2)}\n`);
 }
 
+function spawnPresetShow(name, cwd, env) {
+  return new Promise(resolve => {
+    const child = childProcess.spawn(process.execPath, [
+      path.join(rootDir, "bin", "agentgear.mjs"),
+      "permissions", "preset", "show", name
+    ], { cwd, env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", chunk => { stdout += chunk; });
+    child.stderr.on("data", chunk => { stderr += chunk; });
+    child.on("close", status => resolve({ status, stdout, stderr }));
+  });
+}
+
 test("development permission presets are independently cataloged", () => {
   const names = listPermissionPresets().map(preset => preset.name);
   assert.deepEqual(names, [
@@ -404,8 +420,39 @@ test("preset show copies editable JSON and the CLI accepts multiple preset names
   const current = fixture("preset-cli");
   try {
     const output = path.join(current.temporary, "vue-custom.json");
-    runPermissionPresetCommand(["show", "vue", "--output", output]);
+    assert.throws(
+      () => runPermissionPresetCommand(["show", "vue", "--output", output]),
+      /unknown permissions preset option: --output/
+    );
+    runPermissionPresetCommand(["show", "vue", "--file", output]);
     assert.equal(JSON.parse(fs.readFileSync(output, "utf8")).name, "vue");
+
+    const defaultOutput = childProcess.spawnSync(process.execPath, [
+      path.join(rootDir, "bin", "agentgear.mjs"),
+      "permissions", "preset", "show", "go"
+    ], { cwd: current.temporary, encoding: "utf8", env: current.environment });
+    assert.equal(defaultOutput.status, 0, defaultOutput.stderr);
+    assert.match(defaultOutput.stdout, /Wrote permission preset go to .*go-permissions\.json\./);
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(current.temporary, "go-permissions.json"), "utf8")).name,
+      "go"
+    );
+    fs.writeFileSync(path.join(current.temporary, "go-permissions.json"), "customized\n");
+    const secondDefaultOutput = childProcess.spawnSync(process.execPath, [
+      path.join(rootDir, "bin", "agentgear.mjs"),
+      "permissions", "preset", "show", "go"
+    ], { cwd: current.temporary, encoding: "utf8", env: current.environment });
+    assert.equal(secondDefaultOutput.status, 0, secondDefaultOutput.stderr);
+    assert.equal(fs.readFileSync(path.join(current.temporary, "go-permissions.json"), "utf8"), "customized\n");
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(current.temporary, "go-permissions-2.json"), "utf8")).name,
+      "go"
+    );
+
+    assert.throws(
+      () => runPermissionPresetCommand(["show", "vue", "--file", output]),
+      /permission preset file already exists/
+    );
 
     const result = childProcess.spawnSync(process.execPath, [
       path.join(rootDir, "bin", "agentgear.mjs"),
@@ -416,6 +463,24 @@ test("preset show copies editable JSON and the CLI accepts multiple preset names
     for (const name of ["node", "typescript", "frontend", "vue"]) {
       assert.equal(fs.existsSync(path.join(current.project, ".codex", "rules", `agentgear-preset-${name}.rules`)), true);
       assert.equal(fs.existsSync(path.join(current.project, ".gemini", "policies", `agentgear-preset-${name}.toml`)), true);
+    }
+  } finally {
+    fs.rmSync(current.temporary, { recursive: true, force: true });
+  }
+});
+
+test("concurrent default preset copies select distinct available filenames", async () => {
+  const current = fixture("preset-concurrent-show");
+  try {
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => spawnPresetShow("vue", current.temporary, current.environment))
+    );
+    for (const result of results) assert.equal(result.status, 0, result.stderr);
+    const copies = fs.readdirSync(current.temporary)
+      .filter(name => /^vue-permissions(?:-\d+)?\.json$/.test(name));
+    assert.equal(copies.length, 6);
+    for (const copy of copies) {
+      assert.equal(JSON.parse(fs.readFileSync(path.join(current.temporary, copy), "utf8")).name, "vue");
     }
   } finally {
     fs.rmSync(current.temporary, { recursive: true, force: true });
