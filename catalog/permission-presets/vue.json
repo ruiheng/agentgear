@@ -1,0 +1,11 @@
+{
+  "name": "vue",
+  "description": "Vue-specific type-check, build, test, and legacy CLI commands.",
+  "rules": [
+    { "command": ["vue-tsc"], "justification": "Type-check Vue single-file components." },
+    { "command": ["vue-cli-service", "serve"], "justification": "Serve a Vue CLI project." },
+    { "command": ["vue-cli-service", "build"], "justification": "Build a Vue CLI project." },
+    { "command": ["vue-cli-service", "test:unit"], "justification": "Run Vue CLI unit tests." },
+    { "command": ["vue-cli-service", "lint"], "justification": "Lint a Vue CLI project." }
+  ]
+}

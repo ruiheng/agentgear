@@ -52,6 +52,7 @@ import { migrateLegacySkills } from "./lib/legacy-skill-migration.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
+import { runPermissionPresetCommand } from "./lib/permission-presets.mjs";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
@@ -86,6 +87,7 @@ function usage() {
     "  doctor [--pack NAME] [--skill NAME]",
     "  permissions init [--scope user|project] [--project DIR]",
     "  permissions check [--scope user|project] [--project DIR] [--json]",
+    "  permissions preset list|show|add [options]",
     "  resolve-tool-command [resolver options]",
     "  session delete --host NAME --session-id ID [--profile NAME] [--json]",
     "  run <skill> <script> [args...]",
@@ -700,7 +702,8 @@ export function main(commandArguments = process.argv.slice(2)) {
     return;
   }
   if (command === "permissions") {
-    runPermissionsCommand(argumentsList);
+    if (argumentsList[0] === "preset") runPermissionPresetCommand(argumentsList.slice(1));
+    else runPermissionsCommand(argumentsList);
     return;
   }
   if (command === "session") {

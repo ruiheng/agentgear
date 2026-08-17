@@ -145,6 +145,8 @@ export function permissionPaths(scope, projectDir, env = process.env) {
   return {
     configRoot,
     claudeSettings: path.join(configRoot, ".claude", "settings.json"),
+    claudeClaims: path.join(configRoot, ".claude", ".agentgear-workflow-claims.json"),
+    claudePermissionRegistry: path.join(configRoot, ".claude", ".agentgear-permission-presets.json"),
     codexRules: path.join(codexRoot, "rules", "agentgear-workflow.rules"),
     codexLegacyRules: path.join(codexRoot, "rules", "agent-deck-workflow.rules"),
     codexConfig: path.join(codexRoot, "config.toml"),
@@ -220,6 +222,8 @@ function writeAtomic(filePath, content) {
 function permissionMutationPaths(paths) {
   return [...new Set([
     paths.claudeSettings,
+    paths.claudeClaims,
+    paths.claudePermissionRegistry,
     ownershipManifestPath(paths.configRoot),
     legacyOwnershipManifestPath(paths.configRoot),
     paths.codexRules,
@@ -572,14 +576,56 @@ function generatedClaudeMcpPermissions(waypost) {
     : [];
 }
 
+function readPresetClaudeClaims(configRoot) {
+  const directory = path.join(configRoot, ".claude");
+  if (!fs.statSync(directory, { throwIfNoEntry: false })?.isDirectory()) return new Set();
+  const claims = new Set();
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isFile() || !/^agentgear-preset-[a-z0-9-]+\.json$/.test(entry.name)) continue;
+    const filePath = path.join(directory, entry.name);
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch (error) {
+      throw new Error(`Failed to parse ${filePath}: ${error.message}`);
+    }
+    if (!Array.isArray(manifest?.permissions)
+      || manifest.permissions.some(permission => typeof permission !== "string")) {
+      throw new Error(`Invalid preset permission claims: ${filePath}`);
+    }
+    for (const permission of manifest.permissions) claims.add(permission);
+  }
+  return claims;
+}
+
+function readClaudeIntroducedPermissions(filePath) {
+  const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
+  if (!info) return new Set();
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error(`Invalid Claude permission registry: ${filePath}`);
+  }
+  let registry;
+  try {
+    registry = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    throw new Error(`Failed to parse ${filePath}: ${error.message}`);
+  }
+  if (!Array.isArray(registry?.introduced_permissions)
+    || registry.introduced_permissions.some(permission => typeof permission !== "string")) {
+    throw new Error(`Invalid Claude permission registry: ${filePath}`);
+  }
+  return new Set(registry.introduced_permissions);
+}
+
 function isSafeRegularFile(filePath) {
   const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
   return Boolean(info?.isFile() && !info.isSymbolicLink());
 }
 
-function configureClaude(configRoot, waypost) {
+function configureClaude(paths, waypost) {
+  const configRoot = paths.configRoot;
   log("info", "Configuring Claude Code permissions...");
-  const settingsFile = path.join(configRoot, ".claude", "settings.json");
+  const settingsFile = paths.claudeSettings;
   const settingsInfo = fs.lstatSync(settingsFile, { throwIfNoEntry: false });
   if (settingsInfo && !isSafeRegularFile(settingsFile)) {
     throw new Error(`refusing symlinked or non-file Claude settings path: ${settingsFile}`);
@@ -598,12 +644,10 @@ function configureClaude(configRoot, waypost) {
     ...legacyMcpPermissions
   ]);
   let settings = {};
-  let originalSettings = "";
   if (alreadyExists) {
     log("info", "Merging permissions into existing settings.json");
     try {
-      originalSettings = fs.readFileSync(settingsFile, "utf8");
-      settings = JSON.parse(originalSettings);
+      settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
     } catch (error) {
       throw new Error(`Failed to parse ${settingsFile}: ${error.message}`);
     }
@@ -613,22 +657,40 @@ function configureClaude(configRoot, waypost) {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) settings = {};
   if (!settings.permissions || typeof settings.permissions !== "object" || Array.isArray(settings.permissions)) settings.permissions = {};
   const prior = Array.isArray(settings.permissions.allow) ? settings.permissions.allow : [];
+  const priorSet = new Set(prior);
   const retiredPermissions = new Set(retiredClaudePermissions());
+  const presetClaims = readPresetClaudeClaims(configRoot);
+  const generated = generatedClaudePermissions(waypost);
+  const nextClaims = new Set([...presetClaims, ...generated]);
+  const introduced = readClaudeIntroducedPermissions(paths.claudePermissionRegistry);
+  const retiredIntroduced = new Set([...introduced].filter(permission => !nextClaims.has(permission)));
+  const nextIntroduced = new Set([...introduced].filter(permission => nextClaims.has(permission)));
+  for (const permission of generated) {
+    if (!priorSet.has(permission)) nextIntroduced.add(permission);
+  }
   settings.permissions.allow = [...new Set([
-    ...prior.filter(item => !retiredPermissions.has(item) && !ownedWaypostPermissions.has(item) && (ownership.present || !isLegacyBroadWaypostPermission(item))),
-    ...generatedClaudePermissions(waypost)
+    ...prior.filter(permission => nextClaims.has(permission) || (
+      !retiredIntroduced.has(permission)
+      && !retiredPermissions.has(permission)
+      && !ownedWaypostPermissions.has(permission)
+      && (ownership.present || !isLegacyBroadWaypostPermission(permission))
+    )),
+    ...generated
   ])];
   writeAtomic(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
-  try {
-    if (waypost.trusted) {
-      writeWaypostOwnershipManifest(configRoot, waypost.rules, generatedClaudeMcpPermissions(waypost));
-    } else {
-      removeWaypostOwnershipManifest(configRoot);
-    }
-  } catch (error) {
-    if (alreadyExists) writeAtomic(settingsFile, originalSettings);
-    else fs.rmSync(settingsFile, { force: true });
-    throw error;
+  writeAtomic(paths.claudeClaims, `${JSON.stringify({
+    version: 1,
+    producer: "workflow",
+    permissions: generated
+  }, null, 2)}\n`);
+  writeAtomic(paths.claudePermissionRegistry, `${JSON.stringify({
+    version: 1,
+    introduced_permissions: [...nextIntroduced]
+  }, null, 2)}\n`);
+  if (waypost.trusted) {
+    writeWaypostOwnershipManifest(configRoot, waypost.rules, generatedClaudeMcpPermissions(waypost));
+  } else {
+    removeWaypostOwnershipManifest(configRoot);
   }
   log("ok", `${alreadyExists ? "Merged permissions into" : "Created"} ${settingsFile}`);
 }
@@ -1036,6 +1098,34 @@ function checkClaude(paths, waypost, issues) {
   if (missing.length > 0) issues.push(`Claude settings are missing ${missing.length} Agentgear permission(s)`);
   const retired = retiredClaudePermissions().filter(permission => allowed.has(permission));
   if (retired.length > 0) issues.push(`Claude settings retain ${retired.length} retired Agentgear permission(s)`);
+  const claimSource = readRegularText(paths.claudeClaims, "Claude workflow claims", issues);
+  if (claimSource !== null) {
+    try {
+      const claim = JSON.parse(claimSource);
+      const expected = generatedClaudePermissions(waypost);
+      if (claim.version !== 1 || claim.producer !== "workflow"
+        || !Array.isArray(claim.permissions)
+        || claim.permissions.length !== expected.length
+        || claim.permissions.some((permission, index) => permission !== expected[index])) {
+        issues.push(`Claude workflow claims are out of date: ${paths.claudeClaims}`);
+      }
+    } catch (error) {
+      issues.push(`Claude workflow claims are invalid JSON: ${error.message}`);
+    }
+  }
+  const registrySource = readRegularText(paths.claudePermissionRegistry, "Claude permission registry", issues);
+  if (registrySource !== null) {
+    try {
+      const registry = JSON.parse(registrySource);
+      if (registry.version !== 1
+        || !Array.isArray(registry.introduced_permissions)
+        || registry.introduced_permissions.some(permission => typeof permission !== "string")) {
+        issues.push(`Claude permission registry is invalid: ${paths.claudePermissionRegistry}`);
+      }
+    } catch (error) {
+      issues.push(`Claude permission registry is invalid JSON: ${error.message}`);
+    }
+  }
   if (waypost.trusted) {
     try {
       const ownership = readWaypostOwnershipManifest(paths.configRoot);
@@ -1140,7 +1230,7 @@ export function initializePermissions({ scope = "user", project = process.cwd() 
   }
   const snapshots = capturePermissionFiles(paths);
   try {
-    configureClaude(paths.configRoot, waypost);
+    configureClaude(paths, waypost);
     const legacyArchives = [
       configureCodex(projectDir, waypost, paths),
       configureGemini(waypost, paths)

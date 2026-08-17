@@ -1,0 +1,28 @@
+{
+  "name": "node",
+  "description": "Standard package-script and test commands for Node.js projects.",
+  "rules": [
+    { "command": ["node", "--test"], "justification": "Run tests with the Node.js test runner." },
+    { "command": ["npm", "test"], "justification": "Run the npm test script." },
+    { "command": ["npm", "run", "test"], "justification": "Run the npm test script." },
+    { "command": ["npm", "run", "lint"], "justification": "Run the npm lint script." },
+    { "command": ["npm", "run", "typecheck"], "justification": "Run the npm type-check script." },
+    { "command": ["npm", "run", "check"], "justification": "Run the npm validation script." },
+    { "command": ["npm", "run", "build"], "justification": "Run the npm build script." },
+    { "command": ["pnpm", "test"], "justification": "Run tests with pnpm." },
+    { "command": ["pnpm", "run", "lint"], "justification": "Run lint with pnpm." },
+    { "command": ["pnpm", "run", "typecheck"], "justification": "Run type checking with pnpm." },
+    { "command": ["pnpm", "run", "check"], "justification": "Run project validation with pnpm." },
+    { "command": ["pnpm", "run", "build"], "justification": "Build the project with pnpm." },
+    { "command": ["yarn", "test"], "justification": "Run tests with Yarn." },
+    { "command": ["yarn", "lint"], "justification": "Run lint with Yarn." },
+    { "command": ["yarn", "typecheck"], "justification": "Run type checking with Yarn." },
+    { "command": ["yarn", "check"], "justification": "Run project validation with Yarn." },
+    { "command": ["yarn", "build"], "justification": "Build the project with Yarn." },
+    { "command": ["bun", "test"], "justification": "Run tests with Bun." },
+    { "command": ["bun", "run", "lint"], "justification": "Run lint with Bun." },
+    { "command": ["bun", "run", "typecheck"], "justification": "Run type checking with Bun." },
+    { "command": ["bun", "run", "check"], "justification": "Run project validation with Bun." },
+    { "command": ["bun", "run", "build"], "justification": "Build the project with Bun." }
+  ]
+}

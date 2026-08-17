@@ -22,6 +22,41 @@
       "description": "Persistent sessions managed by Thurbox."
     }
   },
+  "permissionPresets": {
+    "go": {
+      "file": "catalog/permission-presets/go.json"
+    },
+    "haskell": {
+      "file": "catalog/permission-presets/haskell.json"
+    },
+    "node": {
+      "file": "catalog/permission-presets/node.json"
+    },
+    "javascript": {
+      "file": "catalog/permission-presets/javascript.json"
+    },
+    "typescript": {
+      "file": "catalog/permission-presets/typescript.json"
+    },
+    "frontend": {
+      "file": "catalog/permission-presets/frontend.json"
+    },
+    "vue": {
+      "file": "catalog/permission-presets/vue.json"
+    },
+    "react": {
+      "file": "catalog/permission-presets/react.json"
+    },
+    "svelte": {
+      "file": "catalog/permission-presets/svelte.json"
+    },
+    "python": {
+      "file": "catalog/permission-presets/python.json"
+    },
+    "rust": {
+      "file": "catalog/permission-presets/rust.json"
+    }
+  },
   "retiredSkills": [
     "agent-deck-workflow",
     "assess-design-spec",

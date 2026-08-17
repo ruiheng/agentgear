@@ -1,0 +1,14 @@
+{
+  "name": "go",
+  "description": "Formatting, compilation, dependency, test, and static-analysis commands for Go projects.",
+  "rules": [
+    { "command": ["gofmt"], "justification": "Format Go source files." },
+    { "command": ["go", "fmt"], "justification": "Format Go packages." },
+    { "command": ["go", "test"], "justification": "Run Go tests." },
+    { "command": ["go", "vet"], "justification": "Run Go static analysis." },
+    { "command": ["go", "build"], "justification": "Build Go packages and commands." },
+    { "command": ["go", "list"], "justification": "Inspect Go packages and modules." },
+    { "command": ["go", "mod", "tidy"], "justification": "Synchronize Go module dependencies." },
+    { "command": ["go", "mod", "download"], "justification": "Download declared Go module dependencies." }
+  ]
+}

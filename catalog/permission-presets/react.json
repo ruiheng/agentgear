@@ -1,0 +1,11 @@
+{
+  "name": "react",
+  "description": "Common Create React App and Next.js development commands.",
+  "rules": [
+    { "command": ["react-scripts", "test"], "justification": "Run Create React App tests." },
+    { "command": ["react-scripts", "build"], "justification": "Build a Create React App project." },
+    { "command": ["next", "dev"], "justification": "Start a Next.js development server." },
+    { "command": ["next", "build"], "justification": "Build a Next.js application." },
+    { "command": ["next", "lint"], "justification": "Lint a Next.js application." }
+  ]
+}

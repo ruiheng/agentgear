@@ -1,0 +1,12 @@
+{
+  "name": "python",
+  "description": "Common test, lint, format, and type-check commands for Python projects.",
+  "rules": [
+    { "command": ["pytest"], "justification": "Run Python tests with pytest." },
+    { "command": ["python", "-m", "pytest"], "justification": "Run Python tests through the active interpreter." },
+    { "command": ["ruff", "check"], "justification": "Lint Python source with Ruff." },
+    { "command": ["ruff", "format"], "justification": "Format Python source with Ruff." },
+    { "command": ["mypy"], "justification": "Type-check Python source with mypy." },
+    { "command": ["basedpyright"], "justification": "Type-check Python source with basedpyright." }
+  ]
+}

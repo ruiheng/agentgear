@@ -1,0 +1,11 @@
+{
+  "name": "frontend",
+  "description": "Common build, unit-test, and browser-test commands for frontend projects.",
+  "rules": [
+    { "command": ["vite"], "justification": "Build or serve a frontend project with Vite." },
+    { "command": ["vitest"], "justification": "Run frontend unit tests with Vitest." },
+    { "command": ["playwright", "test"], "justification": "Run browser tests with Playwright." },
+    { "command": ["cypress", "run"], "justification": "Run browser tests with Cypress." },
+    { "command": ["storybook", "build"], "justification": "Build a Storybook site." }
+  ]
+}

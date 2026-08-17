@@ -1,0 +1,9 @@
+{
+  "name": "svelte",
+  "description": "Svelte type-check and framework CLI commands.",
+  "rules": [
+    { "command": ["svelte-check"], "justification": "Check Svelte components and TypeScript." },
+    { "command": ["vite"], "justification": "Build or serve a Svelte project with Vite." },
+    { "command": ["vitest"], "justification": "Run Svelte unit tests with Vitest." }
+  ]
+}

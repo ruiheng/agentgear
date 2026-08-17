@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { validatePermissionPreset } from "./permission-preset-schema.mjs";
 
 function unique(values) {
   return [...new Set(values)];
@@ -132,6 +133,39 @@ export function validateCatalog(rootDir, catalog) {
     .sort();
   const catalogNames = Object.keys(catalog.skills.skills).sort();
   const retiredSkills = catalog.skills.retiredSkills ?? [];
+  const presetRoot = path.join(rootDir, "catalog", "permission-presets");
+  const declaredPresetFiles = new Set();
+
+  for (const [name, preset] of Object.entries(catalog.skills.permissionPresets ?? {})) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+      errors.push(`invalid permission preset name: ${name}`);
+      continue;
+    }
+    if (!isPlainObject(preset) || !isSafeRelativeSkillPath(preset.file)) {
+      errors.push(`permission preset ${name} must declare a safe file path`);
+      continue;
+    }
+    const presetPath = path.join(rootDir, preset.file);
+    declaredPresetFiles.add(path.resolve(presetPath));
+    if (!preset.file.startsWith("catalog/permission-presets/") || !fs.statSync(presetPath, { throwIfNoEntry: false })?.isFile()) {
+      errors.push(`permission preset ${name} has no catalog file: ${preset.file}`);
+      continue;
+    }
+    try {
+      const source = readJson(presetPath);
+      validatePermissionPreset(source, `permission preset ${name}`);
+      if (source.name !== name) errors.push(`permission preset ${name} file declares a different name`);
+    } catch (error) {
+      errors.push(`invalid permission preset ${name}: ${error.message}`);
+    }
+  }
+  if (fs.statSync(presetRoot, { throwIfNoEntry: false })?.isDirectory()) {
+    for (const entry of fs.readdirSync(presetRoot, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".json") && !declaredPresetFiles.has(path.join(presetRoot, entry.name))) {
+        errors.push(`permission preset file is missing from catalog/skills.json: ${entry.name}`);
+      }
+    }
+  }
 
   if (!Array.isArray(retiredSkills)) {
     errors.push("retiredSkills must be an array");

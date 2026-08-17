@@ -1,0 +1,10 @@
+{
+  "name": "javascript",
+  "description": "Common lint, formatting, and test tools for JavaScript projects.",
+  "rules": [
+    { "command": ["eslint"], "justification": "Lint JavaScript source with ESLint." },
+    { "command": ["prettier"], "justification": "Check or format source with Prettier." },
+    { "command": ["jest"], "justification": "Run JavaScript tests with Jest." },
+    { "command": ["vitest"], "justification": "Run JavaScript tests with Vitest." }
+  ]
+}

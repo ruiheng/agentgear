@@ -1,0 +1,11 @@
+{
+  "name": "typescript",
+  "description": "Compiler, lint, formatting, and test tools for TypeScript projects.",
+  "rules": [
+    { "command": ["tsc"], "justification": "Run the TypeScript compiler." },
+    { "command": ["eslint"], "justification": "Lint TypeScript source with ESLint." },
+    { "command": ["prettier"], "justification": "Check or format TypeScript source with Prettier." },
+    { "command": ["jest"], "justification": "Run TypeScript tests with Jest." },
+    { "command": ["vitest"], "justification": "Run TypeScript tests with Vitest." }
+  ]
+}

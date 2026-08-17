@@ -1,0 +1,14 @@
+{
+  "name": "haskell",
+  "description": "Common build, test, formatting, and lint commands for Haskell projects.",
+  "rules": [
+    { "command": ["cabal", "build"], "justification": "Build a Haskell project with Cabal." },
+    { "command": ["cabal", "test"], "justification": "Run Haskell tests with Cabal." },
+    { "command": ["cabal", "check"], "justification": "Validate a Cabal package." },
+    { "command": ["stack", "build"], "justification": "Build a Haskell project with Stack." },
+    { "command": ["stack", "test"], "justification": "Run Haskell tests with Stack." },
+    { "command": ["fourmolu"], "justification": "Format Haskell source with Fourmolu." },
+    { "command": ["ormolu"], "justification": "Format Haskell source with Ormolu." },
+    { "command": ["hlint"], "justification": "Lint Haskell source with HLint." }
+  ]
+}

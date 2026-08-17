@@ -10,3 +10,8 @@ format. Keep that adapter narrow and generate its output into `dist/`.
 Host-specific CLI mappings and lifecycle inspection live here. Keep workflow
 target selection and archive orchestration in the owning skill; provider
 metadata lookup, deletion guards, and host-native cleanup stay in the adapter.
+
+`permission-adapters/` renders the common development permission-preset schema
+into Codex, Claude Code, Gemini CLI, and Agy configuration. Preset discovery,
+schema validation, target selection, and transactional orchestration remain in
+`cli/lib/`; native paths, formats, and settings merge behavior stay here.

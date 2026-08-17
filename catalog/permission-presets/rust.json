@@ -1,0 +1,12 @@
+{
+  "name": "rust",
+  "description": "Formatting, compilation, test, and static-analysis commands for Rust projects.",
+  "rules": [
+    { "command": ["cargo", "fmt"], "justification": "Format Rust source with Cargo." },
+    { "command": ["rustfmt"], "justification": "Format Rust source files." },
+    { "command": ["cargo", "test"], "justification": "Run Rust tests." },
+    { "command": ["cargo", "check"], "justification": "Check Rust code without producing release artifacts." },
+    { "command": ["cargo", "clippy"], "justification": "Run Clippy static analysis." },
+    { "command": ["cargo", "build"], "justification": "Build Rust packages." }
+  ]
+}

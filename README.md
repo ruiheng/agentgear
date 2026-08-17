@@ -194,6 +194,7 @@ initializer.
 | `uninstall` | Remove selected installer-managed skills; `--purge` also removes installer-owned runtime artifacts. |
 | `doctor` | Check declared external commands, upstream requirements, and supported session hosts. |
 | `permissions init/check` | Configure or verify workflow permissions for supported agent harnesses. |
+| `permissions preset` | List, copy, or add reusable development-stack permission presets. |
 | `session delete` | Delete a session through a stable host-neutral interface; Thurbox uses recoverable soft-delete. |
 | `run` | Run a script bundled with an installed skill. |
 
@@ -220,6 +221,36 @@ agentgear permissions check
 agentgear permissions init --scope project --project /path/to/project
 agentgear permissions check --scope project --project /path/to/project
 ```
+
+Reusable development-stack presets are separate from workflow permissions and
+default to project scope. Presets can be composed; file-based agents receive
+one generated rule file per preset, while merged settings are tracked with a
+claim sidecar per preset plus a settings-level registry containing only the
+permissions Agentgear actually introduced:
+
+```bash
+agentgear permissions preset list
+agentgear permissions preset add go
+agentgear permissions preset add node typescript frontend vue
+agentgear permissions preset add python --target codex,claude
+agentgear permissions preset add node typescript --scope user --target codex,claude,agy
+```
+
+Built-ins cover Go, Haskell, Node.js, JavaScript, TypeScript, frontend tools,
+Vue, React, Svelte, Python, and Rust. To copy and customize a small preset file:
+
+```bash
+agentgear permissions preset show vue --output ./vue-permissions.json
+agentgear permissions preset add --file ./vue-permissions.json
+```
+
+Custom presets use the same JSON shape as files under
+`catalog/permission-presets/`: a kebab-case `name`, a `description`, and
+`rules` containing tokenized `command` arrays plus human-readable
+`justification` strings. Restart existing agent sessions after adding presets.
+Codex, Claude Code, Gemini CLI, and Agy are implemented as independent output
+adapters over the same preset schema. Agy currently exposes user-scoped command
+grants, so selecting `agy` requires `--scope user`.
 
 The initializer grants only the explicit Agentgear, Waypost, and session-host
 operations used by the workflow. Agentgear records the Codex MCP sections it
