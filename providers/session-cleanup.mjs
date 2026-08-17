@@ -271,8 +271,6 @@ function cleanupAgentDeck(options) {
         providerSource = Object.keys(ids).length > Object.keys(hookIds).length ? "state_db_tool_data+hook_status_file" : "hook_status_file";
       }
     }
-    const guardRequired = Boolean(expected);
-    const guardPassed = !guardRequired || Boolean(ids[expected]);
     const deleteEligible = options.isDisposable(target.role, title, options.taskId);
     let deleted = false;
     let deleteStatus;
@@ -283,8 +281,7 @@ function cleanupAgentDeck(options) {
       deleteStatus = "not_found";
       sessions.push({
         role: target.role, ref: target.ref, found: false, tool: tool || null, provider_resume_ids: ids,
-        has_provider_resume_id: Object.keys(ids).some(key => key.endsWith("_session_id")), provider_guard_expected_key: expected || null,
-        provider_guard_required: guardRequired, provider_guard_passed: guardPassed, delete_eligible: deleteEligible,
+        has_provider_resume_id: Object.keys(ids).some(key => key.endsWith("_session_id")), delete_eligible: deleteEligible,
         provider_resume_source: providerSource, raw_session_show: shown ? JSON.stringify(shown) : null,
         delete_applied: options.apply, deleted: false, delete_status: deleteStatus, delete_block_reason: null
       });
@@ -296,12 +293,6 @@ function cleanupAgentDeck(options) {
       deleteStatus = "skipped_non_disposable_session";
       deleteBlockReason = "non_disposable_session";
       output.push(`session_preserved role=${target.role} ref=${target.ref} id=${id} title=${title} reason=${deleteBlockReason}`);
-    } else if (!guardPassed) {
-      deleteStatus = "blocked_missing_provider_session_id";
-      deleteBlockReason = "missing_provider_session_id";
-      blocked += 1;
-      output.push(`manual_close_required role=${target.role} ref=${target.ref} id=${id} tool=${tool} expected_key=${expected} reason=${deleteBlockReason}`);
-      output.push(`manual_close_suggestion command='agent-deck remove ${id}'`);
     } else {
       const payload = deleteSession({ host: "agent-deck", sessionId: id, profile: options.profile });
       deleteProvider = deleteProviderRecord(payload);
@@ -327,8 +318,7 @@ function cleanupAgentDeck(options) {
     sessions.push({
       role: target.role, ref: target.ref, found: true, agent_deck_session_id: id, session_title: title, tool: tool || null, status: stringField(shown, "status") || null,
       group: stringField(shown, "group") || null, path: stringField(shown, "path") || null, provider_resume_ids: ids,
-      has_provider_resume_id: Object.keys(ids).some(key => key.endsWith("_session_id")), provider_guard_expected_key: expected || null,
-      provider_guard_required: guardRequired, provider_guard_passed: guardPassed, delete_eligible: deleteEligible,
+      has_provider_resume_id: Object.keys(ids).some(key => key.endsWith("_session_id")), delete_eligible: deleteEligible,
       provider_resume_source: providerSource, session_show: shown, delete_applied: options.apply, deleted, delete_status: deleteStatus,
       delete_block_reason: deleteBlockReason || null, delete_error: deleteError, delete_provider: deleteProvider
     });

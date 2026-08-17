@@ -4,7 +4,7 @@ import process from "node:process";
 import { cleanupSessionTargets } from "../../../providers/session-cleanup.mjs";
 import { execute, fail, isMain, nowIso, parseArgs, writeJsonAtomic } from "./workflow-lib.mjs";
 
-const usage = `Archive task-session resume metadata, then optionally remove task-scoped disposable sessions.
+const usage = `Archive task-session metadata, including provider resume ids when available, then optionally remove task-scoped disposable sessions.
 
 Usage:
   archive-and-remove-task-sessions.mjs [options]
