@@ -4,97 +4,51 @@ selector-summary: Complete review-code instructions, part 4.
 ---
 
 Execution flow in multi-agent mode:
-1. Produce the full review report in the format above
-   - for task, preserve supplied Branch Plan and Workspace Handoff unchanged
-   - for `integration_final`, preserve Final Review Scope in every report
-   - preserve known User Decisions; the final task `stop_recommended` report summarizes all of them under `### User Decision Summary`
-2. Choose action:
-   - `rework_required` if `NEEDS_REVISION`, must-fix exists, completeness FAIL, or a browser report says `Code changed: yes`, unless the non-convergence stop rule below applies
-   - `browser_check_requested` if code review is acceptable so far but runtime browser evidence is still required
-   - `stop_recommended` if no must-fix remains and browser validation is not required or already passed
-   - if `round >= review_round_hard_stop_threshold` and similar issues are still recurring or progress is clearly non-converging, do not send another routine `rework_required`; present the situation to the user, then apply the Manual-decision rule
-3. For `rework_required`, send the full review report back to the requester session from `review_requested`
-   - requester may be `coder` or `planner`
-4. For `browser_check_requested`, generate one opaque `browser_check_id`, pass it to `browser-test-request` with this reviewer as report requester, and retain it with the review frame; pass original `requester_role` / `requester_session_id` and `setup_contact_workspace` as Setup Contact; on `browser_check_report`, resume with its evidence and matched review frame
-   - `Code changed: yes` is a must-fix delivery boundary: carry its branch/commit/files in `rework_required`, not acceptance. Requester must own, commit/verify, and resubmit the changed scope; do not closeout this round
-5. For `stop_recommended`:
-   - never accept or close out while a material scope decision is awaiting the user
-   - for `integration_final` / `standalone`, after automatic or explicit acceptance, send the full `stop_recommended` report to requester; do not run `review-closeout`
-   - for task with `auto_accept_if_no_must_fix=true`, proceed to `review-closeout`
-   - if the same final no-must-fix task-lane report is delivered to requester in unattended flow, requester may run `review-closeout` from that report instead of treating it as another rework round
-   - only when `auto_accept_if_no_must_fix=false`, present user decision summary, then apply the Manual-decision rule
-   - after explicit acceptance in human-gated flow, run `review-closeout` for task, or send the non-task result to requester
-   - request human UI confirmation before acceptance/closeout only when `ui_manual_confirmation=required`, or when `ui_manual_confirmation=auto` and explicit policy wants heuristic UI gating
 
-Waypost Message subject (`rework_required`):
-- `rework required: <task_id> r<round>`
+1. Produce the full review report in the format above. Preserve the supplied
+   Branch Plan, Workspace Handoff, Final Review Scope, and known User Decisions.
+2. Choose exactly one result:
+   - `rework_required` when a must-fix, completeness failure, or required browser
+     change remains. Send it according to the lane-aware routing rules below.
+   - `work_accepted` when the reviewed implementation is acceptable and no
+     further coder/reviewer iteration is required. Send it according to the
+     lane-aware routing rules below; it does not require closeout.
+   - `abort_iteration` when the current coder/reviewer iteration must stop
+     without accepting the work, such as non-convergence, a hard stop, or an
+     unresolved prerequisite. Send it according to the lane-aware routing rules
+     below.
+   - `browser_check_requested` when code review is acceptable so far but runtime
+     browser evidence is still required. On `browser_check_report`, resume with
+     the matched review frame and choose one of the three review results.
+3. For `rework_required`, send the full report to the recorded requester
+   endpoint from `review_requested` with subject
+   `rework required: <task_id> r<round>`. The requester may be the Coder or
+   the Planner; do not assume a separate Coder exists.
+4. For `work_accepted` or `abort_iteration`, send the full report with subject
+   `review result: <task_id> r<round>` to the recorded Planner endpoint for
+   `task` and `integration_final` lanes. For `standalone`, where no Planner
+   exists, send it to the recorded requester endpoint instead.
+5. The reviewer does not run `review-closeout`, merge branches, clean up
+   sessions, or decide whether the planner should dispatch another agent.
+   After delivering the result successfully, settle the claimed review input.
 
-Waypost Message body rules (`rework_required`):
-- use the full review report above as the body
-- set `Action: rework_required`
-- use `waypost`
-- send it with `waypost_send`
-  - `from_address = <current bound reviewer Waypost address>`
-  - `to_address = <received review-request sender_address>`
-  - `subject = "rework required: <task_id> r<round>"`
-  - `body = <full review report>`
-- include enough evidence and fix guidance that the requester can continue from the message body alone
+Waypost message rules:
 
-Waypost Message (`stop_recommended`, accepted non-task):
-- use only for `integration_final` / `standalone` after automatic or explicit acceptance
-- retain `Action: stop_recommended` and use the full review report as body
-- use the `rework_required` target and send shape with subject `review complete: <task_id> r<round>`
-- ACK a claimed review input only after this send succeeds
+- Keep the exact result Action in the full report body.
+- Reviewer-originated actions use `from_session_id = reviewer_session_id`.
+- `rework_required` targets the recorded requester endpoint for every lane.
+- `work_accepted` and `abort_iteration` target the recorded Planner endpoint
+  for `task` / `integration_final`, and the recorded requester endpoint for
+  `standalone`.
+- ACK a claimed review input only after the result message is delivered.
+- Preserve `workflow_policy` and `special_requirements` unchanged.
+- Keep transport JSON and raw addresses internal.
 
-Waypost Message subject (`user_requested_iteration` after user chooses iterate):
-- use only for `task`; `integration_final` / `standalone` use `rework_required`
-- `iteration requested: <task_id> r<round>`
+`work_accepted` means the reviewer accepts the implementation. `abort_iteration`
+means only that this implementation/review iteration must stop; neither result
+dictates closeout. The planner may close out, request another reviewer, ask for
+browser validation, request a user decision, or take another workflow action.
 
-Waypost Message body rules (`user_requested_iteration`):
-- use this minimal routing envelope and continuation body:
-
-```markdown
-Task: <task_id>
-Action: user_requested_iteration
-Reviewer session: <reviewer_session_id>
-Review lane: task
-Round: <round>
-
-### User Decision
-[the user's explicit decision]
-
-### Required Follow-ups
-- [required change]
-
-### Prior Review Findings
-[the findings the coder needs to continue]
-```
-
-- do not repeat Branch Plan or Workspace Handoff; the receiver recovers them from the matching sent `review_requested` and active-task record
-- use `waypost`
-- send it with `waypost_send`
-  - `from_address = <current bound reviewer Waypost address>`
-  - `to_address = <received review-request sender_address>`
-  - `subject = "iteration requested: <task_id> r<round>"`
-  - `body = <iteration message body>`
-
-For a user-facing `stop_recommended`, include Review Decision, Key Findings Snapshot, Residual Risk, and Verification Summary. Add UI Confirmation Gate only when applicable; add Decision Needed only for a manual choice.
-
-When `auto_accept_if_no_must_fix=true`, state `Auto-accepted by workflow policy`; do not ask for a decision.
-
-Manual-decision rule: after presenting a decision to the user, end this turn. Do nothing until the user's next instruction.
-
-Required interaction behavior:
-- For `rework_required`, send automatically after the report is ready
-- For accepted `integration_final` / `standalone` `stop_recommended`, send the full report to requester automatically
-- For `stop_recommended` with manual decision, do that only when `auto_accept_if_no_must_fix=false`; after the user's decision, close out task or send the accepted non-task result when accepted; when the user chooses iterate, send `user_requested_iteration` for `task` and a full `rework_required` report containing the decision and required follow-ups for `integration_final` / `standalone`
-- In unattended flow, accepted no-must-fix task-lane reports that land with reviewer or requester must be treated as `review-closeout` input, not as another rework cycle
-- In unattended flow, accepted `integration_final` / `standalone` reports return directly to requester; do not route them into `review-closeout`
-- Preserve `workflow_policy` unchanged in outbound messages
-- Preserve `special_requirements` unchanged in outbound messages
-- Keep message JSON internal unless user explicitly asks
-- Do not naturally end after writing the review report; if this action requires `rework_required`, accepted non-task `stop_recommended`, task-only `user_requested_iteration`, or `review-closeout`, complete that workflow step before ending the turn
-
-Sender identity rule:
-- reviewer-originated actions (`rework_required`, `stop_recommended`, `user_requested_iteration`) use `from_session_id = reviewer_session_id`
-- `closeout_delivered` uses the session id of the agent that executes `review-closeout`; preserve `reviewer_session_id` as the source of the accepted review
+Do not naturally end before the required result delivery succeeds. If a manual
+user decision is required, present it and wait; do not turn it into a new
+reviewer-specific iteration action.

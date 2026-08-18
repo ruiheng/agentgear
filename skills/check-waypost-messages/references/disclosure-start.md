@@ -37,7 +37,7 @@ use the Waypost CLI.
    every return or outcome selector must apply its own Expected Sender Gate
    before acting on result content. Only the five discriminator aliases
    (`browser_check_report`, `design_spec_review_requested`, `group_message_available`,
-   `rework_required`, and `stop_recommended`) make a further decision from
+   `rework_required`, `work_accepted`, and `abort_iteration`) make a further decision from
    the already received message.
 5. The returned selector owns claim settlement. Before ending, settle every
    claim owned by this session: acknowledge only after its immediate required

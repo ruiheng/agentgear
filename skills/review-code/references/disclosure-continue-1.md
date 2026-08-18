@@ -37,7 +37,7 @@ Policy rules:
 
 ## Output Format
 
-Use this structure as the full review report. For a rework result, use the exact `Action: rework_required` line. For an accepted stop recommendation, use the exact `Action: stop_recommended` line.
+Use this structure as the full review report. Use exactly one of these result lines: `Action: rework_required`, `Action: abort_iteration`, or `Action: work_accepted`.
 Omit `### User Decision Summary` when no user scope decision exists.
 
 ```markdown
@@ -92,10 +92,17 @@ For the implementer/author:
 
 ```
 
-For an accepted stop recommendation, use the same report structure with this envelope header instead:
+For an accepted implementation, use the same report structure with this envelope header instead:
 
 ```markdown
-Action: stop_recommended
+Action: work_accepted
+```
+
+For an iteration that must stop without accepting the implementation, use the
+same report structure with this envelope header instead:
+
+```markdown
+Action: abort_iteration
 ```
 
 For `task`, insert after `Round`:

@@ -97,15 +97,15 @@ Choose the lightest surface that preserves the task's lifecycle. Parallelism alo
 4. Coder implements changes and commits a delivery snapshot. In delegated coder flow, that commit is already workflow-authorized and overrides generic default commit-approval rules.
 5. Task-level review is planner-controlled. Delegated Coder reuses the Reviewer and planner context created at dispatch; planner-owned and standalone review may create Reviewer on demand.
 6. Reviewer runs `review-code` and sends either:
-   - `rework_required` back to Coder, or
+   - `rework_required` back to the recorded requester (usually Coder for delegated work, Planner for planner-owned work, or the standalone review requester), or
    - `browser_check_requested` to Browser Tester, or
-   - `stop_recommended` to the task acceptance gate, or to requester for an accepted non-task review.
+   - `work_accepted` to Planner for task/integration-final lanes, otherwise to the recorded standalone requester, or
+   - `abort_iteration` to Planner for task/integration-final lanes, otherwise to the recorded standalone requester.
 7. Browser Tester runs `browser-test`; a review-driven `browser_check_report` returns to Reviewer, otherwise to its requester.
-8. If user wants another iteration, Reviewer sends `user_requested_iteration` to Coder.
-9. Repeat until quality is acceptable under workflow policy; unattended mode auto-accepts no-must-fix results by default unless the user or policy explicitly requires a human gate.
-10. After task acceptance, Reviewer runs `review-closeout` and sends one closeout Waypost message to Planner.
-11. Planner runs `planner-closeout` from that `closeout_delivered` body and batches merge/progress/next-task work.
-12. Successful task closeout removes verified task-scoped disposable Coder and Reviewer sessions through the owning host adapter. Reusable sessions, unsupported hosts, and guard failures are preserved and reported.
+8. Planner decides what `work_accepted` or `abort_iteration` requires: closeout, another reviewer, browser validation, a user decision, or another workflow action.
+9. If another implementation round is needed, Planner dispatches it through the normal coder/reviewer path; no reviewer-specific user-iteration action is needed.
+10. Planner may run `review-closeout` and then `planner-closeout` when it chooses to close out an accepted task.
+11. Successful task closeout removes verified task-scoped disposable Coder and Reviewer sessions through the owning host adapter. Reusable sessions, unsupported hosts, and guard failures are preserved and reported.
 
 ## Supervisor-To-Planner Plan Execution
 
@@ -155,10 +155,12 @@ flowchart TD
     B -->|message: browser_check_report| R
     X[Requester] -->|message: browser_check_requested| B
     B -->|message: browser_check_report| X
-    R -->|review result| DEC{Accepted By Policy/User?}
-    DEC -- No --> C
-    DEC -- Yes --> R
-    R -->|message: closeout_delivered| P
+    R -->|rework_required| C
+    R -->|work_accepted| P
+    R -->|abort_iteration| P
+    P -->|planner decision| DEC{Next action}
+    DEC -->|another iteration| C
+    DEC -->|closeout| P
 
     style DEC fill:#fff3cd,stroke:#b58900,stroke-width:1px
 ```

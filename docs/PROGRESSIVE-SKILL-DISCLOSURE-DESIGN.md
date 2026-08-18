@@ -155,8 +155,8 @@ The initial action-alias set is complete for the current workflow surface:
 | roundtable_participant_turn | roundtable-participant/turn | Direct participant execution. |
 | simplify_review_report | simplify-review/report-received | Direct result delivery. |
 | simplify_review_requested | simplify-review/review | Direct execution. |
-| stop_recommended | review-code/result-route | Branches on acceptance lane and closeout owner. |
-| user_requested_iteration | delegate-code-task/user-iteration | Direct coder continuation. |
+| abort_iteration | review-code/result-route | Routes an iteration stop to the planner for planned lanes, or the requester for standalone review. |
+| work_accepted | review-code/result-route | Routes an accepted implementation to the planner for planned lanes, or the requester for standalone review. |
 
 The action set deliberately excludes retired review_completed and other unsupported legacy actions. Adding, renaming, or removing an action requires changing the owning slice's selector-aliases metadata and any producer template in the same change.
 
@@ -553,7 +553,7 @@ Add or update tests for:
 4. catalog exposure validation, global alias uniqueness, list --json reporting, and the exact fourteen-entry set with no implicit upstream host skill;
 5. the complete current action-alias set, with every exact message-template Action covered and every alias target present; include all current design, review, browser, plan, delegation, advisory, group, and result actions rather than representative samples;
 6. strict receiver parsing: missing, duplicate, case-variant, malformed, overlong, whitespace-bearing, and shell-metacharacter Action values never reach dynamic lookup; a valid token uses one argv element after --;
-7. direct one-lookup routing for one-to-one actions and small discriminator routing only for browser_check_report, design_spec_review_requested, group_message_available, rework_required, and stop_recommended;
+7. direct one-lookup routing for one-to-one actions and small discriminator routing only for browser_check_report, design_spec_review_requested, group_message_available, rework_required, work_accepted, and abort_iteration;
 8. implicit/default all installation exposing exactly the fourteen accepted canonical entry names on every target, and each explicit pack exposing exactly the entry subset in its resolved closure: core exposes its six entries, workflow exposes its eight entries, browser exposes the same eight through workflow inclusion, and explicit pack unions plus --skill expose the corresponding union; agent-deck is never implicit in any case;
 9. explicit installation of a prompt-only canonical skill, mixed pack-plus-skill retention for that invocation, explicit-skill-only additive behavior, and later authoritative pack withdrawal;
 10. schema-v2 pre-change full-pack fixtures proving install/update reconciliation and uninstall --pack workflow/browser/all remove recorded, ownership-matching legacy prompt-only and historical agent-deck links;

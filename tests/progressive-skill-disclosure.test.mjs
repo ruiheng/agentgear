@@ -568,7 +568,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
   assert.deepEqual(validateSkillContentIndex(index), []);
   const aliases = actionAliases(index);
   const expected = [
-    "browser_check_report", "browser_check_requested", "browser_setup_provided", "browser_setup_requested",
+    "abort_iteration", "browser_check_report", "browser_check_requested", "browser_setup_provided", "browser_setup_requested",
     "closeout_delivered", "code_delivery_complete", "code_health_review_report", "code_health_review_requested",
     "delegated_task_result", "design_prune_context", "design_prune_report", "design_prune_requested",
     "design_spec_context_corrected", "design_spec_delivered", "design_spec_draft_requested", "design_spec_review_context",
@@ -576,7 +576,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
     "execute_delegate_task", "execute_delegated_task", "execute_plan", "group_message_available", "message_rejected",
     "plan_report_delivered", "refactor_review_report", "refactor_review_requested", "review_requested",
     "review_task_context", "rework_required", "roundtable_participant_turn", "simplify_review_report",
-    "simplify_review_requested", "stop_recommended", "user_requested_iteration"
+    "simplify_review_requested", "work_accepted"
   ];
   assert.deepEqual([...aliases.keys()].sort(), expected);
   for (const token of expected) {
@@ -587,8 +587,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
   const discriminatorTokens = new Set([
     "browser_check_report", "design_spec_review_requested",
     "group_message_available",
-    "rework_required",
-    "stop_recommended"
+    "rework_required", "work_accepted", "abort_iteration"
   ]);
   for (const token of expected) {
     if (discriminatorTokens.has(token)) continue;
@@ -598,6 +597,16 @@ test("action aliases are complete, direct, and selector validation resolves mult
     assert.equal(index.byCanonicalAddress.get(canonical), record, `${token} must directly own ${canonical}`);
   }
   assert.equal(index.referencedInvocations.some(item => item.filePath.endsWith("multi-agent-protocol/references/disclosure-start.md") && item.addresses.includes("multi-agent-protocol/tool-resolution")), true);
+});
+
+test("review result routing preserves requester and lane-specific planner ownership", () => {
+  const reviewFlow = fs.readFileSync(path.join(rootDir, "skills", "review-code", "references", "disclosure-continue-3.md"), "utf8");
+  const resultRoute = fs.readFileSync(path.join(rootDir, "skills", "review-code", "references", "result-route.md"), "utf8");
+  assert.match(reviewFlow, /rework_required[\s\S]*recorded requester endpoint/);
+  assert.match(reviewFlow, /work_accepted.*abort_iteration[\s\S]*recorded Planner endpoint[\s\S]*task.*integration_final/);
+  assert.match(reviewFlow, /standalone[\s\S]*recorded requester endpoint/);
+  assert.match(resultRoute, /rework_required[\s\S]*recorded requester/);
+  assert.match(resultRoute, /work_accepted[\s\S]*abort_iteration[\s\S]*recorded Planner[\s\S]*standalone/);
 });
 
 test("action-template validation rejects indented and dynamic emitted headers", () => {
@@ -630,7 +639,7 @@ test("action-template validation rejects indented and dynamic emitted headers", 
   for (const body of [
     "```markdown\n  Action: ${runtimeValue}\n```\n",
     "```markdown\nAction: <action>\n```\n",
-    "```markdown\nAction: review_requested | stop_recommended\n```\n",
+    "```markdown\nAction: review_requested | work_accepted\n```\n",
     "```markdown\nAction: $(command)\n```\n"
   ]) {
     const fixture = {

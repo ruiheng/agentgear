@@ -68,7 +68,7 @@ Final-review continuation:
 7. when the goal is complete:
    - if `Final integration review: required`, run `review-request` with `task_id = plan_id`, branch target `integration_branch`, `base_branch = review_base`, `requester_role = planner`, and `review_lane = integration_final`
    - if that final review returns serious issues, decide whether to fix locally or spawn a new task; prefer a new task for non-trivial fixes
-   - resume on its later result: `rework_required` returns to task selection; accepted `stop_recommended` continues to step 8
+   - resume on its later result: `rework_required` returns to task selection; `work_accepted` or `abort_iteration` returns to planner decision-making
 8. send one final `plan_report_delivered` message to supervisor; do not treat the plan as complete before this message send succeeds
 9. after the final report is sent, report completion to supervisor
 

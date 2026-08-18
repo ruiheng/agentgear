@@ -61,7 +61,7 @@ Treat `Author Intent`, `Optional Review Focus`, and `Author-Noted Issues or Limi
 
 Before quality review, compare the full change scope with the original task and recorded User Decisions. If a material change widens the task, changes an explicit constraint, or adds unrelated behavior without a recorded user decision:
 - ask the user immediately with the concrete change and impact
-- do not send `rework_required`, `stop_recommended`, or closeout until the user replies
+- do not send `rework_required`, `work_accepted`, `abort_iteration`, or closeout until the user replies
 - add the reply to the task's user-decision record and carry it in `### User Decision Summary`
 
 Treat a recorded User Decision as task-specific scope authority, not a general license for adjacent changes. If the user rejects the change, require its removal or exclusion through the normal rework path.

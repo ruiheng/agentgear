@@ -22,7 +22,7 @@ Use this after direct, harness, or planner-owned fallback selection. The planner
    - run `review-request` with `requester_role = planner`, `review_lane = task`, the recorded branch plan, workspace handoff (`worker_workspace`, `task_dir = worker_workspace`, `workspace_lifecycle = shared; cleanup=none`), and the delivery commit or task branch as scope
    - let `review-request` create or reuse the reviewer on demand with the verified planner parent
    - after `review-request` sends the request, follow the shared Async sender rule
-   - when a later inbound reviewer acceptance produces `closeout_delivered`, handle it with `planner-closeout` before marking the task done
+   - when a later inbound `work_accepted` produces an accepted review, let the planner decide whether to run `review-closeout` and `planner-closeout` or take another action
 8. if `Per-task review: skip`, run workspace prepare for this planner-owned task, then run `planner-closeout-batch.mjs` directly with the recorded `task_branch`, `integration_branch`, `worker_workspace`, `planner_workspace`, `task_id`, and task dir before marking the task done; a persistent Waypost coder instead returns `code_delivery_complete` for `planner-closeout`
 9. record the result under `Tasks Completed`
 
