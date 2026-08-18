@@ -28,11 +28,11 @@ For review-existing, use one target: `--target architect=<reviewer_session_id>`.
 
 Run cleanup once. Deleted or already absent targets are complete. Preserve and report non-disposable sessions and unsupported hosts. On guard or deletion failure, report cleanup pending with the generated archive and exact manual unblock step; do not retry automatically or reopen review.
 
-Before cleanup, retain the exact accepted decision and ordered caveats from lane
-state. After the authoritative design commit and successful session cleanup,
+Before cleanup, retain the exact accepted decision and ordered caveats from the
+authenticated delivery and assessed artifact. After the authoritative design commit and successful session cleanup,
 remove the exact `.agent-artifacts/design-spec-dispatch/<task_id>.lock/` lane
-state directory. Preserve it when cleanup is incomplete so recovery keeps the
-shared context.
+manifest directory. Preserve it when cleanup is incomplete so recovery keeps the
+stable participant and contract metadata.
 
 Report final design paths, authoritative commit, exact accepted decision and
 caveats, and cleanup status. Report `Caveats: None` for `SOUND`. Include the

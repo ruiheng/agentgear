@@ -25,15 +25,16 @@ For a new request, choose draft-review when no defensible committed specificatio
 - The requester starts the lane and delivers the accepted result.
 - The architect-author writes complete draft snapshots and handles reviewer dialogue.
 - The architect-reviewer independently reviews without editing the target.
-- Draft-review may add one `design_pruner` that only removes unnecessary design. Start it at lane creation only when the user explicitly requires it. Otherwise the deterministic review-dispatch gate activates it when the current artifact reaches the configured size threshold; an explicit user prohibition wins.
-- In draft-review, author, reviewer, and an enabled pruner are distinct sibling sessions. Lazy activation creates the pruner as another sibling before review dispatch. They read one shared lane state; messages only identify the task and review generation to process.
-- The requester is the only Canonical Contract writer. The dispatcher initializes lane state and marks context dispatch ready; afterward the author is its only writer. Reviewer and pruner remain read-only.
+- Draft-review may add one `design_pruner` that only removes unnecessary design. Start it at lane creation only when the user explicitly requires it. Otherwise the deterministic review dispatcher activates it when the current artifact reaches the configured size threshold; an explicit user prohibition wins.
+- In draft-review, author, reviewer, and an enabled pruner are distinct sibling sessions. Lazy activation creates the pruner as another sibling before review dispatch.
+- The requester writes one immutable lane manifest containing stable participant and contract metadata. Agents determine progress from their retained context, authenticated messages, and immutable round artifacts; never turn the manifest into a workflow state database.
+- The requester is the only Canonical Contract writer. Reviewer and pruner remain read-only with respect to design artifacts.
 - Preserve the original request or authoritative handoff verbatim in the Canonical Design Task Contract. Keep requester normalization separate.
-- Store that contract once under `.agent-artifacts/message/` and reference it from `.agent-artifacts/design-spec-dispatch/<task_id>.lock/state.json`. Keep the lane state and contract through closeout.
+- Store that contract once under `.agent-artifacts/message/` and reference it from `.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`. Keep the manifest and contract through closeout.
 - Write draft rounds only under `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. Only the author edits that directory.
 - Keep every delivered round complete and self-contained. For a replacement snapshot, copy the current immutable snapshot to the next numbered path before revision and never edit a dispatched round.
 - Keep drafting read-only with respect to Git state and workspace ownership.
-- Store a positive Max Review Rounds in lane state; default to 5 only for a new lane. NEEDS_INPUT and same-snapshot review do not increment it.
+- Store a positive Max Review Rounds in the lane manifest; default to 5 only for a new lane. NEEDS_INPUT and same-snapshot review do not increment it.
 - On round 2 and later, require the immediately preceding immutable snapshot. The reviewer reuses diff-first evidence only when that snapshot has completed review; otherwise it reviews the current artifact in full and uses the diff only for navigation.
 - Never use an author-written change summary as review evidence.
 - Treat every Waypost send as fire-and-forget. Never auto-resend outside explicit troubleshooting.

@@ -49,14 +49,14 @@ only in Findings, Summary, or Residual Risk.
 For draft-round, insert this after `Action`:
 
 ```markdown
-Lane State: <workspace-relative lane state file>
-Review Epoch: <positive review generation>
-Artifact SHA-256: <review_gate.artifact_sha256>
+Lane Manifest: <workspace-relative lane manifest>
+Artifact: <reviewed artifact>
 ```
 
-Draft-round resolves task, epoch, round, reviewer identity, maximum, user
-context, and target from that shared lane state. Committed-docs omits Lane State
-and Review Epoch and resolves context from the inline request plus preceding
+Draft-round resolves participant identity, maximum, and contract path from the
+stable manifest, while the authenticated request names the exact round,
+artifact, previous artifact, and Context Revision. Committed-docs omits Lane Manifest
+and resolves context from the inline request plus preceding
 rounds. Message reports use only their routed mode; direct-use sets
 `Mode: direct`. Never require draft-only state from committed-docs.
 
@@ -74,7 +74,7 @@ Task: <task_id>
 Action: design_spec_review_context_rejected
 Context: initial
 Context Revision: <received context revision>
-Lane State: <workspace-relative lane state file or received value>
+Lane Manifest: <workspace-relative lane manifest or received value>
 
 ## Correction Needed
 <precise correction>

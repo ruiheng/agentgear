@@ -140,11 +140,11 @@ flowchart TD
     W -->|message: delegated_task_result| Q
     P[Planner] -->|message: review_task_context| R[Reviewer]
     P -->|message: execute_delegate_task| C[Coder]
-    X[Original Requester] -->|lane-state notice: design_spec_review_context| A[Architect Reviewer]
-    X -->|same lane state: design_spec_draft_requested| DA[Architect Author]
+    X[Original Requester] -->|stable manifest + design_spec_review_context| A[Architect Reviewer]
+    X -->|same manifest: design_spec_draft_requested| DA[Architect Author]
     DA -->|message: design_spec_review_requested| A[Architect Reviewer]
     A -->|message: design_spec_review_report| DA
-    DA -->|lane-state notice + exact caveats: design_spec_delivered| X
+    DA -->|artifact + exact caveats: design_spec_delivered| X
     X -->|archives and commits caveat-bearing accepted artifact| D[Tracked Design Specification]
     P -->|mature committed design: design_spec_review_requested| A
     C -->|mature committed design: design_spec_review_requested| A
@@ -168,9 +168,9 @@ flowchart TD
 - `review-code` remains the authoritative full review output
 - `review-tech-design` reviews immutable draft artifacts or committed technical design specifications; it does not replace code review
 - `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
-- in draft-review, the requester writes one canonical Design Task Contract; initial dispatch starts a pruner only when explicitly requested, while the mandatory review-dispatch gate lazily requires one when an artifact reaches the configured line or character threshold
+- in draft-review, the requester writes one canonical Design Task Contract; initial dispatch starts a pruner only when explicitly requested, while the deterministic review dispatcher lazily requires one when an artifact reaches the configured line or character threshold
 - in draft-review, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and reviewers remain read-only
-- the author records terminal acceptance and exact caveats in shared lane state, repeats them in the delivery notification, and the original requester applies `assess-tech-design` before committing and returning the caveats
+- the author sends the terminal artifact, decision, and exact caveats in the delivery notification; the original requester applies `assess-tech-design` before committing and returning the caveats
 - after the archive commit or accepted design-branch merge succeeds, the requester removes verified task-scoped disposable architect sessions through the shared host adapter and reports any preserved or pending cleanup
 - draft-review does not transfer workspace ownership, switch branches, or commit intermediate rounds
 - review-existing keeps committed branch history; after acceptance, merge the recorded design branch into its recorded base with normal `git merge`

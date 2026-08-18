@@ -6,102 +6,79 @@ selector-aliases: action:design_spec_draft_requested, action:design_spec_context
 
 # Author Round
 
-Retrieve `agentgear skill get multi-agent-protocol/shared-protocol tech-design-workflow/lane-state`.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol tech-design-workflow/lane-manifest`.
 
-## Inbound Gate
+Authenticate the requester/author transport endpoints and Task against the lane
+manifest. Read the requester-owned Canonical Contract. A corrected-context
+notice names its new positive Context Revision; an older authenticated notice is
+a stale wake. Duplicate work is recognizable from the existing artifact and
+retained conversation; do not maintain a separate progress database.
 
-Authenticate Task and both transport endpoints against lane state before acting.
-`design_spec_draft_requested` comes from the requester, is addressed to the
-author, has the current Round, and requires `dispatch_ready`. A
-`design_spec_context_corrected` notice comes from the requester with
-`Context: initial`, a positive Context Revision, and no Round.
-
-An authenticated older Round or revision is a stale wake: settle it without
-redoing completed work. Defer missing authority; reject a different task or
-endpoint. Never overwrite an existing artifact. On a duplicate current request,
-resume only work that is visibly incomplete.
-
-## Context and Design
-
-Read lane state and the requester-owned Canonical Contract. On a corrected
-contract, compare its latest revision with lane state. If the current artifact
-still satisfies it, keep the snapshot and refresh affected reviews. If the
-design must change, create a Replacement Snapshot. Never edit the contract.
+## Draft
 
 For round 1, inspect the repository as needed. Later rounds start from the
-previous artifact, findings, and diff, while rechecking evidence affected by the
-change. Write the smallest self-contained implementation-ready design at
-`current_artifact`. Include only mechanisms required by the goal, repository, or
-hard constraints.
+immediately preceding immutable artifact, reviewer/pruner reports, and their
+ordinary diff while rechecking affected evidence. Write the smallest complete,
+implementation-ready design at
+`.agent-artifacts/design-spec/<author_session_id>/rNNN.md`.
 
-Ask the user directly for a blocking product decision and append the exact
-answer once. Multiple answers may share a round. Decide whether the current
-artifact remains valid, then use the review-dispatch program; do not prepare
-epochs or send review messages manually.
-
-## Replacement Snapshot
-
-Use a replacement after a complete report set requires document changes, or a
-corrected initial contract changes an already-dispatched design. At the maximum,
-first ask the user whether to stop or approve a higher exact value.
-
-Create the next complete `rNNN.md` from the immutable current artifact. Only
-after it is ready, atomically advance Round, move the old current path to
-`previous_artifact`, point to the new path, and apply any new context, decision,
-or maximum authority. Clear acceptance, but leave epoch preparation and stale
-report clearing to the review-dispatch program. State must never point to an
-incomplete snapshot.
+Ask the user directly for a blocking product decision and incorporate the answer
+into the self-contained design. Never edit a round after dispatch. When a report
+requires changes, create the next numbered complete snapshot; the agent knows
+the active round from its dialogue and artifact history.
 
 ## Review Dispatch
 
-After the complete immutable artifact and any authority update are ready, run:
+After the artifact is complete, run:
 
 ```bash
 agentgear run tech-design-workflow dispatch-design-review.mjs \
   --workdir "<current workspace>" \
-  --lane-state ".agent-artifacts/design-spec-dispatch/<task_id>.lock/state.json" \
+  --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
+  --artifact ".agent-artifacts/design-spec/<author_session_id>/rNNN.md" \
+  --previous-artifact ".agent-artifacts/design-spec/<author_session_id>/rMMM.md" \
+  --round "<round>" \
+  --context-revision "<current contract revision>" \
   --json
 ```
 
-This is the only valid draft review-dispatch path. It loads the layered TOML
-workflow policy, measures the artifact, writes `review_gate`, prepares one epoch,
-and sends reviewer and enabled-pruner requests. Never construct those requests,
-write their epochs, or clear reports manually.
+Omit `--previous-artifact` for round 1. The program reads the layered TOML
+policy, measures the artifact, and sends the reviewer request without writing
+lane or review state.
 
-`PRUNER_REQUIRED` means no epoch or message was created. Resolve `design_pruner`
-through the Tool Resolution Contract, require or create the deterministic sibling
-session through the Session Host Contract using the recorded requester parent and
-host, then rerun the same command with `--pruner-session-id` and
-`--pruner-to-address`. Once enabled, the pruner remains enabled.
+`PRUNER_REQUIRED` means no request was sent. Resolve and create the deterministic
+`design_pruner` sibling through the Tool Resolution and Session Host contracts,
+then rerun with `--pruner-session-id` and `--pruner-to-address`. The request gives
+the lazy pruner the manifest, contract revision, and exact artifact it needs.
 
-Receipts and send status are transport diagnostics, not lane state. Rerun the
-same command after an unclear result; it reuses the prepared epoch. Use
-`--new-epoch` only for an intentional same-artifact review under unchanged
-authority.
+Receipts are transport diagnostics. After an unclear send, inspect the durable
+Waypost result before deciding whether to repeat the same request. Reviewers use
+the authenticated message, exact artifact path, Round, and retained context to
+recognize stale or duplicate work.
 
-When authority changes without changing the artifact, run normal dispatch; the
-changed authority produces a new epoch. When reports disagree, resolve
-the conflict from evidence or ask the relevant role to review the same snapshot
-again with a short factual rationale. This remains an ordinary review request.
+## Reports and Delivery
 
-## Final Notification
+Authenticate reviewer and optional pruner reports by their actual transport
+endpoints, Task, Round, and artifact. Use the reports directly; do not copy them
+into the lane manifest. Wait for both reports when a pruner was requested.
 
-When lane state satisfies its acceptance predicate, run the Gate Verification
-defined by `lane-state`, record the accepted Round, artifact, and verified
-SHA-256, then notify the requester:
+Revise on `NEEDS_REVISION` or `NEEDS_SIMPLIFICATION`. Ask the user for unresolved
+product input. Deliver only after correctness is `SOUND` or
+`SOUND_WITH_CAVEATS`, and an enabled pruner reports `MINIMAL`.
 
 ```markdown
 Task: <task_id>
 Action: design_spec_delivered
-Lane State: <workspace-relative lane state file>
-Round: <accepted_round>
-Artifact SHA-256: <accepted artifact digest>
+Lane Manifest: <workspace-relative lane manifest>
+Artifact: <accepted artifact>
+Round: <accepted round>
 Decision: <SOUND | SOUND_WITH_CAVEATS>
+[Pruner Session ID: <lazy pruner real id>]
 
 ## Caveats
-- <exact accepted caveat in lane order | None>
+- <exact accepted caveat in artifact order | None>
 ```
 
-Copy Caveats exactly from `correctness_report`. Use `None` for `SOUND`; require
-at least one list item for `SOUND_WITH_CAVEATS`. The requester owns archival and
-closeout.
+Use `None` for `SOUND`. Include the lazy pruner session ID only when the
+requester did not create and record that pruner initially. The requester owns
+assessment, archival, and closeout.

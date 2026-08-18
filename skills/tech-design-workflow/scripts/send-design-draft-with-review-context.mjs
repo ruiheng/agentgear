@@ -6,7 +6,6 @@ import {
   execute,
   fail,
   isMain,
-  nowIso,
   parseArgs,
   readJson,
   requireCommand,
@@ -23,19 +22,16 @@ import {
   sendDesignPruneContextMessage
 } from "./action-producers.mjs";
 
-const usage = `Initialize one design lane and notify reviewer, optional pruner, then author.
+const usage = `Create one stable design lane manifest and notify its participants.
 
 Required:
   --workdir <path>
   --task-id <id>
-  --requester-role <role>
   --requester-session-id <id>
   --author-session-id <id>
   --reviewer-session-id <id>
   --session-host <host>
-  --round 1
   --max-review-rounds <positive-integer>
-  --artifact-path <path>
   --archive-branch <branch>
   --from-address <address>
   --author-to-address <address>
@@ -54,7 +50,7 @@ Optional:
   --json
   -h, --help
 
-Rerunning the same command is safe. Existing matching state is preserved and
+Rerunning the same command is safe. An existing matching manifest is preserved and
 initial notifications are repeated; receivers treat duplicates as no-ops.`;
 
 export const DEFAULT_SEND_TIMEOUT_MS = 0;
@@ -112,8 +108,11 @@ function requireSinglePathSegment(value, label) {
   }
 }
 
-function expectedArtifactPath(authorSessionId) {
-  return path.posix.join(".agent-artifacts", "design-spec", authorSessionId, "r001.md");
+export function expectedArtifactPath(authorSessionId, round = 1) {
+  return path.posix.join(
+    ".agent-artifacts", "design-spec", authorSessionId,
+    `r${String(round).padStart(3, "0")}.md`
+  );
 }
 
 export function requireSymlinkFreeContainedPath(root, candidate, label) {
@@ -155,7 +154,7 @@ function reviewerBody(options) {
     [
       { name: "Context", value: "initial" },
       { name: "Context Revision", value: String(options.contextRevision) },
-      { name: "Lane State", value: options.laneStateFile }
+      { name: "Lane Manifest", value: options.laneManifestFile }
     ]
   );
 }
@@ -167,7 +166,7 @@ function prunerBody(options) {
     [
       { name: "Context", value: "initial" },
       { name: "Context Revision", value: String(options.contextRevision) },
-      { name: "Lane State", value: options.laneStateFile }
+      { name: "Lane Manifest", value: options.laneManifestFile }
     ]
   );
 }
@@ -177,7 +176,8 @@ function authorBody(options) {
     designSpecDraftRequestedMessage,
     [{ name: "Task", value: options.taskId }],
     [
-      { name: "Lane State", value: options.laneStateFile },
+      { name: "Lane Manifest", value: options.laneManifestFile },
+      { name: "Artifact", value: expectedArtifactPath(options.authorSessionId) },
       { name: "Round", value: "1" }
     ]
   );
@@ -217,23 +217,8 @@ export function failDelivery(label, result) {
   fail(`${label} send failed: ${result.detail || "unknown error"}`, 3, "SEND_FAILED");
 }
 
-function authorHasProgress(state, options) {
-  return state.current_round !== 1
-    || state.context_revision !== 1
-    || state.review_epoch !== 0
-    || state.correctness_epoch !== null
-    || state.prune_epoch !== null
-    || state.correctness_report !== null
-    || state.prune_report !== null
-    || state.review_gate != null
-    || state.acceptance !== null
-    || state.previous_artifact !== null
-    || (Array.isArray(state.user_decisions) && state.user_decisions.length > 0)
-    || fs.statSync(path.join(options.workdir, expectedArtifactPath(options.authorSessionId)), { throwIfNoEntry: false })?.isFile();
-}
-
-function validateExistingState(state, options) {
-  if (![2, 3].includes(state?.schema_version)) fail("existing design lane has an unsupported schema");
+function validateExistingManifest(manifest, options) {
+  if (manifest?.schema_version !== 1) fail("existing design lane manifest has an unsupported schema");
   for (const [field, expected] of [
     ["task_id", options.taskId],
     ["requester_session_id", options.requesterSessionId],
@@ -244,34 +229,24 @@ function validateExistingState(state, options) {
     ["reviewer_to_address", options.reviewerToAddress],
     ["session_host", options.sessionHost],
     ["context_file", options.contextFile],
-    ["archive_branch", options.archiveBranch]
+    ["archive_branch", options.archiveBranch],
+    ["pruner_policy", options.prunerPolicy]
   ]) {
-    if (stringField(state, field) !== expected) fail(`existing design lane has different ${field}`);
+    if (stringField(manifest, field) !== expected) fail(`existing design lane manifest has different ${field}`);
   }
-  const existingPrunerPolicy = state.schema_version === 2
-    ? (state.pruner_session_id || state.pruner_to_address ? "always" : "never")
-    : stringField(state, "pruner_policy");
-  if ((state.schema_version === 3 || options.prunerPolicyExplicit)
-    && existingPrunerPolicy !== options.prunerPolicy) {
-    fail("existing design lane has a different pruner_policy");
+  if (stringField(manifest, "pruner_session_id") !== (options.prunerSessionId || "")
+    || stringField(manifest, "pruner_to_address") !== (options.prunerToAddress || "")) {
+    fail("existing design lane manifest has a different initial pruner");
   }
-  if (stringField(state, "pruner_session_id") !== (options.prunerSessionId || "")
-    || stringField(state, "pruner_to_address") !== (options.prunerToAddress || "")) {
-    fail("existing design lane has a different pruner");
-  }
-  if (!authorHasProgress(state, options) && state.max_review_rounds !== options.maxReviewRounds) {
-    fail("existing design lane has a different max_review_rounds");
-  }
-  if (authorHasProgress(state, options) && state.dispatch_ready !== true) {
-    fail("existing design lane has author progress before dispatch_ready");
+  if (manifest.max_review_rounds !== options.maxReviewRounds) {
+    fail("existing design lane manifest has a different max_review_rounds");
   }
 }
 
-function initialState(options) {
+function initialManifest(options) {
   return {
-    schema_version: 3,
+    schema_version: 1,
     task_id: options.taskId,
-    requester_role: options.requesterRole,
     requester_session_id: options.requesterSessionId,
     requester_address: options.fromAddress,
     author_session_id: options.authorSessionId,
@@ -285,28 +260,14 @@ function initialState(options) {
     } : {}),
     session_host: options.sessionHost,
     context_file: options.contextFile,
-    context_revision: 1,
     archive_branch: options.archiveBranch,
-    dispatch_ready: false,
-    current_round: 1,
-    max_review_rounds: options.maxReviewRounds,
-    current_artifact: options.artifactPath,
-    previous_artifact: null,
-    review_epoch: 0,
-    correctness_epoch: null,
-    prune_epoch: null,
-    user_decisions: [],
-    correctness_report: null,
-    prune_report: null,
-    review_gate: null,
-    acceptance: null,
-    created_at: nowIso()
+    max_review_rounds: options.maxReviewRounds
   };
 }
 
 function validateOptions(options) {
   for (const [key, label] of [
-    ["taskId", "--task-id"], ["requesterRole", "--requester-role"],
+    ["taskId", "--task-id"],
     ["requesterSessionId", "--requester-session-id"], ["authorSessionId", "--author-session-id"],
     ["reviewerSessionId", "--reviewer-session-id"], ["sessionHost", "--session-host"]
   ]) requirePlainHeaderText(options[key], label);
@@ -343,9 +304,9 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const runWaypost = dependencies.runWaypost || run;
   const options = parseArgs(argv, {
     values: [
-      "--workdir", "--task-id", "--requester-role", "--requester-session-id",
-      "--author-session-id", "--reviewer-session-id", "--session-host", "--round",
-      "--max-review-rounds", "--artifact-path", "--archive-branch", "--from-address",
+      "--workdir", "--task-id", "--requester-session-id",
+      "--author-session-id", "--reviewer-session-id", "--session-host",
+      "--max-review-rounds", "--archive-branch", "--from-address",
       "--author-to-address", "--reviewer-to-address", "--contract-file", "--artifact-root",
       "--pruner-policy", "--pruner-session-id", "--pruner-to-address", "--content-type", "--schema-version",
       "--send-timeout-ms"
@@ -365,27 +326,20 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   }
   for (const [key, label] of [
     ["workdir", "--workdir"], ["taskId", "--task-id"],
-    ["requesterRole", "--requester-role"], ["requesterSessionId", "--requester-session-id"],
+    ["requesterSessionId", "--requester-session-id"],
     ["authorSessionId", "--author-session-id"], ["reviewerSessionId", "--reviewer-session-id"],
-    ["sessionHost", "--session-host"], ["round", "--round"],
-    ["maxReviewRounds", "--max-review-rounds"], ["artifactPath", "--artifact-path"],
+    ["sessionHost", "--session-host"], ["maxReviewRounds", "--max-review-rounds"],
     ["archiveBranch", "--archive-branch"], ["fromAddress", "--from-address"],
     ["authorToAddress", "--author-to-address"], ["reviewerToAddress", "--reviewer-to-address"],
     ["contractFile", "--contract-file"]
   ]) if (!options[key]) fail(`${label} is required`);
 
-  options.prunerPolicyExplicit = Boolean(options.prunerPolicy);
   options.prunerPolicy = options.prunerPolicy
     || (options.prunerSessionId || options.prunerToAddress ? "always" : "auto");
 
   validateOptions(options);
-  options.round = positiveInteger(options.round, "--round");
-  if (options.round !== 1) fail("--round must be 1 for initial design dispatch");
   options.maxReviewRounds = positiveInteger(options.maxReviewRounds, "--max-review-rounds");
   options.sendTimeoutMs = nonNegativeInteger(options.sendTimeoutMs, "--send-timeout-ms");
-  if (options.artifactPath !== expectedArtifactPath(options.authorSessionId)) {
-    fail(`--artifact-path must equal ${expectedArtifactPath(options.authorSessionId)}`);
-  }
   (dependencies.requireCommand || requireCommand)("waypost");
   if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) fail(`workdir does not exist: ${options.workdir}`);
 
@@ -414,24 +368,24 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   fs.mkdirSync(options.artifactRoot, { recursive: true });
   requireSymlinkFreeContainedPath(options.workdir, options.artifactRoot, "--artifact-root");
 
-  const stateDir = path.join(options.artifactRoot, `${options.taskId}.lock`);
-  const stateFile = path.join(stateDir, "state.json");
-  options.laneStateFile = path.relative(options.workdir, stateFile).split(path.sep).join(path.posix.sep);
-  if (/[\r\n]/.test(options.laneStateFile)) fail("--artifact-root path must not contain CR or LF");
-  const existing = fs.lstatSync(stateDir, { throwIfNoEntry: false });
+  const laneDir = path.join(options.artifactRoot, `${options.taskId}.lock`);
+  const manifestFile = path.join(laneDir, "lane.json");
+  options.laneManifestFile = path.relative(options.workdir, manifestFile).split(path.sep).join(path.posix.sep);
+  if (/[\r\n]/.test(options.laneManifestFile)) fail("--artifact-root path must not contain CR or LF");
+  const existing = fs.lstatSync(laneDir, { throwIfNoEntry: false });
   if (existing) {
-    requireSymlinkFreeContainedPath(options.workdir, stateDir, "design dispatch state directory");
-    const stateInfo = fs.lstatSync(stateFile, { throwIfNoEntry: false });
-    if (!stateInfo?.isFile() || stateInfo.isSymbolicLink()) fail(`unsafe design lane state: ${stateFile}`);
-    validateExistingState(readJson(stateFile), options);
+    requireSymlinkFreeContainedPath(options.workdir, laneDir, "design lane directory");
+    const manifestInfo = fs.lstatSync(manifestFile, { throwIfNoEntry: false });
+    if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) fail(`unsafe design lane manifest: ${manifestFile}`);
+    validateExistingManifest(readJson(manifestFile), options);
   } else {
     if (contract.revision !== 1) fail("a new design lane requires Context Revision: 1");
-    fs.mkdirSync(stateDir, { recursive: false });
+    fs.mkdirSync(laneDir, { recursive: false });
     try {
-      requireSymlinkFreeContainedPath(options.workdir, stateDir, "design dispatch state directory");
-      (dependencies.writeJsonAtomic || writeJsonAtomic)(stateFile, initialState(options));
+      requireSymlinkFreeContainedPath(options.workdir, laneDir, "design lane directory");
+      (dependencies.writeJsonAtomic || writeJsonAtomic)(manifestFile, initialManifest(options));
     } catch (error) {
-      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(laneDir, { recursive: true, force: true });
       throw error;
     }
   }
@@ -459,13 +413,6 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     );
   }
 
-  const stateBeforeAuthor = readJson(stateFile);
-  if (stateBeforeAuthor.dispatch_ready !== true) {
-    if (authorHasProgress(stateBeforeAuthor, options)) fail("cannot finalize context dispatch after author progress");
-    stateBeforeAuthor.dispatch_ready = true;
-    writeJsonAtomic(stateFile, stateBeforeAuthor);
-  }
-
   send(
     sendDesignSpecDraftRequestedMessage,
     options.authorToAddress,
@@ -476,7 +423,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
 
   const summary = {
     status: "sent",
-    state_file: stateFile
+    manifest_file: manifestFile
   };
   process.stdout.write(options.json ? `${JSON.stringify(summary)}\n` : `Design draft dispatched: ${options.taskId}\n`);
 }

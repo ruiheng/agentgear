@@ -7,69 +7,38 @@ selector-aliases: action:design_spec_review_report, action:design_prune_report
 # Review Report Handling
 
 Retrieve `agentgear skill get multi-agent-protocol/shared-protocol`; draft mode
-also retrieves `tech-design-workflow/lane-state`.
+also retrieves `tech-design-workflow/lane-manifest`.
 
-## Authenticate
+Authenticate the actual sender and recipient endpoints before acting:
 
-Before acting on a report, match its Task and mode to the active lane:
+- draft correctness: recorded reviewer -> author;
+- draft pruning: requested pruner -> author;
+- initial prune-context rejection: requested pruner -> requester;
+- committed-docs: retained reviewer -> requester.
 
-- draft correctness: reviewer -> author;
-- draft prune request: enabled pruner -> author;
-- initial prune-context rejection: enabled pruner -> requester;
-- committed-docs: retained reviewer -> requester for that Task and Round.
+For a draft report, require its Task, Round, artifact, and lane manifest to match
+the request being handled. Use retained conversation and immutable artifact
+history to recognize an older or duplicate report. Do not copy reports,
+decisions, caveats, delivery status, or progress into the lane manifest.
 
-For a draft review result, also require the reported Round, current artifact,
-Review Epoch, and Artifact SHA-256 to match that role's current expected epoch
-and `review_gate`. Run the Gate Verification defined by `lane-state` before
-storing the report. An authenticated
-older Round or epoch is a stale no-op. Defer missing state; reject a different
-task, endpoint, future epoch, or target without changing the lane. Body identity
-fields never replace transport metadata.
+Apply the report with ordinary agent judgment:
 
-An initial context rejection carries Context Revision but no Round or Review
-Epoch. If lane state is unreadable, use retained dispatch identity to authenticate
-the requester/reviewer or requester/pruner route; otherwise defer. Do not turn a
-context rejection into a review report.
+- `NEEDS_INPUT`: obtain the missing user authority or correct the shared contract;
+- `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after every requested role reports,
+  create the next complete immutable artifact;
+- `SOUND`: accept correctness only with no caveats;
+- `SOUND_WITH_CAVEATS`: require every caveat to appear verbatim and in order in
+  the reviewed artifact;
+- `MINIMAL`: accept pruning.
 
-## Apply
+Wait for reviewer and pruner when both were requested. Resolve disagreements
+from evidence or ask the relevant role for another ordinary review. Incorporate
+exact user answers into the design rather than maintaining a parallel authority
+log.
 
-Store a valid draft result in its role slot as epoch, artifact SHA-256, decision,
-and exact report User Decisions. For correctness, also store the exact ordered Caveats list;
-require it to be nonempty only for `SOUND_WITH_CAVEATS`. A duplicate for the
-stored epoch is a no-op. With a pruner, wait for every currently requested role
-before changing design or authority.
-
-- `NEEDS_INPUT`: correct missing context or target and retry the same snapshot;
-  initial-context correction uses `tech-design-workflow/context-correction`.
-- `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after all required reports arrive,
-  create one Replacement Snapshot addressing the smallest supported set of
-  changes. In committed-docs, revise and commit on the same design branch.
-- `SOUND`: accept correctness only with an empty Caveats list.
-- `SOUND_WITH_CAVEATS`: accept correctness only when every report caveat is
-  non-blocking and appears verbatim, in order, under `## Caveats` in the reviewed
-  target. Otherwise create a Replacement Snapshot that records them and review
-  it again. `MINIMAL`: accept pruning.
-- disagreement: resolve from repository evidence and user authority. If another
-  opinion is useful, send the relevant role an ordinary same-snapshot review
-  request with a concise rationale; do not create a special finding protocol.
-
-After the complete active report set arrives, collect the union of unseen exact
-user answers. Resolve conflicting answers with the user. Append accepted answers
-once and update the authority or artifact first. The review-dispatch program
-prepares all invalidated review work afterward. Never discard answers from a
-slower report.
-
-At the maximum, ask the user whether to stop or approve a higher exact value
-before creating another artifact.
-
-## Finish
-
-- draft-review: after accepted correctness and enabled pruning, author sends
-  `design_spec_delivered` with the exact accepted decision and caveats; requester
-  verifies them, archives and commits the caveat-bearing target, and reports the
-  caveats in the final delivery;
-- review-existing: require the accepted commit at design tip and committed specs,
-  rerun the path gate, merge into the recorded base, then close out the reviewer.
-
-For review-existing, do not squash, rebase, cherry-pick, or guess through dirty
-state, conflicts, detached HEAD, or base uncertainty.
+After the active reports accept the artifact, follow `author-round` delivery.
+Keep accepted caveats in the next artifact and final delivery, not in a shared
+progress database.
+For review-existing, retain the accepted commit at the design tip, rerun its path
+gate, merge into the recorded base, and close out the reviewer. Never squash,
+rebase, cherry-pick, or guess through dirty or conflicting Git state.

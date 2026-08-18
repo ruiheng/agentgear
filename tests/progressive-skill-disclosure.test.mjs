@@ -238,12 +238,14 @@ test("draft technical-design caveats remain durable through requester delivery",
 
   assert.match(body("review-tech-design/review-contract"), /same ordered list under `## Caveats` in the reviewed\n  target and the review report/);
   assert.match(body("review-tech-design/message-delivery"), /## Caveats\n- \[Exact caveat copied from the reviewed target, or None\]/);
-  assert.match(body("tech-design-workflow/lane-state"), /"decision": "SOUND", "caveats": \[\], "user_decisions": \[\]/);
-  assert.match(body("tech-design-workflow/report-handling"), /store the exact ordered Caveats list/);
+  assert.equal(body("review-tech-design/message-delivery").match(/^Round:/gm)?.length, 1);
+  assert.match(body("tech-design-workflow/lane-manifest"), /immutable task metadata/);
+  assert.doesNotMatch(body("tech-design-workflow/lane-manifest"), /"decision"|"correctness_report"|"review_gate"/);
+  assert.match(body("tech-design-workflow/report-handling"), /Keep accepted caveats in the next artifact and final delivery/);
   assert.match(body("tech-design-workflow/author-round"), /Decision: <SOUND \| SOUND_WITH_CAVEATS>[\s\S]*## Caveats/);
-  assert.match(body("tech-design-workflow/requester-delivery"), /notification Decision and ordered Caveats to exactly match/);
-  assert.match(body("tech-design-workflow/requester-delivery"), /final response[\s\S]*every caveat/);
-  assert.match(body("tech-design-workflow/closeout"), /exact accepted decision and\n+caveats/);
+  assert.match(body("tech-design-workflow/requester-delivery"), /Match Decision and\s+ordered Caveats to the delivered artifact/);
+  assert.match(body("tech-design-workflow/requester-delivery"), /Report its path and\s+commit with the exact accepted decision and caveats/);
+  assert.match(body("tech-design-workflow/closeout"), /Report final design paths, authoritative commit, exact accepted decision and\s+caveats/);
 });
 
 test("skill list is deterministic and emits directly resolvable owned addresses", () => {

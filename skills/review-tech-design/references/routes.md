@@ -9,26 +9,22 @@ selector-aliases: action:design_spec_review_requested
 Retrieve `agentgear skill get multi-agent-protocol/shared-protocol`. Route
 without opening the target:
 
-- workspace-relative `Lane State` selects draft-round; retrieve
-  `tech-design-workflow/lane-state`, then `review-tech-design/review-contract
+- workspace-relative `Lane Manifest` selects draft-round; retrieve
+  `tech-design-workflow/lane-manifest`, then `review-tech-design/review-contract
   review-tech-design/draft-round-review review-tech-design/message-delivery`;
 - otherwise require `Mode: committed-docs` under `## Review Target`, then
   retrieve `review-tech-design/review-contract
   review-tech-design/committed-docs-review review-tech-design/message-delivery`;
 - conflicting or missing mode input is rejected with the generic response below.
 
-Draft-round has no Mode field. Authenticate Task, author -> reviewer endpoints,
-current Round, and Review Epoch against `correctness_epoch`. Require the current
-artifact and the lane's Context Revision to match the Canonical Contract before
-opening the target. Also require `review_gate` to name the current Round and
-artifact and match the current Context Revision and User Decision count; require
-`correctness_epoch == review_epoch` for the current request. A missing or
-mismatched gate is an invalid manually dispatched request; reject it without
-opening the target. Run the Gate Verification defined by
-`tech-design-workflow/lane-state` and require its digest to equal
-`review_gate.artifact_sha256` before opening the target. An authenticated older Round or epoch is a stale duplicate:
-settle it without another review. Defer missing state; reject a different task,
-endpoint, future epoch, or target.
+Draft-round has no Mode field. Authenticate Task and author -> reviewer
+transport endpoints against the manifest. Require a positive Round within its
+maximum, an artifact equal to
+`.agent-artifacts/design-spec/<author_session_id>/rNNN.md`, the immediately
+preceding artifact for later rounds, and a Context Revision equal to the current
+Canonical Contract before opening the target. Use retained conversation and
+artifact history to recognize an older or duplicate request. Defer missing
+authority; reject a different task, endpoint, or target.
 
 For committed-docs, retain the requester route, initial contract, decisions,
 maximum, and each reviewed target by Task and Round. Round 1 carries the full
@@ -47,7 +43,7 @@ Action: message_rejected
 Original Delivery: <delivery_id>
 Error: invalid_design_review_request
 
-Expected a workspace-relative Lane State for draft-round, or Mode: committed-docs under Review Target.
+Expected a workspace-relative Lane Manifest for draft-round, or Mode: committed-docs under Review Target.
 ```
 
 Use subject `message rejected: <delivery_id>`. Acknowledge after send success;

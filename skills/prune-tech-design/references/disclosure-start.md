@@ -14,25 +14,23 @@ Retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-p
 invocation is direct-use: review the user-provided design against explicit or
 inferable constraints and ask only when a critical constraint is missing.
 
-In message mode retrieve `tech-design-workflow/lane-state`. Authenticate Task,
-pruner recipient, and the expected sender before acting:
+In message mode retrieve `tech-design-workflow/lane-manifest`. Authenticate Task,
+the pruner recipient, and the expected sender against the stable manifest and
+the actual Waypost endpoints before acting:
 
 - initial context: requester -> pruner, `Context: initial`, positive Context
-  Revision, no Round or Review Epoch;
-- prune request: author -> pruner, current positive Round and Review Epoch equal
-  to `prune_epoch`.
+  Revision, and no Round;
+- prune request: author -> pruner, positive Round, exact Artifact, exact
+  immediately preceding Previous Artifact for round 2 or later, and positive
+  Context Revision.
 
-Require the lane's applied Context Revision to match the Canonical Contract and
-the requested artifact to be the immutable current target. A lazy pruner may
-receive its first retained context with this request. Require `review_gate` to
-name the current Round and artifact, match the current Context Revision and User
-Decision count, set `pruner_required`, and correspond to `prune_epoch`. A missing
-or mismatched gate is an invalid manually dispatched request. Run the Gate
-Verification defined by `tech-design-workflow/lane-state` and require its digest
-to equal `review_gate.artifact_sha256` before opening the target. An authenticated
-older revision, Round, or epoch is a stale no-op; a duplicate completed epoch
-does not require another review. Defer missing state and reject a different
-task, endpoint, future epoch, or target.
+Require the requested Context Revision to match the Canonical Contract. Require
+the artifact paths to follow the manifest author and immutable round naming.
+A lazy pruner may receive its first retained context with the prune request; in
+that case read the complete Canonical Contract through the manifest before
+reviewing. An authenticated older contract revision or Round is a stale no-op.
+Defer missing context and reject a different task, endpoint, future Round, or
+invalid target. Do not require or update shared progress state.
 
 Initial context retains the complete Canonical Contract and waits. Missing or
 unsupported authenticated context returns `NEEDS_INPUT`; routing errors do not.
@@ -59,12 +57,10 @@ In message mode send the complete report to the inbound sender:
 ```markdown
 Task: <task_id>
 Action: design_prune_report
-Lane State: <workspace-relative lane state file>
+Lane Manifest: <workspace-relative lane manifest>
 Input Kind: <prune-request | context-initial>
-Review Epoch: <positive epoch; prune-request only>
-Artifact SHA-256: <review_gate.artifact_sha256; prune-request only>
-Context Revision: <received revision; context-initial only>
-Round: <round | context for initial rejection>
+Context Revision: <received revision>
+Round: <positive round | context>
 
 ## Reviewed Target
 - Artifact: <exact path | user-provided design | none for invalid context>
@@ -85,9 +81,8 @@ MINIMAL | NEEDS_SIMPLIFICATION | NEEDS_INPUT
 
 Use `MINIMAL` only when no design or document change is required. Initial-context
 rejection uses `Input Kind: context-initial`, `Artifact: none`, and Round
-`context`. A newer epoch for the same snapshot is an ordinary review against
-current authority; an author rationale may focus attention but does not create a
-special finding protocol.
+`context`. An author rationale may focus attention but does not limit the review
+or create a special finding protocol.
 
 Send valid reports, including the final round, then follow the Async sender rule.
 In direct-use mode omit the envelope through Round, start at `## Reviewed
