@@ -11,12 +11,13 @@ Resolve requester identity from explicit input, then current session context. Re
 
 Resolve archive branch from explicit input, or the current branch only when it is clearly the formal-doc landing branch. Stop on detached HEAD or ambiguity.
 
-Resolve pruner use once: enable it for multiple material concepts, a new
-abstraction or ownership boundary, or extra paths; skip localized single-owner
-changes. An explicit user choice wins. Preserve the choice through setup; after
-dispatch, the lane state's conditional pruner identity and route are authority.
+Resolve `pruner_policy` once from an explicit user choice: `always` requires a
+pruner at lane creation, `never` prohibits one, and otherwise use `auto`. Auto
+does not create a pruner during initial setup. The review-dispatch program reads
+the configured size thresholds after each immutable artifact is ready and stops
+before review when lazy activation is required.
 
-Resolve `architect_author`, `architect_reviewer`, and enabled `design_pruner`
+Resolve `architect_author`, `architect_reviewer`, and an explicitly enabled `design_pruner`
 through the shared Tool Resolution Contract with the target workdir. Keep launch
 values out of messages.
 
@@ -24,7 +25,7 @@ values out of messages.
 
 Retrieve `agentgear skill get multi-agent-protocol/session-host multi-agent-protocol/tool-resolution` before session operations.
 
-Resolve deterministic refs, defaulting to `architect-author-<task_id>`, `architect-reviewer-<task_id>`, and optional `design-pruner-<task_id>`. Require or create each through the shared Session Host Contract with its expected workdir and selected candidate. Require distinct real IDs, one host, and one address per target. After interrupted setup, require again; after review history exists, recover missing IDs from Waypost history or stop.
+Resolve deterministic refs, defaulting to `architect-author-<task_id>`, `architect-reviewer-<task_id>`, and optional `design-pruner-<task_id>`. Require or create each initially selected target through the shared Session Host Contract with its expected workdir and selected candidate. Require distinct real IDs, one host, and one address per target. Lazy activation later uses the same pruner ref, recorded requester parent, host, workdir, and Tool Resolution Contract. After interrupted setup, require again; after review history exists, recover missing IDs from Waypost history or stop.
 
 ## Contract and Dispatch
 
@@ -57,11 +58,12 @@ agentgear run tech-design-workflow send-design-draft-with-review-context.mjs \
   --from-address "<waypost_status.default_sender>" \
   --author-to-address "<author address>" \
   --reviewer-to-address "<reviewer address>" \
+  --pruner-policy "<auto|always|never>" \
   --contract-file "<canonical contract file>" \
   --json
 ```
 
-When the pruner is enabled, add `--pruner-session-id "<pruner_session_id>" --pruner-to-address "<pruner address>"`.
+When policy is `always`, also add `--pruner-session-id "<pruner_session_id>" --pruner-to-address "<pruner address>"`. Do not add them for `auto` or `never`.
 
 Run with host permission. The wrapper initializes the lane, sends reviewer and
 enabled-pruner context, marks `dispatch_ready`, then notifies the author. The

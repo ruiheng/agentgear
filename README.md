@@ -309,3 +309,9 @@ roles, or candidates with
 workflow resolver does not infer keys during normal session creation. Use its
 explicit `--check-config` command when you want Agentgear to verify the local
 key names.
+
+Technical-design pruner thresholds use `config/workflow-policy.toml`. Override
+positive `max_lines` or `max_chars` values under `[tech_design.pruner]` in
+`$XDG_CONFIG_HOME/agentgear/workflow-policy.local.toml` or a project-local
+`workflow-policy.local.toml`; the project layer wins. Copy
+`config/workflow-policy.local.example.toml` as a starting point.

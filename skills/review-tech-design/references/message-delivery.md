@@ -51,6 +51,7 @@ For draft-round, insert this after `Action`:
 ```markdown
 Lane State: <workspace-relative lane state file>
 Review Epoch: <positive review generation>
+Artifact SHA-256: <review_gate.artifact_sha256>
 ```
 
 Draft-round resolves task, epoch, round, reviewer identity, maximum, user

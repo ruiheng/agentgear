@@ -1,0 +1,3 @@
+[tech_design.pruner]
+max_lines = 250
+max_chars = 20000

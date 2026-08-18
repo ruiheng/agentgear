@@ -43,6 +43,8 @@ Required:
   --contract-file <path>
 
 Optional:
+  --pruner-policy <auto|always|never>
+                                  Default: always with pruner args; auto otherwise
   --pruner-session-id <id>      Enable the pruner; requires --pruner-to-address
   --pruner-to-address <address> Enable the pruner; requires --pruner-session-id
   --artifact-root <path>         Default: <workdir>/.agent-artifacts/design-spec-dispatch
@@ -114,7 +116,7 @@ function expectedArtifactPath(authorSessionId) {
   return path.posix.join(".agent-artifacts", "design-spec", authorSessionId, "r001.md");
 }
 
-function requireSymlinkFreeContainedPath(root, candidate, label) {
+export function requireSymlinkFreeContainedPath(root, candidate, label) {
   if (!pathIsInside(root, candidate)) fail(`${label} must be inside --workdir`);
   const relative = path.relative(root, candidate);
   let current = root;
@@ -209,7 +211,7 @@ export function sendWaypost(sendMessage, options, toAddress, subject, message, r
     : { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
 }
 
-function failDelivery(label, result) {
+export function failDelivery(label, result) {
   if (result.status === "interrupted") fail(`${label} send interrupted; rerun the same command`, 4, "SEND_INTERRUPTED");
   if (result.status === "receipt_unknown") fail(`${label} send result is unclear; rerun the same command`, 5, "SEND_RECEIPT_UNKNOWN");
   fail(`${label} send failed: ${result.detail || "unknown error"}`, 3, "SEND_FAILED");
@@ -223,6 +225,7 @@ function authorHasProgress(state, options) {
     || state.prune_epoch !== null
     || state.correctness_report !== null
     || state.prune_report !== null
+    || state.review_gate != null
     || state.acceptance !== null
     || state.previous_artifact !== null
     || (Array.isArray(state.user_decisions) && state.user_decisions.length > 0)
@@ -230,7 +233,7 @@ function authorHasProgress(state, options) {
 }
 
 function validateExistingState(state, options) {
-  if (state?.schema_version !== 2) fail("existing design lane has an unsupported schema");
+  if (![2, 3].includes(state?.schema_version)) fail("existing design lane has an unsupported schema");
   for (const [field, expected] of [
     ["task_id", options.taskId],
     ["requester_session_id", options.requesterSessionId],
@@ -244,6 +247,13 @@ function validateExistingState(state, options) {
     ["archive_branch", options.archiveBranch]
   ]) {
     if (stringField(state, field) !== expected) fail(`existing design lane has different ${field}`);
+  }
+  const existingPrunerPolicy = state.schema_version === 2
+    ? (state.pruner_session_id || state.pruner_to_address ? "always" : "never")
+    : stringField(state, "pruner_policy");
+  if ((state.schema_version === 3 || options.prunerPolicyExplicit)
+    && existingPrunerPolicy !== options.prunerPolicy) {
+    fail("existing design lane has a different pruner_policy");
   }
   if (stringField(state, "pruner_session_id") !== (options.prunerSessionId || "")
     || stringField(state, "pruner_to_address") !== (options.prunerToAddress || "")) {
@@ -259,7 +269,7 @@ function validateExistingState(state, options) {
 
 function initialState(options) {
   return {
-    schema_version: 2,
+    schema_version: 3,
     task_id: options.taskId,
     requester_role: options.requesterRole,
     requester_session_id: options.requesterSessionId,
@@ -268,6 +278,7 @@ function initialState(options) {
     author_to_address: options.authorToAddress,
     reviewer_session_id: options.reviewerSessionId,
     reviewer_to_address: options.reviewerToAddress,
+    pruner_policy: options.prunerPolicy,
     ...(options.prunerSessionId ? {
       pruner_session_id: options.prunerSessionId,
       pruner_to_address: options.prunerToAddress
@@ -287,6 +298,7 @@ function initialState(options) {
     user_decisions: [],
     correctness_report: null,
     prune_report: null,
+    review_gate: null,
     acceptance: null,
     created_at: nowIso()
   };
@@ -304,6 +316,18 @@ function validateOptions(options) {
   }
   if (Boolean(options.prunerSessionId) !== Boolean(options.prunerToAddress)) {
     fail("--pruner-session-id and --pruner-to-address must be provided together");
+  }
+  if (!["auto", "always", "never"].includes(options.prunerPolicy)) {
+    fail("--pruner-policy must be auto, always, or never");
+  }
+  if (options.prunerPolicy === "always" && !options.prunerSessionId) {
+    fail("--pruner-policy always requires pruner session and address");
+  }
+  if (options.prunerPolicy === "never" && options.prunerSessionId) {
+    fail("--pruner-policy never cannot include a pruner session");
+  }
+  if (options.prunerPolicy === "auto" && options.prunerSessionId) {
+    fail("--pruner-policy auto must defer pruner creation to review dispatch");
   }
   const ids = [options.requesterSessionId, options.authorSessionId, options.reviewerSessionId];
   if (options.prunerSessionId) ids.push(options.prunerSessionId);
@@ -323,7 +347,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       "--author-session-id", "--reviewer-session-id", "--session-host", "--round",
       "--max-review-rounds", "--artifact-path", "--archive-branch", "--from-address",
       "--author-to-address", "--reviewer-to-address", "--contract-file", "--artifact-root",
-      "--pruner-session-id", "--pruner-to-address", "--content-type", "--schema-version",
+      "--pruner-policy", "--pruner-session-id", "--pruner-to-address", "--content-type", "--schema-version",
       "--send-timeout-ms"
     ],
     flags: ["--json"],
@@ -349,6 +373,10 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     ["authorToAddress", "--author-to-address"], ["reviewerToAddress", "--reviewer-to-address"],
     ["contractFile", "--contract-file"]
   ]) if (!options[key]) fail(`${label} is required`);
+
+  options.prunerPolicyExplicit = Boolean(options.prunerPolicy);
+  options.prunerPolicy = options.prunerPolicy
+    || (options.prunerSessionId || options.prunerToAddress ? "always" : "auto");
 
   validateOptions(options);
   options.round = positiveInteger(options.round, "--round");

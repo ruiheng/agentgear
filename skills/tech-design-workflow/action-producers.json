@@ -22,6 +22,20 @@
       "export": "DESIGN_PRUNE_CONTEXT",
       "factory": "designPruneContextMessage",
       "sender": "sendDesignPruneContextMessage"
+    },
+    "DESIGN_SPEC_REVIEW_REQUESTED": {
+      "token": "design_spec_review_requested",
+      "script": "dispatch-design-review.mjs",
+      "export": "DESIGN_SPEC_REVIEW_REQUESTED",
+      "factory": "designSpecReviewRequestedMessage",
+      "sender": "sendDesignSpecReviewRequestedMessage"
+    },
+    "DESIGN_PRUNE_REQUESTED": {
+      "token": "design_prune_requested",
+      "script": "dispatch-design-review.mjs",
+      "export": "DESIGN_PRUNE_REQUESTED",
+      "factory": "designPruneRequestedMessage",
+      "sender": "sendDesignPruneRequestedMessage"
     }
   }
 }

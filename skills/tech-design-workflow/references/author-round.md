@@ -36,8 +36,8 @@ hard constraints.
 
 Ask the user directly for a blocking product decision and append the exact
 answer once. Multiple answers may share a round. Decide whether the current
-artifact remains valid, then prepare the required review work in the same state
-write as the authority change.
+artifact remains valid, then use the review-dispatch program; do not prepare
+epochs or send review messages manually.
 
 ## Replacement Snapshot
 
@@ -47,58 +47,55 @@ first ask the user whether to stop or approve a higher exact value.
 
 Create the next complete `rNNN.md` from the immutable current artifact. Only
 after it is ready, atomically advance Round, move the old current path to
-`previous_artifact`, point to the new path, apply any new context/decision/
-maximum authority, prepare new review epochs for reviewer and enabled pruner,
-clear their reports, and clear acceptance. State must never point to an
+`previous_artifact`, point to the new path, and apply any new context, decision,
+or maximum authority. Clear acceptance, but leave epoch preparation and stale
+report clearing to the review-dispatch program. State must never point to an
 incomplete snapshot.
 
 ## Review Dispatch
 
-Before a new review request, atomically increment `review_epoch`, assign it to
-each affected role's expected epoch, clear that role's stale report, and clear
-acceptance. Do not allocate another epoch when the preceding authority or
-replacement write already prepared it.
+After the complete immutable artifact and any authority update are ready, run:
 
-Send from `author_to_address` to the role recorded in lane state. Review messages
-carry only the current Task, lane path, Round, and Review Epoch:
-
-```markdown
-Task: <task_id>
-Action: design_spec_review_requested
-Lane State: <workspace-relative lane state file>
-Review Epoch: <positive epoch>
-Round: <round>
+```bash
+agentgear run tech-design-workflow dispatch-design-review.mjs \
+  --workdir "<current workspace>" \
+  --lane-state ".agent-artifacts/design-spec-dispatch/<task_id>.lock/state.json" \
+  --json
 ```
 
-For an enabled pruner:
+This is the only valid draft review-dispatch path. It loads the layered TOML
+workflow policy, measures the artifact, writes `review_gate`, prepares one epoch,
+and sends reviewer and enabled-pruner requests. Never construct those requests,
+write their epochs, or clear reports manually.
 
-```markdown
-Task: <task_id>
-Action: design_prune_requested
-Lane State: <workspace-relative lane state file>
-Review Epoch: <positive epoch>
-Round: <round>
-```
+`PRUNER_REQUIRED` means no epoch or message was created. Resolve `design_pruner`
+through the Tool Resolution Contract, require or create the deterministic sibling
+session through the Session Host Contract using the recorded requester parent and
+host, then rerun the same command with `--pruner-session-id` and
+`--pruner-to-address`. Once enabled, the pruner remains enabled.
 
-Receipts and send status are transport diagnostics, not lane state. If a send
-result is unclear, stop and report it. An explicit retry may repeat the same
-message: receivers recognize a completed or stale epoch and do not redo work.
+Receipts and send status are transport diagnostics, not lane state. Rerun the
+same command after an unclear result; it reuses the prepared epoch. Use
+`--new-epoch` only for an intentional same-artifact review under unchanged
+authority.
 
-When authority changes without changing the artifact, request normal full
-review of the same snapshot under a new epoch. When reports disagree, resolve
+When authority changes without changing the artifact, run normal dispatch; the
+changed authority produces a new epoch. When reports disagree, resolve
 the conflict from evidence or ask the relevant role to review the same snapshot
 again with a short factual rationale. This remains an ordinary review request.
 
 ## Final Notification
 
-When lane state satisfies its acceptance predicate, record the accepted Round
-and artifact, then notify the requester:
+When lane state satisfies its acceptance predicate, run the Gate Verification
+defined by `lane-state`, record the accepted Round, artifact, and verified
+SHA-256, then notify the requester:
 
 ```markdown
 Task: <task_id>
 Action: design_spec_delivered
 Lane State: <workspace-relative lane state file>
 Round: <accepted_round>
+Artifact SHA-256: <accepted artifact digest>
 Decision: <SOUND | SOUND_WITH_CAVEATS>
 
 ## Caveats

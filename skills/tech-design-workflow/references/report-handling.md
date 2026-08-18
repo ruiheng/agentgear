@@ -19,7 +19,9 @@ Before acting on a report, match its Task and mode to the active lane:
 - committed-docs: retained reviewer -> requester for that Task and Round.
 
 For a draft review result, also require the reported Round, current artifact,
-and Review Epoch to match that role's current expected epoch. An authenticated
+Review Epoch, and Artifact SHA-256 to match that role's current expected epoch
+and `review_gate`. Run the Gate Verification defined by `lane-state` before
+storing the report. An authenticated
 older Round or epoch is a stale no-op. Defer missing state; reject a different
 task, endpoint, future epoch, or target without changing the lane. Body identity
 fields never replace transport metadata.
@@ -31,8 +33,8 @@ context rejection into a review report.
 
 ## Apply
 
-Store a valid draft result in its role slot as epoch, decision, and exact report
-User Decisions. For correctness, also store the exact ordered Caveats list;
+Store a valid draft result in its role slot as epoch, artifact SHA-256, decision,
+and exact report User Decisions. For correctness, also store the exact ordered Caveats list;
 require it to be nonempty only for `SOUND_WITH_CAVEATS`. A duplicate for the
 stored epoch is a no-op. With a pruner, wait for every currently requested role
 before changing design or authority.
@@ -53,8 +55,9 @@ before changing design or authority.
 
 After the complete active report set arrives, collect the union of unseen exact
 user answers. Resolve conflicting answers with the user. Append accepted answers
-once and prepare all invalidated next review work in the same state write; if the
-artifact must change, create it first. Never discard answers from a slower report.
+once and update the authority or artifact first. The review-dispatch program
+prepares all invalidated review work afterward. Never discard answers from a
+slower report.
 
 At the maximum, ask the user whether to stop or approve a higher exact value
 before creating another artifact.

@@ -167,10 +167,10 @@ flowchart TD
 
 - `review-code` remains the authoritative full review output
 - `review-tech-design` reviews immutable draft artifacts or committed technical design specifications; it does not replace code review
-- `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions, with an optional design pruner for non-local designs; mature committed specifications may go directly to one reviewer
-- in draft-review, the requester writes one canonical Design Task Contract; initial dispatch creates shared lane state that points to it and sends only lane-state notifications to the reviewer, optional pruner, and author
+- `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
+- in draft-review, the requester writes one canonical Design Task Contract; initial dispatch starts a pruner only when explicitly requested, while the mandatory review-dispatch gate lazily requires one when an artifact reaches the configured line or character threshold
 - in draft-review, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and reviewers remain read-only
-- the author records terminal acceptance and exact caveats in shared lane state, repeats them in the delivery notification, and the original requester verifies and commits the caveat-bearing accepted artifact before returning the caveats in the final response
+- the author records terminal acceptance and exact caveats in shared lane state, repeats them in the delivery notification, and the original requester applies `assess-tech-design` before committing and returning the caveats
 - after the archive commit or accepted design-branch merge succeeds, the requester removes verified task-scoped disposable architect sessions through the shared host adapter and reports any preserved or pending cleanup
 - draft-review does not transfer workspace ownership, switch branches, or commit intermediate rounds
 - review-existing keeps committed branch history; after acceptance, merge the recorded design branch into its recorded base with normal `git merge`

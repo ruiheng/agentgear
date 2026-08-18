@@ -820,6 +820,10 @@ test("Action producer manifests cover every actual sender exactly once", () => {
       ["review_task_context", "execute_delegate_task"]
     ],
     [
+      path.join(rootDir, "skills", "tech-design-workflow", "scripts", "dispatch-design-review.mjs"),
+      ["design_spec_review_requested", "design_prune_requested"]
+    ],
+    [
       path.join(rootDir, "skills", "tech-design-workflow", "scripts", "send-design-draft-with-review-context.mjs"),
       ["design_prune_context", "design_spec_review_context", "design_spec_draft_requested"]
     ]

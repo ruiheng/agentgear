@@ -25,8 +25,8 @@ For a new request, choose draft-review when no defensible committed specificatio
 - The requester starts the lane and delivers the accepted result.
 - The architect-author writes complete draft snapshots and handles reviewer dialogue.
 - The architect-reviewer independently reviews without editing the target.
-- Draft-review may add one `design_pruner` that only removes unnecessary design. Resolve this once at lane start; an explicit user choice wins.
-- In draft-review, author, reviewer, and an enabled pruner are distinct sibling sessions. They read one shared lane state; messages only identify the task and review generation to process.
+- Draft-review may add one `design_pruner` that only removes unnecessary design. Start it at lane creation only when the user explicitly requires it. Otherwise the deterministic review-dispatch gate activates it when the current artifact reaches the configured size threshold; an explicit user prohibition wins.
+- In draft-review, author, reviewer, and an enabled pruner are distinct sibling sessions. Lazy activation creates the pruner as another sibling before review dispatch. They read one shared lane state; messages only identify the task and review generation to process.
 - The requester is the only Canonical Contract writer. The dispatcher initializes lane state and marks context dispatch ready; afterward the author is its only writer. Reviewer and pruner remain read-only.
 - Preserve the original request or authoritative handoff verbatim in the Canonical Design Task Contract. Keep requester normalization separate.
 - Store that contract once under `.agent-artifacts/message/` and reference it from `.agent-artifacts/design-spec-dispatch/<task_id>.lock/state.json`. Keep the lane state and contract through closeout.

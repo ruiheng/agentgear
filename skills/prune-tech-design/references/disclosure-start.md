@@ -23,7 +23,13 @@ pruner recipient, and the expected sender before acting:
   to `prune_epoch`.
 
 Require the lane's applied Context Revision to match the Canonical Contract and
-the requested artifact to be the immutable current target. An authenticated
+the requested artifact to be the immutable current target. A lazy pruner may
+receive its first retained context with this request. Require `review_gate` to
+name the current Round and artifact, match the current Context Revision and User
+Decision count, set `pruner_required`, and correspond to `prune_epoch`. A missing
+or mismatched gate is an invalid manually dispatched request. Run the Gate
+Verification defined by `tech-design-workflow/lane-state` and require its digest
+to equal `review_gate.artifact_sha256` before opening the target. An authenticated
 older revision, Round, or epoch is a stale no-op; a duplicate completed epoch
 does not require another review. Defer missing state and reject a different
 task, endpoint, future epoch, or target.
@@ -56,6 +62,7 @@ Action: design_prune_report
 Lane State: <workspace-relative lane state file>
 Input Kind: <prune-request | context-initial>
 Review Epoch: <positive epoch; prune-request only>
+Artifact SHA-256: <review_gate.artifact_sha256; prune-request only>
 Context Revision: <received revision; context-initial only>
 Round: <round | context for initial rejection>
 

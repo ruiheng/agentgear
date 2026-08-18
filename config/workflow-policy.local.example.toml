@@ -1,0 +1,6 @@
+# Copy this file to ~/.config/agentgear/workflow-policy.local.toml or to
+# workflow-policy.local.toml in a project, then override only the values needed.
+
+# [tech_design.pruner]
+# max_lines = 300
+# max_chars = 24000

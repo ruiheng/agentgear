@@ -20,7 +20,13 @@ without opening the target:
 Draft-round has no Mode field. Authenticate Task, author -> reviewer endpoints,
 current Round, and Review Epoch against `correctness_epoch`. Require the current
 artifact and the lane's Context Revision to match the Canonical Contract before
-opening the target. An authenticated older Round or epoch is a stale duplicate:
+opening the target. Also require `review_gate` to name the current Round and
+artifact and match the current Context Revision and User Decision count; require
+`correctness_epoch == review_epoch` for the current request. A missing or
+mismatched gate is an invalid manually dispatched request; reject it without
+opening the target. Run the Gate Verification defined by
+`tech-design-workflow/lane-state` and require its digest to equal
+`review_gate.artifact_sha256` before opening the target. An authenticated older Round or epoch is a stale duplicate:
 settle it without another review. Defer missing state; reject a different task,
 endpoint, future epoch, or target.
 
