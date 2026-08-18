@@ -338,9 +338,10 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
 
 test("lists the catalog and builds every target layout", () => {
   run(["build"]);
-  assert.deepEqual(Object.keys(loadCatalog(rootDir).targets.targets), ["general", "claude", "kiro"]);
+  assert.deepEqual(Object.keys(loadCatalog(rootDir).targets.targets), ["general", "gemini", "claude", "kiro"]);
   for (const [target, directory] of [
     ["general", ".agents"],
+    ["gemini", ".gemini"],
     ["claude", ".claude"],
     ["kiro", ".kiro"]
   ]) {
@@ -349,12 +350,12 @@ test("lists the catalog and builds every target layout", () => {
       true
     );
   }
-  for (const removedTarget of ["gemini", "opencode", "antigravity"]) {
+  for (const removedTarget of ["opencode", "antigravity"]) {
     assert.equal(fs.existsSync(path.join(rootDir, "dist", removedTarget)), false);
   }
 });
 
-test("general and Claude are the default skill targets", () => {
+test("general, Gemini, and Claude are the default skill targets", () => {
   const fixture = environmentFixture();
   try {
     const targets = resolveTargetRoots(loadCatalog(rootDir), parseOptions([]), fixture.environment);
@@ -362,6 +363,10 @@ test("general and Claude are the default skill targets", () => {
       {
         name: "general",
         root: path.join(fixture.home, ".agents", "skills")
+      },
+      {
+        name: "gemini",
+        root: path.join(fixture.home, ".gemini", "skills")
       },
       {
         name: "claude",
@@ -383,12 +388,13 @@ test("general and Claude are the default skill targets", () => {
   }
 });
 
-test("default installation reaches both default targets with the approved entry surface", () => {
+test("default installation reaches every default target with the approved entry surface", () => {
   const fixture = environmentFixture();
   try {
     run(["install"], fixture.environment);
     for (const skillsRoot of [
       path.join(fixture.home, ".agents", "skills"),
+      path.join(fixture.home, ".gemini", "skills"),
       path.join(fixture.home, ".claude", "skills")
     ]) {
       assert.equal(fs.existsSync(path.join(skillsRoot, "handoff", "SKILL.md")), true);
@@ -415,7 +421,7 @@ test("agentgear-link help states every option default", () => {
     for (const expectation of [
       /--pack NAME\s+Install one or more packs \(default: all\)/,
       /--skill NAME\s+Install named skills when --pack is omitted \(default: none\)/,
-      /--target NAME\[,NAME\]\s+Select destinations \(default: general,claude\)/,
+      /--target NAME\[,NAME\]\s+Select destinations \(default: general,gemini,claude\)/,
       /--scope global\|project\s+Use global or project destinations \(default: global\)/,
       /--project DIR\s+Project root for --scope project \(default: current directory\)/,
       /--dest DIR\s+Override one destination directory \(default: none; defaults to general\)/,

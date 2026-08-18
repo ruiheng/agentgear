@@ -1,16 +1,15 @@
 # Harness Support
 
-The default targets are `general,claude`. `general` installs the common Agent
-Skills payload in `~/.agents/skills` or `.agents/skills`, once for every
-supported host that discovers that shared layout, including Codex, Gemini CLI,
-OpenCode, and Antigravity. Agentgear intentionally does not duplicate those
-skills into each host's legacy or host-native directory: Gemini gives
-`.agents/skills` precedence, and duplicate names create avoidable ambiguity.
+The default targets are `general,gemini,claude`. `general` installs the common
+Agent Skills payload in `~/.agents/skills` or `.agents/skills` for Codex and
+other hosts that discover that layout. `gemini` installs globally to
+`~/.gemini/skills`, the shared global directory loaded by Gemini CLI and Agy;
+its project destination remains `.gemini/skills`.
 
-`claude` adds Claude Code's separate `.claude/skills` location. Kiro currently
-declares its own `.kiro/skills` location, so it remains the optional `kiro`
-target. Use `--target general` or `--target claude` to narrow the default pair;
-use `--target general,kiro` when both generic and Kiro locations are needed.
+`claude` adds Claude Code's separate `.claude/skills` location. Kiro declares
+its own `.kiro/skills` location, so it remains the optional `kiro` target. Use
+an explicit `--target` list to narrow the defaults; use `--target general,kiro`
+when both generic and Kiro locations are needed.
 
 The installer places skills only. It does not silently write host hooks, MCP
 configuration, or permission rules. Configure permissions explicitly through

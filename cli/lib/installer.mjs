@@ -42,7 +42,7 @@ import {
   writeInstalledSkillMarker
 } from "./runtime.mjs";
 
-export const DEFAULT_TARGETS = ["general", "claude"];
+export const DEFAULT_TARGETS = ["general", "gemini", "claude"];
 
 const PERMISSION_MIGRATION_COMMANDS = new Set(["adwf-send-and-wake"]);
 

@@ -16,13 +16,13 @@ With neither `--pack` nor `--skill`, Agentgear installs the `all` pack. Use
 `--pack core` or another named pack to narrow that selection; `--skill NAME`
 without `--pack` installs only the named skills.
 
-The default targets are `general,claude`. `general` uses the shared Agent Skills locations
-`~/.agents/skills` and `.agents/skills`; it is discovered by Codex, Gemini
-CLI, OpenCode, and Antigravity. Agentgear installs that shared payload once,
-instead of creating duplicate host-specific copies. `claude` adds Claude Code's
-separate `.claude/skills` location. Use `--target general` or `--target claude`
-to narrow an installation; add `kiro` only when Kiro's separate skill directory
-is needed.
+The default targets are `general,gemini,claude`. `general` installs to
+`~/.agents/skills` and `.agents/skills` for Codex and other hosts that discover
+the common Agent Skills layout. `gemini` installs to `~/.gemini/skills`, which
+Gemini CLI and Agy both load globally. `claude` adds Claude Code's separate
+`.claude/skills` location. Use `--target general`, `--target gemini`, or
+`--target claude` to narrow an installation; add `kiro` only when Kiro's
+separate skill directory is needed.
 
 `update` resolves the newest published version, stages it under the user's XDG
 data directory, then publishes it only after the target checks and installation
