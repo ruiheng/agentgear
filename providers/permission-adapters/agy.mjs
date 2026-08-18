@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { shellCommand } from "../../skills/multi-agent-protocol/scripts/waypost-permission-spec.mjs";
 import { renderClaimedJsonPermissions } from "./shared.mjs";
 
 export const agyAdapter = {
@@ -18,7 +19,7 @@ export const agyAdapter = {
     return { files, outputPath: files.settings };
   },
   render({ preset, files }) {
-    const permissions = preset.rules.map(rule => `command(${rule.command.join(" ")})`);
+    const permissions = preset.rules.map(rule => `command(${shellCommand(rule.command)})`);
     return renderClaimedJsonPermissions({
       settingsPath: files.settings,
       claimPath: files.manifest,

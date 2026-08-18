@@ -14,6 +14,7 @@ import {
   permissionPaths,
   workflowWaypostMcpTools
 } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
+import { shellCommand } from "../skills/multi-agent-protocol/scripts/waypost-permission-spec.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,6 +51,13 @@ function withEnvironment(environment, action) {
     }
   }
 }
+
+test("shell command permissions preserve whitespace and quotes in token boundaries", () => {
+  assert.equal(
+    shellCommand(["tool's path", "--check"]),
+    "'tool'\\''s path' --check"
+  );
+});
 
 test("workflow permissions use the stable launcher and never an old source path", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-permissions-test-"));
@@ -365,14 +373,14 @@ test("workflow permissions add explicit Waypost MCP approvals for Claude and Cod
 
 test("user-scoped permission init and check cover all harnesses", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-user-permissions-test-"));
-  const home = path.join(temporary, "home");
+  const home = path.join(temporary, "home with spaces");
   const project = path.join(temporary, "project");
-  const bin = path.join(temporary, "bin");
+  const bin = path.join(temporary, "bin with spaces");
   const environment = {
     HOME: home,
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
-    WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
+    WAYPOST_STATE_DIR: path.join(temporary, "waypost state"),
     PATH: bin
   };
   try {
@@ -387,6 +395,31 @@ test("user-scoped permission init and check cover all harnesses", () => {
     assert.equal(configured.ok, true, configured.issues.join("\n"));
     assert.equal(configured.paths.claudeSettings, path.join(home, ".claude", "settings.json"));
     assert.equal(configured.paths.geminiPolicy, path.join(home, ".gemini", "policies", "agentgear-workflow.toml"));
+    assert.equal(configured.paths.agySettings, path.join(home, ".gemini", "antigravity-cli", "settings.json"));
+
+    const agy = JSON.parse(fs.readFileSync(paths.agySettings, "utf8"));
+    const waypost = fs.realpathSync(path.join(bin, "waypost"));
+    const stateDir = path.resolve(environment.WAYPOST_STATE_DIR);
+    const quotedWaypostDoc = `command('${waypost}' doc)`;
+    const quotedWaypostRead = `command('${waypost}' --state-dir '${stateDir}' read)`;
+    const quotedLauncher = `command('${path.join(home, ".local", "bin", "agentgear")}' skill get)`;
+    assert.equal(agy.permissions.allow.includes(quotedWaypostDoc), true);
+    assert.equal(agy.permissions.allow.includes(quotedWaypostRead), true);
+    assert.equal(agy.permissions.allow.includes(quotedLauncher), true);
+    assert.equal(agy.permissions.allow.includes(`command(${waypost} doc)`), false);
+    assert.equal(agy.permissions.allow.includes("command(waypost)"), false);
+    assert.equal(agy.permissions.allow.includes("command(waypost doc)"), false);
+    assert.equal(agy.permissions.allow.includes("mcp(waypost/waypost_recv)"), true);
+    assert.equal(agy.permissions.allow.includes("mcp(waypost/session_resolve)"), false);
+    const agyClaims = JSON.parse(fs.readFileSync(paths.agyClaims, "utf8"));
+    assert.equal(agyClaims.producer, "workflow");
+    assert.deepEqual(agyClaims.permissions, agy.permissions.allow);
+
+    agy.permissions.allow = agy.permissions.allow.filter(permission => permission !== quotedWaypostDoc);
+    fs.writeFileSync(paths.agySettings, `${JSON.stringify(agy, null, 2)}\n`);
+    const staleAgy = withEnvironment(environment, () => checkPermissions({ scope: "user", project }));
+    assert.equal(staleAgy.issues.some(issue => /Agy settings are missing/.test(issue)), true);
+    withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
 
     const claude = JSON.parse(fs.readFileSync(paths.claudeSettings, "utf8"));
     assert.equal(claude.permissions.allow.includes("mcp__waypost__session_resolve"), false);
@@ -395,6 +428,70 @@ test("user-scoped permission init and check cover all harnesses", () => {
     const stale = withEnvironment(environment, () => checkPermissions({ scope: "user", project }));
     assert.equal(stale.ok, false);
     assert.equal(stale.issues.some(issue => /Claude settings are missing/.test(issue)), true);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("project-scoped permission init leaves Agy global settings untouched", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-project-agy-permissions-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const agyHome = path.join(temporary, "agy-home");
+  const agySettings = path.join(agyHome, "settings.json");
+  const original = `${JSON.stringify({ permissions: { allow: ["command(user-owned)"] } }, null, 2)}\n`;
+  const environment = {
+    HOME: home,
+    AGENTGEAR_AGY_HOME: agyHome,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    PATH: ""
+  };
+  try {
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(agyHome, { recursive: true });
+    fs.writeFileSync(agySettings, original);
+
+    const paths = withEnvironment(environment, () => initializePermissions({ scope: "project", project }).paths);
+
+    assert.equal(paths.agySettings, null);
+    assert.equal(fs.readFileSync(agySettings, "utf8"), original);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("Agy configuration failure rolls back every workflow permission file", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-agy-permission-rollback-test-"));
+  const home = path.join(temporary, "home");
+  const project = path.join(temporary, "project");
+  const agyHome = path.join(temporary, "agy-home");
+  const agySettings = path.join(agyHome, "settings.json");
+  const invalidSettings = "{not json}\n";
+  const environment = {
+    HOME: home,
+    AGENTGEAR_AGY_HOME: agyHome,
+    XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_STATE_HOME: path.join(temporary, "state"),
+    PATH: ""
+  };
+  try {
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(agyHome, { recursive: true });
+    fs.writeFileSync(agySettings, invalidSettings);
+
+    assert.throws(
+      () => withEnvironment(environment, () => initializePermissions({ scope: "user", project })),
+      /failed to parse/
+    );
+
+    const paths = withEnvironment(environment, () => permissionPaths("user", project));
+    assert.equal(fs.readFileSync(agySettings, "utf8"), invalidSettings);
+    assert.equal(fs.existsSync(paths.claudeSettings), false);
+    assert.equal(fs.existsSync(paths.codexRules), false);
+    assert.equal(fs.existsSync(paths.geminiPolicy), false);
+    assert.equal(fs.existsSync(paths.agyClaims), false);
+    assert.equal(fs.existsSync(paths.agyPermissionRegistry), false);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

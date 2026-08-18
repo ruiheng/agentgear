@@ -258,10 +258,12 @@ adapters over the same preset schema. Agy currently exposes user-scoped command
 grants, so selecting `agy` requires `--scope user`.
 
 The initializer grants only the explicit Agentgear, Waypost, and session-host
-operations used by the workflow. Agentgear records the Codex MCP sections it
-adds and removes them when Waypost is no longer trusted; user-managed sections
-are never claimed. Restart existing agent sessions after changing permissions
-so they reload their harness configuration.
+operations used by the workflow. User scope configures Claude Code, Codex,
+Gemini CLI, and Agy; Agy's permission settings are global, so project scope
+does not modify them. Agentgear records the Codex MCP sections it adds and
+removes them when Waypost is no longer trusted; user-managed sections are never
+claimed. Restart existing agent sessions after changing permissions so they
+reload their harness configuration.
 
 When an update retires a workflow command that older permission files may still
 approve, Agentgear prints a `permission_migration_required` security action.

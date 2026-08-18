@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { renderClaimedJsonPermissions } from "./json-permission-claims.mjs";
 import {
   claudeWaypostPermission,
   isLegacyBroadWaypostPermission,
@@ -13,10 +14,11 @@ import {
   readWaypostOwnershipManifest,
   removeWaypostOwnershipManifest,
   resolveWaypostPermissionContext,
+  shellCommand,
   writeWaypostOwnershipManifest
 } from "./waypost-permission-spec.mjs";
 
-const usage = `Manage Agentgear permissions for Claude Code, Codex, and Gemini CLI.
+const usage = `Manage Agentgear permissions for Claude Code, Codex, Gemini CLI, and Agy.
 
 Usage:
   agentgear permissions init [--scope user|project] [--project DIR]
@@ -144,6 +146,9 @@ export function permissionPaths(scope, projectDir, env = process.env) {
   const user = scope === "user";
   const configRoot = user ? path.resolve(getHome(env)) : projectDir;
   const codexRoot = user ? codexHome(env) : path.join(projectDir, ".codex");
+  const agyRoot = user
+    ? path.resolve(env.AGENTGEAR_AGY_HOME || path.join(getHome(env), ".gemini", "antigravity-cli"))
+    : null;
   return {
     configRoot,
     claudeSettings: path.join(configRoot, ".claude", "settings.json"),
@@ -155,7 +160,10 @@ export function permissionPaths(scope, projectDir, env = process.env) {
     codexOwnership: path.join(codexRoot, ".agentgear-workflow-permissions.json"),
     codexUserConfig: path.join(codexHome(env), "config.toml"),
     geminiPolicy: path.join(configRoot, ".gemini", "policies", "agentgear-workflow.toml"),
-    geminiLegacyPolicy: path.join(configRoot, ".gemini", "policies", "agent-deck-workflow.toml")
+    geminiLegacyPolicy: path.join(configRoot, ".gemini", "policies", "agent-deck-workflow.toml"),
+    agySettings: agyRoot ? path.join(agyRoot, "settings.json") : null,
+    agyClaims: agyRoot ? path.join(agyRoot, ".agentgear-workflow-claims.json") : null,
+    agyPermissionRegistry: agyRoot ? path.join(agyRoot, ".agentgear-permission-presets.json") : null
   };
 }
 
@@ -233,8 +241,11 @@ function permissionMutationPaths(paths) {
     paths.codexConfig,
     paths.codexOwnership,
     paths.geminiPolicy,
-    paths.geminiLegacyPolicy
-  ])];
+    paths.geminiLegacyPolicy,
+    paths.agySettings,
+    paths.agyClaims,
+    paths.agyPermissionRegistry
+  ].filter(Boolean))];
 }
 
 function capturePermissionFiles(paths) {
@@ -711,6 +722,38 @@ function waypostRulePattern(rule) {
     ...(rule.stateDir === undefined ? [] : ["--state-dir", rule.stateDir]),
     rule.action
   ];
+}
+
+function agyCommand(words) {
+  return `command(${shellCommand(words)})`;
+}
+
+function generatedAgyPermissions(waypost) {
+  return [...new Set([
+    agyCommand(["agent-deck"]),
+    ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill =>
+      agyCommand([command, "run", skill])
+    )),
+    ...launcherForms().map(command => agyCommand([command, "skill", "get"])),
+    ...launcherForms().map(command => agyCommand([command, "resolve-tool-command"])),
+    ...waypost.rules.filter(rule => !rule.wildcard).map(rule => agyCommand(waypostRulePattern(rule))),
+    ...(waypost.trusted ? workflowWaypostMcpTools.map(name => `mcp(waypost/${name})`) : [])
+  ])];
+}
+
+function configureAgy(waypost, paths) {
+  if (!paths.agySettings) return;
+  log("info", "Configuring Agy permissions...");
+  const permissions = generatedAgyPermissions(waypost);
+  const rendered = renderClaimedJsonPermissions({
+    settingsPath: paths.agySettings,
+    claimPath: paths.agyClaims,
+    registryPath: paths.agyPermissionRegistry,
+    permissions,
+    claimDocument: { version: 1, producer: "workflow" }
+  });
+  for (const output of rendered) writeAtomic(output.path, output.source);
+  log("ok", `Merged permissions into ${paths.agySettings}`);
 }
 
 function codexCommandValue(line) {
@@ -1209,6 +1252,49 @@ function checkGemini(paths, waypost, issues) {
   }
 }
 
+function checkAgy(paths, waypost, issues) {
+  if (!paths.agySettings) return;
+  const source = readRegularText(paths.agySettings, "Agy settings", issues);
+  if (source !== null) {
+    try {
+      const settings = JSON.parse(source);
+      const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
+      const missing = generatedAgyPermissions(waypost).filter(permission => !allowed.has(permission));
+      if (missing.length > 0) issues.push(`Agy settings are missing ${missing.length} Agentgear permission(s)`);
+    } catch (error) {
+      issues.push(`Agy settings are invalid JSON: ${error.message}`);
+    }
+  }
+  const claimSource = readRegularText(paths.agyClaims, "Agy workflow claims", issues);
+  if (claimSource !== null) {
+    try {
+      const claim = JSON.parse(claimSource);
+      const expected = generatedAgyPermissions(waypost);
+      if (claim.version !== 1 || claim.producer !== "workflow"
+        || !Array.isArray(claim.permissions)
+        || claim.permissions.length !== expected.length
+        || claim.permissions.some((permission, index) => permission !== expected[index])) {
+        issues.push(`Agy workflow claims are out of date: ${paths.agyClaims}`);
+      }
+    } catch (error) {
+      issues.push(`Agy workflow claims are invalid JSON: ${error.message}`);
+    }
+  }
+  const registrySource = readRegularText(paths.agyPermissionRegistry, "Agy permission registry", issues);
+  if (registrySource !== null) {
+    try {
+      const registry = JSON.parse(registrySource);
+      if (registry.version !== 1
+        || !Array.isArray(registry.introduced_permissions)
+        || registry.introduced_permissions.some(permission => typeof permission !== "string")) {
+        issues.push(`Agy permission registry is invalid: ${paths.agyPermissionRegistry}`);
+      }
+    } catch (error) {
+      issues.push(`Agy permission registry is invalid JSON: ${error.message}`);
+    }
+  }
+}
+
 export function checkPermissions({ scope = "user", project = process.cwd() } = {}) {
   const projectDir = resolveProjectDir(path.resolve(project));
   const paths = permissionPaths(scope, projectDir);
@@ -1218,6 +1304,7 @@ export function checkPermissions({ scope = "user", project = process.cwd() } = {
   checkClaude(paths, waypost, issues);
   checkCodex(paths, waypost, issues);
   checkGemini(paths, waypost, issues);
+  checkAgy(paths, waypost, issues);
   return { ok: issues.length === 0, scope, project: projectDir, issues, paths };
 }
 
@@ -1237,6 +1324,7 @@ export function initializePermissions({ scope = "user", project = process.cwd() 
       configureCodex(projectDir, waypost, paths),
       configureGemini(waypost, paths)
     ];
+    configureAgy(waypost, paths);
     archiveLegacyPermissionFiles(legacyArchives);
   } catch (error) {
     try {

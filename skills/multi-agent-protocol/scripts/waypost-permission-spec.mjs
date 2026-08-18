@@ -164,6 +164,10 @@ export function shellQuote(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+export function shellCommand(words) {
+  return words.map(shellQuote).join(" ");
+}
+
 function commandAndStateForms(command, stateDir, home) {
   const commandForms = unique([command, tildePath(command, home)]);
   const stateForms = unique([stateDir, tildePath(stateDir, home)]);
@@ -291,11 +295,11 @@ function normalizedRule(rule) {
 
 export function claudeWaypostPermission(rule) {
   const normalized = normalizedRule(rule);
-  const command = [
-    shellQuote(normalized.command),
-    ...(normalized.stateDir === undefined ? [] : ["--state-dir", shellQuote(normalized.stateDir)]),
+  const command = shellCommand([
+    normalized.command,
+    ...(normalized.stateDir === undefined ? [] : ["--state-dir", normalized.stateDir]),
     normalized.action
-  ].join(" ");
+  ]);
   return `Bash(${command}${normalized.wildcard ? " *" : ""})`;
 }
 

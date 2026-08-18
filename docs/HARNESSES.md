@@ -15,7 +15,9 @@ The installer places skills only. It does not silently write host hooks, MCP
 configuration, or permission rules. Configure permissions explicitly through
 `agentgear permissions init`; user scope is the default, while `--scope
 project --project DIR` writes trusted-project configuration. Verify the active
-scope with `agentgear permissions check`. Generated rules use the stable
+scope with `agentgear permissions check`. User scope also merges Agy approvals
+into `~/.gemini/antigravity-cli/settings.json`; project scope leaves that
+global file untouched. Generated rules use the stable
 `agentgear run …` launcher rather than a checkout path. The initializer does
 not create an MCP server declaration; it adds scoped approvals only when the
 Waypost server is already configured. Codex approvals use a bounded generated
