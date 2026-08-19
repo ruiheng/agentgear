@@ -35,11 +35,14 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 - [Stable Finding ID: consequence and recommended direction, or None]
 
 ## User Decisions
-- [question and exact user answer, or None]
+- [exact user-input question and answer, or None]
 
 ## Residual Risk
 [remaining uncertainty or None]
 ```
+
+The `User Decisions` heading is the lane's complete user-input record. It may
+contain factual clarifications, constraints, preferences, or decisions.
 
 Use `None` under Caveats for every decision except `SOUND_WITH_CAVEATS`.
 `SOUND_WITH_CAVEATS` requires at least one caveat, copied verbatim and in the
@@ -60,9 +63,13 @@ and resolves context from the inline request plus preceding
 rounds. Message reports use only their routed mode; direct-use sets
 `Mode: direct`. Never require draft-only state from committed-docs.
 
-Send the complete report form above as the Waypost body; never replace it with a summary, and keep `Action: design_spec_review_report` in its initial header block. Send completed reviews or NEEDS_INPUT to the received request `sender_address` from the current bound reviewer address with subject `design-spec review report: <task_id> r<round>`. Follow the shared Async sender rule.
+Send the complete report form above as the Waypost body; never replace it with a summary, and keep `Action: design_spec_review_report` in its initial header block. Send completed reviews or `NEEDS_INPUT` to the received request `sender_address` from the current bound reviewer address with subject `design-spec review report: <task_id> r<round>`. The requester records any confirmed User Decision Delta; it is not the authority to answer user questions on the user's behalf. Follow the shared Async sender rule.
 
-If required user context is unavailable, send `NEEDS_INPUT` and stop. Do not accept an agent-written substitute.
+Use `NEEDS_INPUT` only when the review request is incomplete, mismatched, or
+unreadable. If user input is needed, ask the user directly and wait before
+sending the report; include the exact question and answer under `## User
+Decisions`. Do not send an unanswered question or use `NEEDS_INPUT` for ordinary
+technical uncertainty.
 
 ## Context Rejection
 

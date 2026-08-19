@@ -32,13 +32,16 @@ Do not derive this frame from the author's design. Review material design risks 
   recorded verbatim as the same ordered list under `## Caveats` in the reviewed
   target and the review report.
 - `NEEDS_REVISION`: the design must change and receive another reviewed snapshot.
-- `NEEDS_INPUT`: message-review input is incomplete or the target cannot be identified/read.
+- `NEEDS_INPUT`: message-review input is incomplete, mismatched, or unreadable.
 
 Do not use `SOUND_WITH_CAVEATS` when a document revision is required. If a
 non-blocking caveat is absent from the target, return `NEEDS_REVISION` so the
-author can add it before acceptance. Ask the user directly when a product or
-strategy decision blocks review, and record the exact answer under User
-Decisions. Report persisted-data effects only when relevant.
+author can add it before acceptance. Resolve technical uncertainty from the
+repository and contract. When required user input genuinely blocks review, ask
+the user directly and wait for the answer before producing the report. Include
+the exact question and answer under User Decisions; do not emit a report with an
+unanswered user-input question. Report persisted-data effects only when
+relevant.
 
 ## Review Limit
 

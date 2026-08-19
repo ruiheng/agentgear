@@ -48,7 +48,9 @@ and required behavior remain clear?
   repository fact.
 - Recommend only remove, merge, compress, inline, reuse, or defer. Do not invent
   a replacement architecture or reward hypothetical future-proofing.
-- Ask the user directly when a product choice blocks pruning.
+- Ask the user directly and wait when required user input blocks pruning. Carry
+  the exact question and answer under `## User Decisions`; the requester records
+  the confirmed answer in the User Decision Delta.
 
 ## Report
 
@@ -76,7 +78,7 @@ MINIMAL | NEEDS_SIMPLIFICATION | NEEDS_INPUT
 - <non-obvious component that must remain and the requirement it serves, or None>
 
 ## User Decisions
-- <question and exact user answer, or None>
+- <exact user-input question and answer, or None>
 ```
 
 Use `MINIMAL` only when no design or document change is required. Initial-context

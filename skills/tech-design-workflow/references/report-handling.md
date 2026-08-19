@@ -21,9 +21,15 @@ the request being handled. Use retained conversation and immutable artifact
 history to recognize an older or duplicate report. Do not copy reports,
 decisions, caveats, delivery status, or progress into the lane manifest.
 
-Apply the report with ordinary agent judgment:
+Apply the report with ordinary agent judgment. The requester is the canonical
+decision recorder, not a substitute decision maker:
 
-- `NEEDS_INPUT`: obtain the missing user authority or correct the shared contract;
+- `NEEDS_INPUT`: correct missing or invalid review input. Do not use it for an
+  ordinary technical question; investigate, record a finding, or request a
+  revision instead. Reports must carry any required user input as an exact
+  question and answer. Record that answer in a User Decision Delta and send the
+  corrected contract/context before resuming; do not re-ask a question already
+  handled by the reporting role;
 - `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after every requested role reports,
   create the next complete immutable artifact;
 - `SOUND`: accept correctness only with no caveats;

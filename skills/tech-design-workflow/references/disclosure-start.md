@@ -21,7 +21,7 @@ For a new request, choose draft-review when no defensible committed specificatio
 
 ## Core Contract
 
-- The user owns task authority. Any lane agent asks the user directly when a decision blocks its work and records the exact answer in a User Decision Delta; never route the question through another agent.
+- The user owns task authority. Lane agents resolve technical questions from repository evidence and the existing contract. When required user input cannot be inferred, ask the user directly and carry the exact question and answer in the report. The requester records the confirmed answer in a User Decision Delta; that record includes factual clarifications, constraints, preferences, and decisions. Do not escalate ordinary technical uncertainty.
 - The requester starts the lane and delivers the accepted result.
 - The architect-author writes complete draft snapshots and handles reviewer dialogue.
 - The architect-reviewer independently reviews without editing the target.
@@ -71,5 +71,5 @@ The requester increments Context Revision for an authenticated complete correcti
 
 - Use `session_require` and `session_create` only through `agentgear skill get multi-agent-protocol/session-host`; retrieve `agentgear skill get tech-design-workflow/draft-review` before creating sessions.
 - Keep transport metadata, launch commands, and provider-specific values out of task contracts and design artifacts.
-- Ask the user directly when product scope blocks the current role; otherwise exclude optional capability.
+- Ask for user authority only when product scope or strategy genuinely blocks the current role; otherwise resolve the issue from evidence, record a design finding, or omit the optional capability.
 - Keep findings and revisions proportional to the stated goal. Do not add a section or mechanism merely to satisfy a checklist.

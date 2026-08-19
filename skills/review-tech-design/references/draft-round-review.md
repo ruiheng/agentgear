@@ -23,7 +23,9 @@ and scan the complete current artifact for consistency. Otherwise derive the
 review frame again and review the complete target independently. The diff is
 navigation, not inherited approval.
 
-Expand scope when evidence justifies it, and record why. Return `NEEDS_INPUT`
-only when the previous snapshot is missing or is not the immediately preceding
-one. Use stable finding IDs when helpful. A concise author rationale may focus
+Expand scope when evidence justifies it, and record why. Ask the user directly
+and wait for the answer when required user input cannot be inferred; include the
+exact question and answer in the report. Return `NEEDS_INPUT` only when the
+review request or required artifact is missing, mismatched, or unreadable.
+Use stable finding IDs when helpful. A concise author rationale may focus
 attention but does not limit the independent review.

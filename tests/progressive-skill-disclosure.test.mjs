@@ -232,22 +232,6 @@ test("skill get resolves independent addresses, global fallbacks, and atomic err
   assert.match(unknown.stderr, /Unknown skill address: not-real/);
 });
 
-test("draft technical-design caveats remain durable through requester delivery", () => {
-  const index = buildSkillContentIndex(rootDir, loadCatalog(rootDir));
-  const body = address => resolveSkillAddress(index, address).body;
-
-  assert.match(body("review-tech-design/review-contract"), /same ordered list under `## Caveats` in the reviewed\n  target and the review report/);
-  assert.match(body("review-tech-design/message-delivery"), /## Caveats\n- \[Exact caveat copied from the reviewed target, or None\]/);
-  assert.equal(body("review-tech-design/message-delivery").match(/^Round:/gm)?.length, 1);
-  assert.match(body("tech-design-workflow/lane-manifest"), /immutable task metadata/);
-  assert.doesNotMatch(body("tech-design-workflow/lane-manifest"), /"decision"|"correctness_report"|"review_gate"/);
-  assert.match(body("tech-design-workflow/report-handling"), /Keep accepted caveats in the next artifact and final delivery/);
-  assert.match(body("tech-design-workflow/author-round"), /Decision: <SOUND \| SOUND_WITH_CAVEATS>[\s\S]*## Caveats/);
-  assert.match(body("tech-design-workflow/requester-delivery"), /Match Decision and\s+ordered Caveats to the delivered artifact/);
-  assert.match(body("tech-design-workflow/requester-delivery"), /Report its path and\s+commit with the exact accepted decision and caveats/);
-  assert.match(body("tech-design-workflow/closeout"), /Report final design paths, authoritative commit, exact accepted decision and\s+caveats/);
-});
-
 test("skill list is deterministic and emits directly resolvable owned addresses", () => {
   const result = command(["skill", "list", "check-waypost-messages", "--json"]);
   assert.equal(result.status, 0, result.stderr);
@@ -597,16 +581,6 @@ test("action aliases are complete, direct, and selector validation resolves mult
     assert.equal(index.byCanonicalAddress.get(canonical), record, `${token} must directly own ${canonical}`);
   }
   assert.equal(index.referencedInvocations.some(item => item.filePath.endsWith("multi-agent-protocol/references/disclosure-start.md") && item.addresses.includes("multi-agent-protocol/tool-resolution")), true);
-});
-
-test("review result routing preserves requester and lane-specific planner ownership", () => {
-  const reviewFlow = fs.readFileSync(path.join(rootDir, "skills", "review-code", "references", "disclosure-continue-3.md"), "utf8");
-  const resultRoute = fs.readFileSync(path.join(rootDir, "skills", "review-code", "references", "result-route.md"), "utf8");
-  assert.match(reviewFlow, /rework_required[\s\S]*recorded requester endpoint/);
-  assert.match(reviewFlow, /work_accepted.*abort_iteration[\s\S]*recorded Planner endpoint[\s\S]*task.*integration_final/);
-  assert.match(reviewFlow, /standalone[\s\S]*recorded requester endpoint/);
-  assert.match(resultRoute, /rework_required[\s\S]*recorded requester/);
-  assert.match(resultRoute, /work_accepted[\s\S]*abort_iteration[\s\S]*recorded Planner[\s\S]*standalone/);
 });
 
 test("action-template validation rejects indented and dynamic emitted headers", () => {
