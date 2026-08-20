@@ -32,6 +32,7 @@ Options:
   --coder-session-id <id>          Exact task coder session id
   --reviewer-session-id <id>       Exact task reviewer session id
   --architect-session-id <id>      Exact task architect session id
+  --target <role>=<session-id>     Additional exact cleanup target; repeatable
   --session-profile <name>         Optional host profile
   --merge-mode <mode>              ff-only|ff|no-ff (default: ff-only)
   --allow-dirty                    Allow dirty planner worktree
@@ -104,9 +105,10 @@ function cleanupArchiveSummary(filePath) {
 export function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
     values: ["--task-id", "--task-branch", "--integration-branch", "--worker-workspace", "--planner-workspace", "--worker-artifact-root", "--planner-artifact-root", "--artifact-root", "--progress-file", "--task-dir", "--worker-dir", "--planner-session-id", "--session-host", "--coder-session-id", "--reviewer-session-id", "--architect-session-id", "--session-profile", "--merge-mode", "--ack-delivery-id", "--ack-lease-token"],
+    repeatableValues: ["--target"],
     flags: ["--allow-dirty", "--override-planner-workspace", "--override-workspaces", "--run-prune", "--prune-apply"],
     defaults: {
-      taskId: "", taskBranch: "", integrationBranch: "", workerWorkspace: "", plannerWorkspace: "", workerArtifactRoot: "", plannerArtifactRoot: "", artifactRoot: "", progressFile: "", taskDir: "", workerDir: "", plannerSessionId: "", sessionHost: "", coderSessionId: "", reviewerSessionId: "", architectSessionId: "", sessionProfile: "", mergeMode: "ff-only", allowDirty: false, overridePlannerWorkspace: false, overrideWorkspaces: false, runPrune: false, pruneApply: false, ackDeliveryId: "", ackLeaseToken: ""
+      taskId: "", taskBranch: "", integrationBranch: "", workerWorkspace: "", plannerWorkspace: "", workerArtifactRoot: "", plannerArtifactRoot: "", artifactRoot: "", progressFile: "", taskDir: "", workerDir: "", plannerSessionId: "", sessionHost: "", coderSessionId: "", reviewerSessionId: "", architectSessionId: "", target: [], sessionProfile: "", mergeMode: "ff-only", allowDirty: false, overridePlannerWorkspace: false, overrideWorkspaces: false, runPrune: false, pruneApply: false, ackDeliveryId: "", ackLeaseToken: ""
     }
   });
   if (options.help) {
@@ -120,7 +122,7 @@ export function main(argv = process.argv.slice(2)) {
   if (!options.workerWorkspace) fail("--worker-workspace is required");
   if (!options.plannerWorkspace) fail("--planner-workspace is required");
   if (!options.plannerSessionId) fail("--planner-session-id is required");
-  const taskSessionIds = [options.coderSessionId, options.reviewerSessionId, options.architectSessionId].filter(Boolean);
+  const taskSessionIds = [options.coderSessionId, options.reviewerSessionId, options.architectSessionId, ...options.target].filter(Boolean);
   if (taskSessionIds.length > 0 && !options.sessionHost) fail("--session-host is required when task session ids are provided");
   if (!["ff-only", "ff", "no-ff"].includes(options.mergeMode)) fail("--merge-mode must be one of: ff-only|ff|no-ff");
   if (options.pruneApply && !options.runPrune) fail("--prune-apply requires --run-prune");
@@ -266,6 +268,7 @@ export function main(argv = process.argv.slice(2)) {
       if (options.coderSessionId) cleanupArgs.push("--target", `coder=${options.coderSessionId}`);
       if (options.reviewerSessionId) cleanupArgs.push("--target", `reviewer=${options.reviewerSessionId}`);
       if (options.architectSessionId) cleanupArgs.push("--target", `architect=${options.architectSessionId}`);
+      for (const target of options.target) cleanupArgs.push("--target", target);
       if (options.sessionProfile) cleanupArgs.push("--profile", options.sessionProfile);
       const cleanup = invokeNodeScript(path.join(scriptDir, "archive-and-remove-task-sessions.mjs"), cleanupArgs);
       if (cleanup.stdout) process.stdout.write(cleanup.stdout);

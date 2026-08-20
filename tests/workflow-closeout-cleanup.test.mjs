@@ -284,6 +284,59 @@ integrationTest("task-session cleanup preserves an explicitly reusable session",
   }
 });
 
+integrationTest("task-session cleanup removes a successor under its exact cleanup role", () => {
+  const taskId = "20260820-1400-successor-cleanup";
+  const fixture = makeFixture([
+    { id: "planner-1", title: "planner", tool: "shell", group: "", current: true },
+    { id: "coder-successor", title: `coder-successor-2-${taskId}`, tool: "codex", group: "" }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "artifacts");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--planner-session-id", "planner-1",
+      "--target", "coder-successor-2=coder-successor",
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), ["planner-1"]);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.equal(archive.sessions[0].delete_status, "deleted");
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("task-session cleanup does not treat another task id as a suffix", () => {
+  const taskId = "20260820-1400-prefix";
+  const otherTaskId = `${taskId}-followup`;
+  const fixture = makeFixture([
+    { id: "planner-1", title: "planner", tool: "shell", group: "", current: true },
+    { id: "other-coder", title: `coder-${otherTaskId}`, tool: "codex", group: "" },
+    { id: "other-reviewer", title: `reviewer-task-planner-1-${otherTaskId}`, tool: "codex", group: "" }
+  ]);
+  try {
+    const artifactRoot = path.join(fixture.temporary, "artifacts");
+    const result = run(process.execPath, [
+      archiveScript,
+      "--task-id", taskId,
+      "--planner-session-id", "planner-1",
+      "--target", "coder=other-coder",
+      "--target", "reviewer=other-reviewer",
+      "--artifact-root", artifactRoot,
+      "--apply"
+    ], { env: fixture.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), ["planner-1", "other-coder", "other-reviewer"]);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.deepEqual(archive.sessions.map(session => session.delete_status), ["skipped_non_disposable_session", "skipped_non_disposable_session"]);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 integrationTest("task-session cleanup removes generic multi-role targets in one archive", () => {
   const taskId = "20260811-1200-design-targets";
   const fixture = makeFixture([
@@ -596,6 +649,41 @@ integrationTest("planner closeout removes exact Agent Deck coder and reviewer se
     const state = JSON.parse(fs.readFileSync(path.join(artifactRoot, "workflow-progress", `closeout-state-${taskId}.json`), "utf8"));
     assert.equal(state.optional_actions.session_cleanup, "complete");
     assert.equal(fs.existsSync(path.join(artifactRoot, "planner-workspace.json")), false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("planner closeout removes repeated predecessor and successor targets", () => {
+  const taskId = "20260820-1401-replacement-closeout";
+  const fixture = makeFixture([
+    { id: "planner-1", title: "planner", tool: "shell", group: "", current: true },
+    { id: "coder-original", title: `coder-${taskId}`, tool: "codex", group: "" },
+    { id: "coder-successor", title: `coder-successor-2-${taskId}`, tool: "codex", group: "" },
+    { id: "reviewer-original", title: `reviewer-task-planner-1-${taskId}`, tool: "codex", group: "" },
+    { id: "reviewer-successor", title: `reviewer-successor-2-${taskId}`, tool: "codex", group: "" }
+  ]);
+  try {
+    const { repository, artifactRoot } = initCloseoutRepository(fixture.temporary, taskId);
+    const result = run(process.execPath, [
+      closeoutScript,
+      "--task-id", taskId,
+      "--task-branch", `task/${taskId}`,
+      "--integration-branch", "main",
+      "--worker-workspace", repository,
+      "--planner-workspace", repository,
+      "--task-dir", repository,
+      "--planner-session-id", "planner-1",
+      "--session-host", "agent-deck",
+      "--target", "coder=coder-original",
+      "--target", "coder-successor-2=coder-successor",
+      "--target", "reviewer=reviewer-original",
+      "--target", "reviewer-successor-2=reviewer-successor"
+    ], { cwd: repository, env: fixture.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.stateFile, "utf8")).sessions.map(session => session.id), ["planner-1"]);
+    const archive = JSON.parse(fs.readFileSync(path.join(artifactRoot, taskId, `session-archive-${taskId}.json`), "utf8"));
+    assert.deepEqual(archive.sessions.map(session => session.delete_status), ["deleted", "deleted", "deleted", "deleted"]);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }

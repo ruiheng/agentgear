@@ -89,6 +89,7 @@ agentgear run multi-agent-protocol planner-closeout-batch.mjs \
 Optional command additions:
 - add `--coder-session-id <coder_session_id>` for completed `code_delivery_complete`, and for review-backed closeout only when its optional coder id is present
 - add `--reviewer-session-id <reviewer_session_id>` for `closeout_delivered`; omit it for `code_delivery_complete`
+- add repeatable `--target <role>=<session_id>` for task-scoped predecessor or replacement sessions retained in the authenticated task context; when using it for a role, put every session for that role in `--target` entries instead of also using the role-specific option
 - add `--ack-delivery-id <delivery_id> --ack-lease-token <lease_token>` when handling a claimed workspace-closeout delivery
 - add `--override-planner-workspace` only after explicit user confirmation to replace the mirrored `planner-workspace.json` records
 

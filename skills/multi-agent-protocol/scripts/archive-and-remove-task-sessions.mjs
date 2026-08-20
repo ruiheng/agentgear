@@ -31,8 +31,9 @@ eligible for compatibility.`;
 
 function disposable(role, title, taskId) {
   if (!title) return false;
-  if (role !== "reviewer") return title === `${role}-${taskId}`;
-  return title === `reviewer-${taskId}` || new RegExp(`^reviewer-task-.+-${taskId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`).test(title);
+  if (title === `${role}-${taskId}`) return true;
+  if (role !== "reviewer") return false;
+  return new RegExp(`^reviewer-task-.+-${taskId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`).test(title);
 }
 
 function parseTarget(value) {

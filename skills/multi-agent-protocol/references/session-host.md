@@ -82,6 +82,11 @@ durable truth; a host wake is only a best-effort hint.
 Closeout scripts accept cleanup targets as repeatable `<role>=<real_id>`
 entries. Action skills decide the roles and exact ids; adding a workflow role
 must not add another role-specific option to the shared cleanup interface.
+Give each replacement an exact cleanup role, for example
+`coder-successor-2`, and name it `<cleanup_role>-<task_id>`. Retain predecessor
+ids in task context and include every predecessor and replacement as a closeout
+target under its exact cleanup role. Never append a suffix after `<task_id>`:
+task ids are prefix-ambiguous, so suffix matching cannot safely prove ownership.
 
 When a durable send succeeds but its wake is failed or unverified, report the
 wake result and stop. The host may have submitted the hint despite a false
