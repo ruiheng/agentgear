@@ -148,6 +148,27 @@ Use maintenance docs for:
 - future cleanup ideas
 - authoring guidance
 
+### 14. Keep agent-specific guidance optional
+
+Put a best-effort agent appendix in a separate Markdown file below the owning
+skill's `references/` directory:
+
+```markdown
+---
+agent: codex
+append-to-selector: review
+---
+
+## For Codex only
+
+Additional guidance for a known Codex behavior.
+```
+
+- the target selector must remain complete without the appendix
+- use the required `For <agent> only` heading so accidental loading is harmless
+- do not declare message headers, selector aliases, or workflow behavior in an appendix
+- runtime agent detection may omit an appendix and must never be required for correctness
+
 ## Common Failure Modes
 
 Before landing a prompt change, check for these:

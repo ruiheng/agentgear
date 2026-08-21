@@ -102,6 +102,8 @@ The exact multi-address label is `agentgear skill: <REQUESTED_ADDRESS>`. It name
 
 Frontmatter is never included in a returned prompt body. Each body otherwise remains unchanged except for normalizing to one trailing newline. The multiple-selector formatter trims that final newline before indenting, including blank lines as two-space lines.
 
+An owning skill may add best-effort agent guidance without changing the selector address or its base body. A Markdown file below that skill's `references/` directory declares exactly `agent` and `append-to-selector` in frontmatter. When the runtime recognizes the native command environment for that agent, it appends the file's body to the addressed base selector with one empty line between them. Detection failure returns the complete base selector unchanged. An appendix begins with a protective `## For <Agent> only` heading, cannot declare selector aliases or message headers, and must never be required for workflow correctness. The `--agent-profile` option exists only as a deterministic test and diagnostic override; normal prompt instructions do not pass it.
+
 skill list is the separate deterministic selector-discovery operation. Text mode writes every canonical address and alias owned by the named skill, one per line in bytewise order. Local addresses are qualified so every listed value can be passed directly to skill get; global aliases such as `action:<token>` remain bare. It accepts no query, returns an empty success for a skill with no selectors, and performs no fuzzy matching. JSON mode returns ordered records with requested skill, address in the selector field, canonical owner, canonical selector, aliases, and summary.
 
 get --json returns one JSON document only after every address resolves. Its ordered `selections` records contain address, owner, selector, aliases, summary, body, and optional resourceBase. Repeated arguments produce repeated records. JSON mode does not use text block labels.
@@ -110,7 +112,7 @@ Unknown or ambiguous addresses exit status 2 with a concise diagnostic and candi
 
 The selector index is built in memory for each command invocation by scanning skills/*/references/**/*.md below the runtime root containing the CLI. Traversal is contained, symlink-free, and deterministic. There is no generated index and no persistent cache. Source checkouts, staged physical releases, shared current launchers, and copy-fallback wrappers therefore use the same content model.
 
-The command remains generic. It knows skills, selectors, aliases, and bodies. It does not parse message bodies, branch on roles or workflow modes, expand dependencies, call Waypost, create sessions, or interpret an action. It returns only the explicitly requested addresses.
+The command remains generic. It knows skills, selectors, aliases, bodies, and optional agent appendices. It does not parse message bodies, branch on roles or workflow modes, expand dependencies, call Waypost, create sessions, or interpret an action. It returns only the explicitly requested addresses, with best-effort agent guidance appended when the native environment is recognized.
 
 ### Complete action contract and direct routing
 

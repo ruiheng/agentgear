@@ -43,11 +43,13 @@ import {
 } from "./lib/upstreams.mjs";
 import {
   SkillContentError,
+  appendAgentGuidance,
   buildSkillContentIndex,
   formatSkillText,
   listSkillSelectors,
   resolveSkillAddress
 } from "./lib/skill-content.mjs";
+import { resolveAgentProfiles } from "../providers/agent-profiles.mjs";
 import { migrateLegacySkills } from "./lib/legacy-skill-migration.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
@@ -74,7 +76,7 @@ function usage() {
     "",
     "Commands:",
     "  list [--json]",
-    "  skill get [--json] [--] ADDRESS...",
+    "  skill get [--json] [--agent-profile NAME] [--] ADDRESS...",
     "  skill list [--json] [--] SKILL",
     "  migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]",
     "  build",
@@ -547,11 +549,12 @@ function list(catalog, options) {
 function skillUsage() {
   return [
     "Usage:",
-    "  agentgear skill get [--json] [--] ADDRESS...",
+    "  agentgear skill get [--json] [--agent-profile NAME] [--] ADDRESS...",
     "  agentgear skill list [--json] [--] SKILL",
     "",
     "Addresses: SKILL loads its entry; SKILL/SELECTOR is exact; a bare SELECTOR",
     "searches all skills and must match exactly one slice. Multiple addresses are allowed.",
+    "Agent-specific guidance is selected automatically; --agent-profile is a debug override.",
     "",
     "Skill text is stable. Remember and reuse it; reload only if you no longer remember it,",
     "the user asks, or there is evidence it changed."
@@ -564,16 +567,19 @@ function skill(catalog, argumentsList) {
     print(skillUsage());
     return;
   }
-  const options = parseOptions(rawArguments);
+  const options = parseOptions(rawArguments, { allowAgentProfile: true });
   if (options.help) {
     print(skillUsage());
     return;
   }
-  if ([...options.supplied].some(option => option !== "json")) {
-    fail("skill accepts only --json and positional addresses");
+  if ([...options.supplied].some(option => !new Set(["json", "agent-profile"]).has(option))) {
+    fail("skill accepts only --json, --agent-profile, and positional addresses");
   }
   const [skillName, ...selectors] = options.positional;
   if (!skillName) fail(`skill ${operation} requires ${operation === "get" ? "ADDRESS" : "SKILL"}`);
+  if (operation !== "get" && options.agentProfile !== undefined) {
+    fail("--agent-profile is only valid with skill get");
+  }
   const index = buildSkillContentIndex(rootDir, catalog);
   const upstream = catalog.skills.upstreams?.[skillName];
   if (upstream) {
@@ -625,7 +631,9 @@ function skill(catalog, argumentsList) {
   }
   if (operation !== "get") fail(`Unknown skill command: ${operation}`);
   const addresses = options.positional;
-  const selections = addresses.map(address => resolveSkillAddress(index, address));
+  const agentProfiles = resolveAgentProfiles({ override: options.agentProfile });
+  const selections = addresses.map(address =>
+    appendAgentGuidance(index, resolveSkillAddress(index, address), agentProfiles));
   if (options.json) {
     const payload = {
       selections: selections.map(record => ({
@@ -634,7 +642,8 @@ function skill(catalog, argumentsList) {
         selector: record.canonicalSelector,
         aliases: record.aliases,
         summary: record.summary,
-        body: record.body
+        body: record.body,
+        ...(record.agentAppendices ? { agentAppendices: record.agentAppendices } : {})
       }))
     };
     print(JSON.stringify(payload, null, 2));

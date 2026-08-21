@@ -5,7 +5,7 @@ function csv(value, option) {
   return value.split(",").map(item => item.trim()).filter(Boolean);
 }
 
-export function parseOptions(argumentsList) {
+export function parseOptions(argumentsList, { allowAgentProfile = false } = {}) {
   const options = {
     packs: [],
     skills: [],
@@ -19,6 +19,7 @@ export function parseOptions(argumentsList) {
     noLauncher: false,
     apply: false,
     json: false,
+    agentProfile: undefined,
     supplied: new Set(),
     positional: []
   };
@@ -76,6 +77,11 @@ export function parseOptions(argumentsList) {
       case "--json":
         options.supplied.add("json");
         options.json = true;
+        break;
+      case "--agent-profile":
+        if (!allowAgentProfile) throw new Error("Unknown option: " + argument);
+        options.supplied.add("agent-profile");
+        options.agentProfile = next();
         break;
       case "--help":
       case "-h":

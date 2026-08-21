@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { agentProfiles } from "../../providers/agent-profiles.mjs";
 
 const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const SELECTOR = /^[a-z0-9][a-z0-9._\-/]*$/;
 const ALIAS_SELECTOR = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const ACTION_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+const AGENT_PROFILE = /^[a-z0-9][a-z0-9-]*$/;
 const MAX_BOOTSTRAP_BYTES = 2 * 1024;
 const MAX_SLICE_BYTES = 8 * 1024;
 const RUNTIME_SCRIPT_REFERENCE = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9.][A-Za-z0-9._/-]*\.(?:mjs|cjs|js))(?![A-Za-z0-9._/-])/g;
@@ -29,6 +31,10 @@ export class SkillContentError extends Error {
 
 function compareUtf8(left, right) {
   return Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
+
+function escapeRegex(source) {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function pathInsideOrEqual(parent, candidate) {
@@ -122,6 +128,26 @@ function parseSelectorFrontmatter(source, filePath, owner) {
   return { owner, selector, summary, aliases, body, filePath };
 }
 
+function parseAgentAppendixFrontmatter(source, filePath, owner) {
+  const { fields, body } = splitFrontmatter(source, filePath);
+  const allowed = new Set(["agent", "append-to-selector"]);
+  for (const key of Object.keys(fields)) {
+    if (!allowed.has(key)) throw new SkillContentError(`Unsupported agent appendix frontmatter field ${key}: ${filePath}`);
+  }
+  const agent = fields.agent;
+  const selector = fields["append-to-selector"];
+  if (!agent || !AGENT_PROFILE.test(agent)) {
+    throw new SkillContentError(`Invalid agent in ${filePath}`);
+  }
+  if (!Object.hasOwn(agentProfiles, agent)) {
+    throw new SkillContentError(`Unsupported agent ${agent} in ${filePath}`);
+  }
+  if (!selector || !SELECTOR.test(selector)) {
+    throw new SkillContentError(`Invalid append-to-selector in ${filePath}`);
+  }
+  return { owner, agent, selector, body, filePath };
+}
+
 function walkMarkdown(root, relative = "") {
   const directory = path.join(root, relative);
   regularDirectory(directory, "Selector references directory");
@@ -190,6 +216,7 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   const byCanonicalAddress = new Map();
   const byAliasAddress = new Map();
   const byOwner = new Map();
+  const agentAppendices = new Map();
   const overviews = new Map();
   const referencedInvocations = [];
   const referenceErrors = [];
@@ -228,9 +255,25 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
       const source = fs.readFileSync(filePath, "utf8");
       if (!source.replace(/\r\n/g, "\n").startsWith("---\n")) continue;
       const fields = splitFrontmatter(source, filePath).fields;
-      if (!Object.hasOwn(fields, "skill-selector")) continue;
+      const isSelector = Object.hasOwn(fields, "skill-selector");
+      const isAgentAppendix = Object.hasOwn(fields, "append-to-selector") || Object.hasOwn(fields, "agent");
+      if (!isSelector && !isAgentAppendix) continue;
       if (Buffer.byteLength(source) > MAX_SLICE_BYTES) {
-        throw new SkillContentError(`Selector slice exceeds ${MAX_SLICE_BYTES} bytes: ${filePath}`);
+        throw new SkillContentError(`Prompt slice exceeds ${MAX_SLICE_BYTES} bytes: ${filePath}`);
+      }
+      if (isSelector && isAgentAppendix) {
+        throw new SkillContentError(`A prompt file cannot be both a selector and an agent appendix: ${filePath}`);
+      }
+      if (isAgentAppendix) {
+        const appendix = parseAgentAppendixFrontmatter(source, filePath, name);
+        const targetAddress = `${name}/${appendix.selector}`;
+        const byAgent = agentAppendices.get(targetAddress) ?? new Map();
+        if (byAgent.has(appendix.agent)) {
+          throw new SkillContentError(`Duplicate agent appendix for ${targetAddress} and ${appendix.agent}`);
+        }
+        byAgent.set(appendix.agent, appendix);
+        agentAppendices.set(targetAddress, byAgent);
+        continue;
       }
       const record = parseSelectorFrontmatter(source, filePath, name);
       const canonicalAddress = `${name}/${record.selector}`;
@@ -257,6 +300,12 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   }
 
   for (const records of byOwner.values()) records.sort((left, right) => compareUtf8(left.selector, right.selector));
+  for (const [targetAddress, byAgent] of agentAppendices) {
+    if (!byCanonicalAddress.has(targetAddress)) {
+      throw new SkillContentError(`Agent appendix targets an unknown selector: ${targetAddress}`);
+    }
+    agentAppendices.set(targetAddress, new Map([...byAgent].sort(([left], [right]) => compareUtf8(left, right))));
+  }
   for (const name of names) {
     const entryAddress = `${name}/start`;
     const entry = byCanonicalAddress.get(entryAddress) ?? byAliasAddress.get(entryAddress);
@@ -282,6 +331,11 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   for (const record of byCanonicalAddress.values()) {
     collectReferences(record.body, record.filePath, referencedInvocations, referenceErrors, documentedScripts);
   }
+  for (const byAgent of agentAppendices.values()) {
+    for (const appendix of byAgent.values()) {
+      collectReferences(appendix.body, appendix.filePath, referencedInvocations, referenceErrors, documentedScripts);
+    }
+  }
 
   return {
     rootDir: path.resolve(rootDir),
@@ -291,6 +345,7 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
     byCanonicalAddress,
     byAliasAddress,
     byOwner,
+    agentAppendices,
     upstreamEntryAddresses,
     referencedInvocations,
     referenceErrors,
@@ -400,6 +455,35 @@ export function resolveSkillAddress(index, address) {
   throw new SkillContentError(`Unknown skill address: ${address}. Run agentgear list or agentgear skill list SKILL.`, { kind: "unknown" });
 }
 
+function withoutTerminalNewline(body, label) {
+  if (!body.endsWith("\n")) {
+    throw new SkillContentError(`${label} has no normalized terminal newline`);
+  }
+  return body.slice(0, -1);
+}
+
+export function appendAgentGuidance(index, selection, agentProfiles = []) {
+  const byAgent = index.agentAppendices.get(`${selection.owner}/${selection.canonicalSelector}`);
+  if (!byAgent || agentProfiles.length === 0) return selection;
+  const appendices = agentProfiles
+    .map(agent => byAgent.get(agent))
+    .filter(Boolean);
+  if (appendices.length === 0) return selection;
+  const bodies = [
+    withoutTerminalNewline(selection.body, "Base selector body"),
+    ...appendices.map(appendix => {
+      const body = withoutTerminalNewline(appendix.body, "Agent appendix body");
+      return body.startsWith("\n") ? body.slice(1) : body;
+    })
+  ];
+  const body = bodies.join("\n\n") + "\n";
+  return {
+    ...selection,
+    body,
+    agentAppendices: appendices.map(appendix => ({ agent: appendix.agent }))
+  };
+}
+
 export function listSkillSelectors(index, skill) {
   resolveSkillOverview(index, skill);
   const records = [];
@@ -457,8 +541,23 @@ function validateMarkdownFences(filePath, source) {
 
 export function validateSkillContentIndex(index) {
   const errors = [...index.referenceErrors];
-  for (const record of [...index.overviews.values(), ...index.byCanonicalAddress.values()]) {
+  const appendices = [...index.agentAppendices.values()].flatMap(byAgent => [...byAgent.values()]);
+  for (const record of [...index.overviews.values(), ...index.byCanonicalAddress.values(), ...appendices]) {
     errors.push(...validateMarkdownFences(record.filePath, record.body));
+  }
+  for (const appendix of appendices) {
+    const firstLine = appendix.body.split("\n").find(line => line.trim() !== "");
+    const expectedHeading = agentProfiles[appendix.agent].heading;
+    const headingPattern = new RegExp(`^ {0,3}${escapeRegex(expectedHeading)}[\t ]*$`);
+    if (firstLine === undefined || !headingPattern.test(firstLine)) {
+      errors.push(`${appendix.filePath}: agent appendix must start with ${JSON.stringify(expectedHeading)}.`);
+    }
+    for (const candidate of markdownActionTemplateLines(appendix.filePath, appendix.body)) {
+      errors.push(`${appendix.filePath}:${candidate.lineNumber}: agent appendix cannot declare an Action header.`);
+    }
+    for (const candidate of markdownTransportHeaderLines(appendix.body)) {
+      errors.push(`${appendix.filePath}:${candidate.lineNumber}: agent appendix cannot declare a transport header.`);
+    }
   }
   for (const invocation of index.referencedInvocations) {
     const upstreamAddresses = invocation.addresses.filter(address => index.upstreamEntryAddresses.has(address));

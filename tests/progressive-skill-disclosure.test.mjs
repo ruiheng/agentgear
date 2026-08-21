@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadCatalog, resolveSelection } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
-import { actionAliases, buildSkillContentIndex, formatSkillText, listSkillSelectors, resolveSkillAddress, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { actionAliases, appendAgentGuidance, buildSkillContentIndex, formatSkillText, listSkillSelectors, resolveSkillAddress, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { detectAgentProfiles, resolveAgentProfiles } from "../providers/agent-profiles.mjs";
 import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
 import { actionHeader, loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
@@ -82,6 +83,19 @@ function contentIndexFixture({ skill = "fixture", selector = "start", aliases = 
   };
 }
 
+function writeAgentAppendix(item, { selector = "start", agent = "codex", body = "## For Codex only\n\nCodex guidance.\n" } = {}) {
+  const filePath = path.join(item.temporary, "skills", "fixture", "references", `${selector}-${agent}.md`);
+  fs.writeFileSync(filePath, [
+    "---",
+    `agent: ${agent}`,
+    `append-to-selector: ${selector}`,
+    "---",
+    "",
+    body
+  ].join("\n"));
+  return filePath;
+}
+
 function pinnedCatalogWithPayload(catalog, payload) {
   const pinned = { ...catalog.skills.upstreams["agent-deck"], contentDigest: upstreamSkillDigest(payload) };
   const result = structuredClone(catalog);
@@ -104,6 +118,94 @@ function materializeRetrievedSkill(root, plan, contents = "# Agent Deck\n") {
     payload: "payload/SKILL.md"
   })}\n`);
 }
+
+test("agent profiles are detected from native environment hints and can be overridden for debugging", () => {
+  assert.deepEqual(detectAgentProfiles({}), []);
+  assert.deepEqual(detectAgentProfiles({ CODEX_THREAD_ID: "thread" }), []);
+  assert.deepEqual(detectAgentProfiles({ CODEX_THREAD_ID: "thread", CODEX_SANDBOX: "workspace-write" }), ["codex"]);
+  assert.deepEqual(detectAgentProfiles({ CODEX_THREAD_ID: "thread", CODEX_CI: "0" }), ["codex"]);
+  assert.deepEqual(resolveAgentProfiles({ env: {}, override: "codex" }), ["codex"]);
+  assert.deepEqual(resolveAgentProfiles({ env: { CODEX_THREAD_ID: "thread", CODEX_SANDBOX: "1" }, override: "generic" }), []);
+  assert.throws(() => resolveAgentProfiles({ override: "not-real" }), /Unknown agent profile: not-real/);
+});
+
+test("agent appendices add guarded guidance without changing selector identity", () => {
+  const item = contentIndexFixture();
+  try {
+    const slicePath = path.join(item.temporary, "skills", "fixture", "references", "slice.md");
+    fs.writeFileSync(slicePath, fs.readFileSync(slicePath, "utf8").replace("# Slice\n", "# Slice  \n"));
+    writeAgentAppendix(item, { body: "## For Codex only\n\nCodex guidance.  \n" });
+    const index = buildSkillContentIndex(item.temporary, item.catalog);
+    const base = resolveSkillAddress(index, "fixture");
+    const generic = appendAgentGuidance(index, base, []);
+    const codex = appendAgentGuidance(index, base, ["codex"]);
+
+    assert.equal(generic, base);
+    assert.equal(generic.body, "\n# Slice  \n");
+    assert.equal(codex.owner, "fixture");
+    assert.equal(codex.canonicalSelector, "start");
+    assert.equal(codex.body, "\n# Slice  \n\n## For Codex only\n\nCodex guidance.  \n");
+    assert.deepEqual(codex.agentAppendices, [{ agent: "codex" }]);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("agent appendices validate their target, profile, guard, and workflow isolation", () => {
+  const cases = [
+    {
+      mutate(item) { writeAgentAppendix(item, { selector: "missing" }); },
+      buildError: /Agent appendix targets an unknown selector: fixture\/missing/
+    },
+    {
+      mutate(item) { writeAgentAppendix(item, { agent: "claude-code", body: "## For Claude Code only\n" }); },
+      buildError: /Unsupported agent claude-code/
+    },
+    {
+      mutate(item) { writeAgentAppendix(item, { body: "Codex guidance without a guard.\n" }); },
+      validationError: /agent appendix must start with "## For Codex only"/
+    },
+    {
+      mutate(item) { writeAgentAppendix(item, { body: "    ## For Codex only\n\nIndented code is not a guard.\n" }); },
+      validationError: /agent appendix must start with "## For Codex only"/
+    },
+    {
+      mutate(item) { writeAgentAppendix(item, { body: "\t## For Codex only\n\nTabbed code is not a guard.\n" }); },
+      validationError: /agent appendix must start with "## For Codex only"/
+    },
+    {
+      mutate(item) { writeAgentAppendix(item, { body: "## For Codex only\n\nAction: agent_specific\n" }); },
+      validationError: /agent appendix cannot declare an Action header/
+    }
+  ];
+
+  for (const itemCase of cases) {
+    const item = contentIndexFixture();
+    try {
+      itemCase.mutate(item);
+      if (itemCase.buildError) {
+        assert.throws(() => buildSkillContentIndex(item.temporary, item.catalog), itemCase.buildError);
+      } else {
+        const errors = validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog));
+        assert.equal(errors.some(error => itemCase.validationError.test(error)), true, errors.join("\n"));
+      }
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("agent appendix guards accept CommonMark heading indentation", () => {
+  for (const indentation of ["", " ", "  ", "   "]) {
+    const item = contentIndexFixture();
+    try {
+      writeAgentAppendix(item, { body: `${indentation}## For Codex only  \n\nGuidance.\n` });
+      assert.deepEqual(validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog)), []);
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
+  }
+});
 
 test("bootstrap validation rejects metadata duplicated into the body", () => {
   const item = contentIndexFixture();
@@ -201,6 +303,16 @@ test("skill help states the stable guidance policy once", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Skill text is stable\. Remember and reuse it; reload only if you no longer remember it,/);
   assert.match(result.stdout, /the user asks, or there is evidence it changed\./);
+});
+
+test("check-waypost-messages loads its Codex appendix only for Codex", () => {
+  const generic = command(["skill", "get", "--json", "--agent-profile", "generic", "check-waypost-messages"]);
+  assert.equal(generic.status, 0, generic.stderr);
+  assert.equal(JSON.parse(generic.stdout).selections[0].agentAppendices, undefined);
+
+  const codex = command(["skill", "get", "--json", "--agent-profile", "codex", "check-waypost-messages"]);
+  assert.equal(codex.status, 0, codex.stderr);
+  assert.deepEqual(JSON.parse(codex.stdout).selections[0].agentAppendices, [{ agent: "codex" }]);
 });
 
 test("skill get resolves independent addresses, global fallbacks, and atomic errors", () => {
@@ -844,6 +956,31 @@ test("skill and migration option boundaries reject unrelated and unsafe input", 
   const skill = command(["skill", "get", "--scope", "global", "handoff"]);
   assert.equal(skill.status, 1);
   assert.match(skill.stderr, /skill accepts only/);
+  const debugOverride = command(["skill", "get", "--agent-profile", "generic", "handoff"]);
+  assert.equal(debugOverride.status, 0, debugOverride.stderr);
+  const unknownProfile = command(["skill", "get", "--agent-profile", "not-real", "handoff"]);
+  assert.equal(unknownProfile.status, 1);
+  assert.match(unknownProfile.stderr, /Unknown agent profile: not-real/);
+  const listProfile = command(["skill", "list", "--agent-profile", "codex", "handoff"]);
+  assert.equal(listProfile.status, 1);
+  assert.match(listProfile.stderr, /only valid with skill get/);
+  for (const argumentsList of [
+    ["list", "--agent-profile", "generic"],
+    ["install", "--agent-profile", "generic"],
+    ["update", "--agent-profile", "generic"],
+    ["migrate", "legacy-skills", "--agent-profile", "generic"]
+  ]) {
+    const rejected = command(argumentsList);
+    assert.equal(rejected.status, 1, argumentsList.join(" "));
+    assert.match(rejected.stderr, /Unknown option: --agent-profile/);
+  }
+  const linkProfile = childProcess.spawnSync(
+    process.execPath,
+    [path.join(rootDir, "bin", "agentgear-link.mjs"), "--agent-profile", "generic"],
+    { cwd: rootDir, env: process.env, encoding: "utf8" }
+  );
+  assert.equal(linkProfile.status, 1);
+  assert.match(linkProfile.stderr, /Unknown option: --agent-profile/);
   const migration = command(["migrate", "legacy-skills", "--dest", "relative"]);
   assert.equal(migration.status, 1);
   assert.match(migration.stderr, /absolute normalized path/);
