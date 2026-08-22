@@ -413,8 +413,8 @@ This name-only authority ends at the migration module boundary. Ordinary reconci
 scripts/build.mjs remains a thin wrapper over the CLI build command. Build output changes as follows:
 
 - dist/universal/skills/ contains the complete canonical skills tree as source material for packaging, auditing, and downstream transformation only. It is explicitly not a runnable installed skill collection.
-- Each harness target layout under dist/<target>/ contains exactly the catalog entry set in its skill discovery directory.
-- Target layouts do not duplicate prompt-only content; the installed Agentgear runtime is the selector-content provider.
+- Each harness target layout under dist/<target>/ contains exactly the catalog entry set, except the Gemini/Agy layout: it contains the selected capability set for slash-command availability, while the installer writes Agy's automatic-discovery boundary separately as an `include_only` allowlist in `~/.gemini/config/skills.json`.
+- Ordinary target layouts do not duplicate prompt-only content; the installed Agentgear runtime is their selector-content provider. Gemini/Agy is the explicit exception because its shared directory must retain slash-command access to those skills.
 - Build never writes canonical selector source or a generated selector index. It copies canonical files and may generate only existing build metadata.
 
 Every generated dist/universal/README.md states that the skills subtree is non-runnable source material: its compact bootstraps require the matching same-release Agentgear launcher and runtime. It directs executable consumers to install the npm package or run the normal Agentgear installer, which publishes one coherent runtime snapshot plus launcher and target entries. The universal tree has no supported copy-to-harness procedure.
@@ -539,7 +539,7 @@ All current catalog skill names are canonical, listable through agentgear list, 
 
 Current Action tokens remain unchanged. Agentgear-owned message envelopes drop body `From`/`To` routing fields in favor of Waypost delivery metadata; the action-alias set makes routing explicit and rejects unsupported retired tokens.
 
-Third-party tools may read dist/universal/skills as canonical source input, but must not install it as a runnable skill collection. Executable consumers use the same-release npm package or normal installer. Target-specific layouts intentionally represent only the minimal entry surface and are likewise not standalone without the matching launcher/runtime.
+Third-party tools may read dist/universal/skills as canonical source input, but must not install it as a runnable skill collection. Executable consumers use the same-release npm package or normal installer. Target-specific layouts are likewise not standalone without the matching launcher/runtime. Most represent only the minimal entry surface; the Gemini/Agy layout additionally carries prompt-only skills for slash-command use and relies on the separately managed Agy `include_only` configuration for automatic-discovery filtering.
 
 Users who need the host documentation explicitly run agentgear skill get agent-deck; doing so returns its content without adding another discoverable skill.
 
@@ -561,7 +561,7 @@ Add or update tests for:
 10. schema-v2 pre-change full-pack fixtures proving install/update reconciliation and uninstall --pack workflow/browser/all remove recorded, ownership-matching legacy prompt-only and historical agent-deck links;
 11. ownership safety for missing destinations, matching links, matching copies, mismatched links, unmanaged directories, and --force not widening withdrawal;
 12. transactional rollback after an owned withdrawal when a later target write, launcher publication, or state save fails;
-13. build output, which represents the implicit all selection, containing all canonical skills under dist/universal as source material and exactly the fourteen accepted entries under every target layout, with no upstream agent-deck directory and a generated universal warning that rejects copy-as-install usage;
+13. build output, which represents the implicit all selection, containing all canonical skills under dist/universal as source material, exactly the fourteen accepted entries under ordinary target layouts, and the canonical capability set under the Gemini/Agy layout for slash-command use, with no upstream agent-deck directory and a generated universal warning that rejects copy-as-install usage;
 14. retrieved-skills lifecycle: exact content-addressed layout and manifest, immutable validated reuse, no harness discovery path overlap, retrieval-only/state-null full purge, full purge with installed targets, target-limited purge retaining global materializations, current-catalog ownership proof, preservation of older or unknown pins, unchanged owned removal, changed/corrupt preservation with status 1 but no block on unrelated owned deletion, symlinked parent and unexpected-shape rejection, quarantine rollback on removal failure, and no effect from ordinary install, update, link, or non-purge uninstall;
 15. entry and slice byte limits, referenced skill/selector pairs, and safe fully qualified alias grammar;
 16. staged runtime validation of scripts referenced from entry and prompt-only slices, including failing missing-script and missing-relative-dependency fixtures;

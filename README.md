@@ -18,11 +18,29 @@ without `--pack` installs only the named skills.
 
 The default targets are `general,gemini,claude`. `general` installs to
 `~/.agents/skills` and `.agents/skills` for Codex and other hosts that discover
-the common Agent Skills layout. `gemini` installs to `~/.gemini/skills`, which
-Gemini CLI and Agy both load globally. `claude` adds Claude Code's separate
+the common Agent Skills layout. `gemini` keeps skills in `~/.gemini/skills` for
+Gemini CLI and Agy slash commands. A global `gemini` installation also adds
+that directory to `~/.gemini/config/skills.json`, enabling Agy's automatic
+discovery without moving the skills. The generated `include_only` allowlist is
+the selected catalog `entry` set, encoded as exact-name regex patterns.
+Selected prompt-only capabilities are also installed there for slash-command
+use but omitted from the allowlist, so they remain available without becoming
+automatically discoverable. Existing `exclude` filters and unrelated
+configuration entries are preserved.
+`claude` adds Claude Code's separate
 `.claude/skills` location. Use `--target general`, `--target gemini`, or
 `--target claude` to narrow an installation; add `kiro` only when Kiro's
 separate skill directory is needed.
+
+Custom destinations never opt into global Agy discovery. A `--dest` that
+resolves to `~/.gemini/skills` is rejected; use `--target gemini` without
+`--dest` for that reserved location.
+
+Agentgear records ownership of its contribution to the Agy allowlist. Gemini
+uninstall and purge operations remove only Agentgear-owned names, restore a
+pre-existing `include_only`, or remove an entry that Agentgear created. If the
+managed allowlist is changed externally, removal fails closed before deleting
+skills.
 
 `update` resolves the newest published version, stages it under the user's XDG
 data directory, then publishes it only after the target checks and installation

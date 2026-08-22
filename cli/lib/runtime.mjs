@@ -240,6 +240,28 @@ function restoreTransactionEntries(entries) {
   const errors = [];
   for (const entry of [...entries].reverse()) {
     if (entry.hadOriginal && !entry.moved) continue;
+    const destinationInfo = fs.lstatSync(entry.destination, { throwIfNoEntry: false });
+    if (destinationInfo && entry.expectedAbsent) {
+      if (entry.moved && entry.backup && exists(entry.backup)) {
+        errors.push(`preserved concurrently created ${entry.destination}; original retained at ${entry.backup}`);
+      }
+      continue;
+    }
+    if (destinationInfo && entry.transformedFile) {
+      const matchesWrittenFile = entry.writtenIdentity
+        && destinationInfo.dev === entry.writtenIdentity.dev
+        && destinationInfo.ino === entry.writtenIdentity.ino
+        && destinationInfo.isFile()
+        && !destinationInfo.isSymbolicLink()
+        && fs.readFileSync(entry.destination).equals(entry.writtenContents)
+        && (!entry.writeComplete || (destinationInfo.mode & 0o777) === entry.writtenMode);
+      if (!matchesWrittenFile) {
+        if (entry.moved && entry.backup && exists(entry.backup)) {
+          errors.push(`preserved concurrently changed ${entry.destination}; original retained at ${entry.backup}`);
+        }
+        continue;
+      }
+    }
     try {
       removePathIfPresent(entry.destination);
     } catch (error) {
@@ -268,27 +290,97 @@ export function createInstallTransaction() {
   const groups = [];
   let settled = false;
 
-  return {
-    replace(destinations, write) {
-      if (settled) throw new Error("Installation transaction is already settled");
-      const entries = [];
+  function replace(destinations, write, { expectedAbsent = false } = {}) {
+    if (settled) throw new Error("Installation transaction is already settled");
+    const entries = [];
+    try {
+      for (const destination of [...new Set(destinations)]) {
+        const entry = {
+          destination,
+          backup: null,
+          hadOriginal: exists(destination),
+          moved: false,
+          expectedAbsent
+        };
+        entries.push(entry);
+        if (!entry.hadOriginal) continue;
+        entry.backup = transactionBackupPath(destination);
+        fs.renameSync(destination, entry.backup);
+        entry.moved = true;
+      }
+      const result = write();
+      groups.push(entries);
+      return result;
+    } catch (error) {
       try {
-        for (const destination of [...new Set(destinations)]) {
-          const entry = {
-            destination,
-            backup: null,
-            hadOriginal: exists(destination),
-            moved: false
-          };
-          entries.push(entry);
-          if (!entry.hadOriginal) continue;
+        restoreTransactionEntries(entries);
+      } catch (restoreError) {
+        error.message += `; additionally failed to restore installation paths: ${restoreError.message}`;
+      }
+      throw error;
+    }
+  }
+
+  return {
+    replace,
+
+    remove(destinations) {
+      return replace(destinations, () => undefined, { expectedAbsent: true });
+    },
+
+    transformFile(destination, transform) {
+      if (settled) throw new Error("Installation transaction is already settled");
+      const entry = {
+        destination,
+        backup: null,
+        hadOriginal: exists(destination),
+        moved: false,
+        transformedFile: true,
+        writtenIdentity: null,
+        writtenContents: null,
+        writtenMode: null,
+        writeComplete: false
+      };
+      const entries = [entry];
+      try {
+        let original = { existed: false, contents: null, mode: null };
+        if (entry.hadOriginal) {
           entry.backup = transactionBackupPath(destination);
           fs.renameSync(destination, entry.backup);
           entry.moved = true;
+          const info = fs.lstatSync(entry.backup);
+          if (!info.isFile() || info.isSymbolicLink()) {
+            throw new Error(`Refusing unsafe transactional file path: ${destination}`);
+          }
+          original = {
+            existed: true,
+            contents: fs.readFileSync(entry.backup),
+            mode: info.mode & 0o777
+          };
         }
-        const result = write();
+
+        const transformed = transform(original);
+        if (!transformed || !Object.hasOwn(transformed, "contents")) {
+          throw new Error("File transform must return an object with contents");
+        }
+        if (transformed.contents !== null) {
+          const contents = Buffer.isBuffer(transformed.contents)
+            ? transformed.contents
+            : Buffer.from(String(transformed.contents));
+          fs.mkdirSync(path.dirname(destination), { recursive: true });
+          fs.writeFileSync(destination, contents, { flag: "wx" });
+          const writtenInfo = fs.lstatSync(destination);
+          entry.writtenIdentity = { dev: writtenInfo.dev, ino: writtenInfo.ino };
+          entry.writtenContents = contents;
+          const requestedMode = transformed.mode ?? original.mode;
+          if (requestedMode !== null) fs.chmodSync(destination, requestedMode);
+          entry.writtenMode = requestedMode === null
+            ? fs.lstatSync(destination).mode & 0o777
+            : requestedMode;
+          entry.writeComplete = true;
+        }
         groups.push(entries);
-        return result;
+        return transformed.value;
       } catch (error) {
         try {
           restoreTransactionEntries(entries);
@@ -616,9 +708,33 @@ export function validateStateGrammar(state, env = process.env) {
       return invalid(`target path is not normalized absolute: ${targetPath}`);
     }
     if (!isPlainObject(targetRecord)
-      || Object.keys(targetRecord).length !== 1
+      || !Object.keys(targetRecord).every(key => ["skills", "agyDiscovery"].includes(key))
       || !isPlainObject(targetRecord.skills)) {
       return invalid(`invalid target record for ${targetPath}`);
+    }
+    if (targetRecord.agyDiscovery !== undefined) {
+      const discovery = targetRecord.agyDiscovery;
+      const expectedSkillsPath = path.resolve(paths.home, ".gemini", "skills");
+      const discoveryKeys = [
+        "schemaVersion", "entryCreated", "fileCreated", "baselineIncludeOnly", "claims"
+      ];
+      if (!isPlainObject(discovery)
+        || Object.keys(discovery).length !== discoveryKeys.length
+        || !discoveryKeys.every(key => Object.hasOwn(discovery, key))
+        || discovery.schemaVersion !== 1
+        || targetPath !== expectedSkillsPath
+        || typeof discovery.entryCreated !== "boolean"
+        || typeof discovery.fileCreated !== "boolean"
+        || !(discovery.baselineIncludeOnly === null
+          || (Array.isArray(discovery.baselineIncludeOnly)
+            && discovery.baselineIncludeOnly.every(value => typeof value === "string")))
+        || !Array.isArray(discovery.claims)
+        || discovery.claims.some(claim => !SKILL_KEY_PATTERN.test(claim))
+        || discovery.claims.some(claim => !Object.hasOwn(targetRecord.skills, claim))
+        || new Set(discovery.claims).size !== discovery.claims.length
+        || [...discovery.claims].sort().join("\0") !== discovery.claims.join("\0")) {
+        return invalid(`invalid Agy discovery ownership for ${targetPath}`);
+      }
     }
     const currentRoot = paths.currentPath;
     for (const [skill, record] of Object.entries(targetRecord.skills)) {
@@ -1318,7 +1434,7 @@ export function targetState(state, targetPath) {
 }
 
 export function updateTargetState(state, targetPath, value) {
-  if (Object.keys(value.skills).length === 0) {
+  if (Object.keys(value.skills).length === 0 && !value.agyDiscovery) {
     delete state.targets[targetPath];
   } else {
     state.targets[targetPath] = value;
@@ -1429,5 +1545,9 @@ export function readInstallState(env = process.env) {
 }
 
 export function saveInstallState(state, env = process.env) {
+  const grammar = validateStateGrammar(state, env);
+  if (!grammar.valid) {
+    throw new Error(`Refusing to save invalid installation state: ${grammar.reason}`);
+  }
   writeJsonAtomic(getStateFile(env), state);
 }

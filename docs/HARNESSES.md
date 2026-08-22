@@ -3,19 +3,38 @@
 The default targets are `general,gemini,claude`. `general` installs the common
 Agent Skills payload in `~/.agents/skills` or `.agents/skills` for Codex and
 other hosts that discover that layout. `gemini` installs globally to
-`~/.gemini/skills`, the shared global directory loaded by Gemini CLI and Agy;
-its project destination remains `.gemini/skills`.
+`~/.gemini/skills`, which Gemini CLI discovers and Agy exposes as slash
+commands; its project destination remains `.gemini/skills`. For a global
+`gemini` installation, Agentgear also merges a `~/.gemini/skills` entry into
+`~/.gemini/config/skills.json` and sets its `include_only` to the selected
+catalog `entry` skills using escaped, exact-name regex patterns. Selected
+prompt-only skills are installed in the same directory for slash-command use
+but omitted from that allowlist. An existing `exclude` filter and unrelated
+configuration fields and entries are preserved.
+Project-scoped and custom-destination installations do not change the global
+Agy config. A custom destination that resolves to the reserved global Gemini
+skills directory is rejected; use the global `gemini` target without `--dest`
+for that location. Other harness targets keep installing only their selected `entry`
+skills; prompt-only capabilities remain explicitly retrievable through
+`agentgear skill get`.
+Equivalent `~`, absolute, and trailing-separator forms of the Gemini skills
+path are normalized before matching; multiple equivalent entries are rejected
+as ambiguous. Agentgear records its allowlist claims and the prior
+`include_only`, so uninstall and purge can remove only managed claims and
+restore or remove the entry safely. An externally changed managed allowlist
+blocks removal before skill deletion.
 
 `claude` adds Claude Code's separate `.claude/skills` location. Kiro declares
 its own `.kiro/skills` location, so it remains the optional `kiro` target. Use
 an explicit `--target` list to narrow the defaults; use `--target general,kiro`
 when both generic and Kiro locations are needed.
 
-The installer places skills only. It does not silently write host hooks, MCP
-configuration, or permission rules. Configure permissions explicitly through
-`agentgear permissions init`; user scope is the default, while `--scope
-project --project DIR` writes trusted-project configuration. Verify the active
-scope with `agentgear permissions check`. User scope also merges Agy approvals
+Apart from the Agy skill-discovery entry described above, the installer does
+not write host hooks, MCP configuration, or permission rules. Configure
+permissions explicitly through `agentgear permissions init`; user scope is the
+default, while `--scope project --project DIR` writes trusted-project
+configuration. Verify the active scope with `agentgear permissions check`.
+User scope also merges Agy approvals
 into `~/.gemini/antigravity-cli/settings.json`; project scope leaves that
 global file untouched. Generated rules use the stable
 `agentgear run …` launcher rather than a checkout path. The initializer does

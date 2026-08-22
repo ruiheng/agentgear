@@ -13,6 +13,7 @@ import {
 import {
   computePaths,
   checkStateCoherence,
+  createInstallTransaction,
   destinationMatchesRecord,
   exists,
   preflightRuntimePurge,
@@ -25,13 +26,19 @@ import {
   validateStateGrammar
 } from "./lib/runtime.mjs";
 import {
+  isAgyGlobalSkillsPath,
+  resolveAgyDiscoveryContext,
+  syncAgySkillDiscovery
+} from "../providers/agy-skill-discovery.mjs";
+import {
   DEFAULT_TARGETS,
   installSelection,
   printPermissionMigrationRequirement,
   resolveTargetRoots,
   retiredPermissionMigrationScopes,
   selected,
-  selectedInstallableSkills
+  selectedInstallableSkills,
+  selectedInstallableSkillsForTarget
 } from "./lib/installer.mjs";
 import { parseOptions } from "./lib/options.mjs";
 import {
@@ -67,6 +74,26 @@ function print(message = "") {
 
 function fail(message) {
   throw new Error(message);
+}
+
+function syncAgyDiscoveryAfterRemovals({ catalog, state, removals, transaction }) {
+  const context = resolveAgyDiscoveryContext(catalog);
+  const targetRoot = removals.find(item =>
+    isAgyGlobalSkillsPath(item.target.root, context))?.target.root;
+  if (!targetRoot) return;
+  const record = targetState(state, targetRoot);
+  if (!record.agyDiscovery) return;
+  const claims = record.agyDiscovery.claims
+    .filter(claim => Object.hasOwn(record.skills, claim));
+  syncAgySkillDiscovery({
+    catalog,
+    targetRecord: record,
+    claims,
+    createIfMissing: false,
+    transaction,
+    print
+  });
+  updateTargetState(state, targetRoot, record);
 }
 
 function usage() {
@@ -191,16 +218,27 @@ function uninstall(catalog, options) {
       removals.push({ target, record, skill, destination });
     }
   }
-
-  for (const { record, skill, destination } of removals) {
-    fs.rmSync(destination, { recursive: true, force: true });
-    delete record.skills[skill];
+  const transaction = createInstallTransaction();
+  try {
+    for (const { record, skill, destination } of removals) {
+      transaction.remove([destination]);
+      delete record.skills[skill];
+    }
+    syncAgyDiscoveryAfterRemovals({ catalog, state, removals, transaction });
+    for (const target of targets) {
+      const record = targetState(state, target.root);
+      updateTargetState(state, target.root, record);
+    }
+    saveInstallState(state);
+    transaction.commit();
+  } catch (error) {
+    try {
+      transaction.rollback();
+    } catch (rollbackError) {
+      error.message += `; additionally failed to restore uninstall paths: ${rollbackError.message}`;
+    }
+    throw error;
   }
-  for (const target of targets) {
-    const record = targetState(state, target.root);
-    updateTargetState(state, target.root, record);
-  }
-  saveInstallState(state);
   print("Uninstall complete.");
 }
 
@@ -301,39 +339,51 @@ function purge(catalog, options) {
       return;
     }
   }
-
-  for (const item of plan) {
-    fs.rmSync(item.destination, { recursive: true, force: true });
-    const record = targetState(state, item.target.root);
-    delete record.skills[item.skill];
-  }
-
-  for (const target of targets) {
-    const record = targetState(state, target.root);
-    updateTargetState(state, target.root, record);
-  }
-
-  if (Object.keys(state.targets).length > 0) {
-    saveInstallState(state);
-    print("Shared runtime retained because other managed skills remain.");
-    print("Purge complete.");
-    notifyPermissionMigration(false);
-  } else {
-    const tornDown = purgeManagedRuntime({ state, env: process.env, print });
-    if (tornDown) {
-      removeInstallStateFile({ print });
-      const purged = targetLimited ? { incomplete: false } : purgeRetrievedUpstreamSkills({ catalog, print });
-      if (purged.incomplete) {
-        process.exitCode = 1;
-        print("Purge incomplete: retrieved skill materialization requires manual cleanup");
-      } else {
-        print("Purge complete.");
-      }
-      notifyPermissionMigration(retiresPermissionCommand);
-    } else {
-      process.exitCode = 1;
-      notifyPermissionMigration(false);
+  const transaction = createInstallTransaction();
+  try {
+    for (const item of plan) {
+      transaction.remove([item.destination]);
+      const record = targetState(state, item.target.root);
+      delete record.skills[item.skill];
     }
+    syncAgyDiscoveryAfterRemovals({ catalog, state, removals: plan, transaction });
+    for (const target of targets) {
+      const record = targetState(state, target.root);
+      updateTargetState(state, target.root, record);
+    }
+
+    if (Object.keys(state.targets).length > 0) {
+      saveInstallState(state);
+      transaction.commit();
+      print("Shared runtime retained because other managed skills remain.");
+      print("Purge complete.");
+      notifyPermissionMigration(false);
+    } else {
+      const tornDown = purgeManagedRuntime({ state, env: process.env, print });
+      if (tornDown) {
+        removeInstallStateFile({ print });
+        transaction.commit();
+        const purged = targetLimited ? { incomplete: false } : purgeRetrievedUpstreamSkills({ catalog, print });
+        if (purged.incomplete) {
+          process.exitCode = 1;
+          print("Purge incomplete: retrieved skill materialization requires manual cleanup");
+        } else {
+          print("Purge complete.");
+        }
+        notifyPermissionMigration(retiresPermissionCommand);
+      } else {
+        transaction.rollback();
+        process.exitCode = 1;
+        notifyPermissionMigration(false);
+      }
+    }
+  } catch (error) {
+    try {
+      transaction.rollback();
+    } catch (rollbackError) {
+      error.message += `; additionally failed to restore purge paths: ${rollbackError.message}`;
+    }
+    throw error;
   }
 
   if (!targetLimited && Object.keys(state.targets).length > 0) {
@@ -462,10 +512,10 @@ function build(catalog) {
     "Install the npm package or use the normal Agentgear installer; do not copy this tree into a harness discovery directory."
   ].join("\n") + "\n");
   const selection = selected(catalog, parseOptions([]));
-  for (const target of Object.values(catalog.targets.targets)) {
+  for (const [targetName, target] of Object.entries(catalog.targets.targets)) {
     const destination = path.join(stagingRoot, target.dist);
     fs.mkdirSync(destination, { recursive: true });
-    for (const skill of selectedInstallableSkills(catalog, selection)) {
+    for (const skill of selectedInstallableSkillsForTarget(selection, targetName)) {
       fs.cpSync(path.join(skillsRoot, skill), path.join(destination, skill), {
         recursive: true,
         preserveTimestamps: true

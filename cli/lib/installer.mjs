@@ -41,6 +41,11 @@ import {
   validateStateGrammar,
   writeInstalledSkillMarker
 } from "./runtime.mjs";
+import {
+  isAgyGlobalSkillsPath,
+  resolveAgyDiscoveryContext,
+  syncAgySkillDiscovery
+} from "../../providers/agy-skill-discovery.mjs";
 
 export const DEFAULT_TARGETS = ["general", "gemini", "claude"];
 
@@ -145,6 +150,27 @@ export function selectedInstallableSkills(catalog, selection) {
   return [...selection.exposedSkills];
 }
 
+export function selectedInstallableSkillsForTarget(selection, targetName) {
+  return targetName === "gemini"
+    ? [...selection.capabilitySkills]
+    : [...selection.exposedSkills];
+}
+
+function canonicalCollisionPath(candidate) {
+  const resolved = path.resolve(candidate);
+  const suffix = [];
+  let existing = resolved;
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    suffix.unshift(path.basename(existing));
+    existing = parent;
+  }
+  const canonicalParent = fs.realpathSync.native(existing);
+  const canonical = path.resolve(canonicalParent, ...suffix);
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+}
+
 export function resolveTargetRoots(catalog, options, env = process.env) {
   const names = options.targets.length === 0
     ? (options.destination ? ["general"] : DEFAULT_TARGETS)
@@ -152,7 +178,7 @@ export function resolveTargetRoots(catalog, options, env = process.env) {
   if (options.destination && names.length !== 1) {
     fail("--dest requires exactly one target");
   }
-  return names.map(name => {
+  const targets = names.map(name => {
     const target = catalog.targets.targets[name];
     if (!target) fail("Unknown target: " + name);
     const configuredPath = options.destination || target[options.scope];
@@ -161,6 +187,16 @@ export function resolveTargetRoots(catalog, options, env = process.env) {
       : path.resolve(options.project, configuredPath);
     return { name, root };
   });
+  if (options.destination) {
+    const globalGeminiRoot = path.resolve(expandHome(catalog.targets.targets.gemini.global, env));
+    const canonicalGeminiRoot = canonicalCollisionPath(globalGeminiRoot);
+    const collidesWithGemini = targets.some(target =>
+      canonicalCollisionPath(target.root) === canonicalGeminiRoot);
+    if (collidesWithGemini) {
+      fail(`--dest cannot use the reserved global Gemini skills directory: ${globalGeminiRoot}; use --target gemini without --dest`);
+    }
+  }
+  return targets;
 }
 
 function ensureSourceSkills(sourceRoot, selection) {
@@ -170,12 +206,12 @@ function ensureSourceSkills(sourceRoot, selection) {
   }
 }
 
-function targetInstallPlan(state, targets, skills, options) {
+function targetInstallPlan(state, targets, skillsByTarget, options) {
   const errors = [];
   const plan = [];
   for (const target of targets) {
     const recorded = state === null ? { skills: {} } : targetState(state, target.root);
-    for (const skill of skills) {
+    for (const skill of skillsByTarget.get(target.root)) {
       const destination = path.join(target.root, skill);
       const record = recorded.skills[skill];
       const destinationExists = exists(destination);
@@ -191,10 +227,11 @@ function targetInstallPlan(state, targets, skills, options) {
   return plan;
 }
 
-function retiredSkillPlan(catalog, state) {
+function retiredSkillPlan(catalog, state, targetRoots = null) {
   const retired = new Set(catalog.skills.retiredSkills ?? []);
   const plan = [];
   for (const [targetRoot, targetRecord] of Object.entries(state?.targets ?? {})) {
+    if (targetRoots && !targetRoots.has(targetRoot)) continue;
     for (const [skill, record] of Object.entries(targetRecord.skills ?? {})) {
       if (!retired.has(skill)) continue;
       const destination = path.join(targetRoot, skill);
@@ -212,11 +249,11 @@ function retiredSkillPlan(catalog, state) {
   return plan;
 }
 
-function withdrawnSkillPlan(state, targets, desiredSkills, authoritative) {
+function withdrawnSkillPlan(state, targets, skillsByTarget, authoritative) {
   if (!authoritative || state === null) return [];
-  const desired = new Set(desiredSkills);
   const plan = [];
   for (const target of targets) {
+    const desired = new Set(skillsByTarget.get(target.root));
     const record = targetState(state, target.root);
     for (const [skill, item] of Object.entries(record.skills)) {
       if (desired.has(skill)) continue;
@@ -253,15 +290,55 @@ export function installSelection({
   checkChannelGate(state, requestedChannel);
   checkStateCoherence(state, env);
   const upstreamPlans = selectedUpstreamSkillPlans(catalog, selection, state, env);
-  const installedSkills = selectedInstallableSkills(catalog, selection);
+  const skillsByTarget = new Map(targets.map(target => [
+    target.root,
+    selectedInstallableSkillsForTarget(selection, target.name)
+  ]));
+  const installedSkills = [...new Set([...skillsByTarget.values()].flat())];
   const installLauncher = !options.noLauncher;
-  const retiredSkills = retiredSkillPlan(catalog, state);
+  const retirementRoots = options.scope === "global" && !options.destination
+    ? null
+    : new Set(targets.map(target => target.root));
+  const retiredSkills = retiredSkillPlan(catalog, state, retirementRoots);
   const withdrawnSkills = withdrawnSkillPlan(
     state,
     targets,
-    installedSkills,
+    skillsByTarget,
     selection.packs.length > 0
   );
+  const agyContext = resolveAgyDiscoveryContext(catalog, env);
+  const globalGeminiRoot = agyContext.targetRoot;
+  const globalGeminiTarget = options.scope === "global" && !options.destination
+    ? targets.find(target => target.name === "gemini")
+    : null;
+  const installsGlobalGemini = Boolean(globalGeminiTarget);
+  const geminiRemovals = [...retiredSkills, ...withdrawnSkills]
+    .filter(item => isAgyGlobalSkillsPath(item.targetRoot, agyContext));
+  const agyTargetRoot = globalGeminiTarget?.root
+    ?? geminiRemovals[0]?.targetRoot
+    ?? globalGeminiRoot;
+  const reconcilesAgyDiscovery = installsGlobalGemini || geminiRemovals.length > 0;
+  let agyDiscoveryIntent = null;
+  if (reconcilesAgyDiscovery) {
+    const previousGemini = state?.targets?.[agyTargetRoot] ?? { skills: {} };
+    const removed = new Set(geminiRemovals.map(item => item.skill));
+    const previousClaims = previousGemini.agyDiscovery?.claims
+      ?? Object.keys(previousGemini.skills)
+        .filter(skill => !removed.has(skill))
+        .filter(skill => catalog.skills.skills[skill]?.exposure === "entry");
+    const selectedClaims = installsGlobalGemini
+      ? [...selection.exposedSkills]
+      : [];
+    const nextClaims = (installsGlobalGemini && selection.packs.length > 0
+      ? selectedClaims
+      : [...previousClaims, ...selectedClaims])
+      .filter(claim => !removed.has(claim));
+    agyDiscoveryIntent = {
+      targetRoot: agyTargetRoot,
+      nextClaims,
+      createIfMissing: installsGlobalGemini
+    };
+  }
   const retiredCommands = retiredCommandEntries(env)
     .filter(entry => state?.commands?.[entry.destination]);
   const detectedPermissionScopes = permissionMigrationScopes(options, env);
@@ -272,7 +349,7 @@ export function installSelection({
       fail(`Refusing to retire locally changed command: ${entry.destination}`);
     }
   }
-  const plan = targetInstallPlan(state, targets, installedSkills, options);
+  const plan = targetInstallPlan(state, targets, skillsByTarget, options);
   checkCommandCollisions(state, env, installLauncher, options.force);
 
   let currentState = state;
@@ -354,7 +431,7 @@ export function installSelection({
 
     for (const item of retiredSkills) {
       if (item.owned) {
-        transaction.replace([item.destination], () => undefined);
+        transaction.remove([item.destination]);
         print(`removed retired skill: ${item.destination}`);
       } else if (item.destinationExists) {
         print(`preserved locally changed retired skill: ${item.destination}`);
@@ -366,7 +443,7 @@ export function installSelection({
 
     for (const item of withdrawnSkills) {
       if (item.destinationExists) {
-        transaction.replace([item.destination], () => undefined);
+        transaction.remove([item.destination]);
         print(`withdrawn skill: ${item.skill}`);
       } else {
         print(`removed stale skill record: ${item.skill}`);
@@ -411,10 +488,24 @@ export function installSelection({
       updateTargetState(currentState, target.root, record);
     }
 
+    if (agyDiscoveryIntent) {
+      const record = targetState(currentState, agyDiscoveryIntent.targetRoot);
+      syncAgySkillDiscovery({
+        catalog,
+        targetRecord: record,
+        claims: agyDiscoveryIntent.nextClaims,
+        createIfMissing: agyDiscoveryIntent.createIfMissing,
+        transaction,
+        env,
+        print
+      });
+      updateTargetState(currentState, agyDiscoveryIntent.targetRoot, record);
+    }
+
     for (const entry of retiredCommands) {
       const record = currentState.commands[entry.destination];
       if (!record) continue;
-      transaction.replace(commandArtifactPaths(entry.destination), () => undefined);
+      transaction.remove(commandArtifactPaths(entry.destination));
       print(`removed retired command: ${entry.destination}`);
       delete currentState.commands[entry.destination];
     }
