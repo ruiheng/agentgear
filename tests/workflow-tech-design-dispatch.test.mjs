@@ -234,6 +234,20 @@ test("reviewer protocol consumes review checkpoints instead of review maxima", (
   assert.match(references, /schema-2 lane manifest/);
 });
 
+test("draft reviewer decisions return to the author-owned Canonical Contract", () => {
+  const reportHandling = fs.readFileSync(
+    new URL("../skills/tech-design-workflow/references/report-handling.md", import.meta.url),
+    "utf8"
+  );
+  const delivery = fs.readFileSync(
+    new URL("../skills/review-tech-design/references/message-delivery.md", import.meta.url),
+    "utf8"
+  );
+  assert.match(reportHandling, /For any draft report with `User Decisions`/);
+  assert.match(reportHandling, /before revision or delivery/);
+  assert.match(delivery, /Draft-review's author\s+records confirmed User Decision Deltas/);
+});
+
 test("partial notification failure leaves the lane manifest for retry", async () => {
   const item = fixture();
   try {

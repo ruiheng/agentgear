@@ -16,10 +16,10 @@ retained dispatch identity. An older authenticated rejection may still identify
 an unresolved correction; an already-applied one is a no-op. Defer missing
 authority and reject a different task or endpoint before changing context.
 
-The requester atomically publishes one complete corrected Canonical Contract in
-the manifest's `context_file`, preserving exact user wording and increasing
-Context Revision. It never modifies the lane manifest. Agents recognize older
-reports from their retained request and artifact context.
+For this initial-context rejection, the requester atomically publishes one
+complete corrected Canonical Contract in the manifest's `context_file`,
+preserving exact user wording and increasing Context Revision. It never modifies
+the lane manifest. Agents recognize older reports from retained context.
 
 Notify every consumer to reread the shared contract:
 

@@ -63,7 +63,11 @@ and resolves context from the inline request plus preceding
 rounds. Message reports use only their routed mode; direct-use sets
 `Mode: direct`. Never require draft-only state from committed-docs.
 
-Send the complete report form above as the Waypost body; never replace it with a summary, and keep `Action: design_spec_review_report` in its initial header block. Send completed reviews or `NEEDS_INPUT` to the received request `sender_address` from the current bound reviewer address with subject `design-spec review report: <task_id> r<round>`. The requester records any confirmed User Decision Delta; it is not the authority to answer user questions on the user's behalf. Follow the shared Async sender rule.
+Send the complete form to the request `sender_address` from the bound reviewer
+address, subject `design-spec review report: <task_id> r<round>`. Keep
+`Action: design_spec_review_report` in the initial header. Draft-review's author
+records confirmed User Decision Deltas; committed-docs' requester records them.
+Record exact answers only. Follow the shared Async sender rule.
 
 Use `NEEDS_INPUT` only when the review request is incomplete, mismatched, or
 unreadable. If user input is needed, ask the user directly and wait before

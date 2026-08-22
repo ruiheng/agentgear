@@ -9,7 +9,7 @@ selector-aliases: action:design_spec_draft_requested, action:design_spec_context
 Retrieve `agentgear skill get multi-agent-protocol/shared-protocol tech-design-workflow/lane-manifest`.
 
 Authenticate the requester/author transport endpoints and Task against the lane
-manifest. Read the requester-owned Canonical Contract. A corrected-context
+manifest. Read the Canonical Contract. A corrected-context
 notice names its new positive Context Revision; an older authenticated notice is
 a stale wake. Duplicate work is recognizable from the existing artifact and
 retained conversation.
@@ -23,9 +23,9 @@ implementation-ready design at
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`.
 
 Resolve technical questions from evidence. If a product or scope choice blocks
-drafting, ask the user directly; the requester records the answer in the
-Canonical Contract before work resumes. A dispatched round is review evidence;
-changes go into the next numbered snapshot.
+drafting, ask the user directly. Append the exact question and answer as a User
+Decision Delta and increment Context Revision before resuming. A dispatched
+round is review evidence; changes go into the next numbered snapshot.
 
 After a checkpoint round is reviewed, ask the user directly before drafting
 again. If they continue, advance the checkpoint and resume the same lane:
@@ -78,7 +78,8 @@ endpoints, Task, Round, and artifact. Keep reports in their messages. Wait for
 both reports when a pruner was requested.
 
 Revise on `NEEDS_REVISION` or `NEEDS_SIMPLIFICATION`; use the direct-user flow
-above when a product or scope choice blocks revision. Deliver only after correctness is `SOUND` or
+above when a product or scope choice blocks revision. Apply reviewer-collected
+answers through `report-handling`. Deliver only after correctness is `SOUND` or
 `SOUND_WITH_CAVEATS`, and an enabled pruner reports `MINIMAL`.
 
 ```markdown

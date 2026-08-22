@@ -30,9 +30,9 @@ Resolve deterministic refs, defaulting to `architect-author-<task_id>`, `archite
 ## Contract and Dispatch
 
 Write one Canonical Design Task Contract under `.agent-artifacts/message/` with
-`Context Revision: 1`. The requester publishes later product or scope
-corrections at a higher revision and notifies consumers. The wrapper creates the lane
-manifest at `.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`.
+`Context Revision: 1`. After dispatch, the author records later product or scope
+answers at higher revisions. The wrapper creates the lane manifest at
+`.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`.
 Preserve Original Request separately from requester normalization.
 
 Create the manifest and notify the reviewer, then the enabled pruner, then the author:
