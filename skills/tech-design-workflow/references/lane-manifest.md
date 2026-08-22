@@ -5,8 +5,7 @@ selector-summary: Use the stable participant and contract manifest for a draft t
 
 # Draft Lane Manifest
 
-The requester creates this manifest once. Treat it as immutable task metadata,
-not workflow progress or a state machine:
+The requester creates this compact lane manifest:
 
 ```json
 {
@@ -22,7 +21,8 @@ not workflow progress or a state machine:
   "session_host": "<host>",
   "context_file": ".agent-artifacts/message/<contract>.md",
   "archive_branch": "<branch>",
-  "max_review_rounds": 5
+  "review_checkpoint": 5,
+  "review_checkpoint_interval": 2
 }
 ```
 
@@ -30,21 +30,21 @@ When `always` is selected, also record the initial `pruner_session_id` and
 `pruner_to_address`. `auto` and `never` omit them. Additional creation
 timestamps are diagnostics only.
 
-Use the manifest to authenticate stable participant routes, find the Canonical
-Contract, enforce the fixed maximum, and close out known sessions. Never add or
-update round, artifact, epoch, report, digest, acceptance, decision, or delivery
-status in this file.
+Use it for participant routes, the Canonical Contract, review checkpoint, and
+session closeout. Round progress and reports remain in messages and artifacts.
+
+Only `review_checkpoint` changes. After the user chooses to continue, the author
+advances it by `review_checkpoint_interval`. This does not change the contract
+or send a message.
 
 ## Dynamic Work
 
-Agents determine current work from their retained context, authenticated
-Waypost messages, and immutable artifacts. Messages name the exact Round,
-artifact, previous artifact when applicable, and current Context Revision.
-Completed reports remain Waypost messages; do not copy them into the manifest.
+Agents derive current work from retained context, authenticated messages, and
+dispatched artifacts.
 
-Write complete rounds only as
-`.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. Never edit a round
-after dispatch. A revision creates the next numbered complete snapshot.
+Write complete rounds as
+`.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. Because a dispatched
+round is review evidence, a revision creates the next numbered snapshot.
 
 The deterministic review dispatcher reads the manifest and artifact, measures
 the artifact using the layered TOML policy, and sends review requests. It does

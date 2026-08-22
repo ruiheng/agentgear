@@ -16,6 +16,7 @@ import {
   main as dispatchReview,
   measureDesign
 } from "../skills/tech-design-workflow/scripts/dispatch-design-review.mjs";
+import { main as advanceReviewCheckpoint } from "../skills/tech-design-workflow/scripts/advance-design-review-checkpoint.mjs";
 import {
   loadWorkflowPolicy,
   parseWorkflowPolicyToml
@@ -40,7 +41,7 @@ function fixture() {
       "--author-session-id", "author-1",
       "--reviewer-session-id", "reviewer-1",
       "--session-host", "agent-deck",
-      "--max-review-rounds", "5",
+      "--review-checkpoint", "5",
       "--archive-branch", "main",
       "--from-address", "waypost/requester-1",
       "--author-to-address", "waypost/author-1",
@@ -145,7 +146,8 @@ test("initial dispatch writes one stable manifest and notifies reviewer before a
     assert.equal(manifest.schema_version, 1);
     assert.equal(manifest.pruner_policy, "auto");
     assert.equal(manifest.context_file, ".agent-artifacts/message/task.md");
-    assert.equal(manifest.max_review_rounds, 5);
+    assert.equal(manifest.review_checkpoint, 5);
+    assert.equal(manifest.review_checkpoint_interval, 2);
     for (const dynamic of [
       "current_round", "current_artifact", "previous_artifact", "review_epoch",
       "correctness_report", "prune_report", "review_gate", "acceptance",
@@ -195,7 +197,7 @@ test("setup retry preserves manifest bytes and repeats idempotent notifications"
   }
 });
 
-test("partial notification failure leaves only the immutable manifest for retry", async () => {
+test("partial notification failure leaves the lane manifest for retry", async () => {
   const item = fixture();
   try {
     await assert.rejects(
@@ -417,6 +419,76 @@ test("review dispatch validates exact round, previous artifact, and contract rev
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
     }));
     assert.match(records[0].body, /^Previous Artifact: \.agent-artifacts\/design-spec\/author-1\/r001\.md$/m);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("continued review schedules checkpoints every two rounds", async () => {
+  const item = fixture();
+  try {
+    await createLane(item);
+    writeArtifact(item, 5, "# Round five\n");
+    writeArtifact(item, 6, "# Round six\n");
+    writeArtifact(item, 7, "# Round seven\n");
+    writeArtifact(item, 8, "# Round eight\n");
+    const blocked = [];
+    await assert.rejects(dispatchReview(reviewArgs(item, 6), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(blocked),
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), error => error.prefix === "USER_CHECKPOINT_REQUIRED" && error.exitCode === 3);
+    assert.deepEqual(blocked, []);
+
+    const contractBefore = fs.readFileSync(item.contractFile, "utf8");
+    await captureStdout(() => advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--expected-current-checkpoint", "5",
+      "--json"
+    ]));
+    const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
+    assert.equal(manifest.review_checkpoint, 7);
+    assert.equal(manifest.review_checkpoint_interval, 2);
+    assert.equal(fs.readFileSync(item.contractFile, "utf8"), contractBefore);
+
+    const reviews = [];
+    for (const round of [6, 7]) {
+      await captureStdout(() => dispatchReview(reviewArgs(item, round), {
+        requireCommand() {},
+        runWaypost: successfulWaypost(reviews),
+        loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+      }));
+    }
+    assert.deepEqual(reviews.map(record => actionFrom(record.body)), [
+      "design_spec_review_requested", "design_spec_review_requested"
+    ]);
+
+    const nextBlocked = reviewArgs(item, 8);
+    await assert.rejects(dispatchReview(nextBlocked, {
+      requireCommand() {},
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), error => error.prefix === "USER_CHECKPOINT_REQUIRED");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint advance rejects stale compare-and-set input", async () => {
+  const item = fixture();
+  try {
+    await createLane(item);
+    await captureStdout(() => advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--expected-current-checkpoint", "5"
+    ]));
+    await assert.rejects(advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--expected-current-checkpoint", "5"
+    ]), /checkpoint changed/);
+    assert.equal(JSON.parse(fs.readFileSync(item.manifestFile, "utf8")).review_checkpoint, 7);
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }

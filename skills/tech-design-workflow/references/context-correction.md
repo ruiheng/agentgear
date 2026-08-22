@@ -48,6 +48,6 @@ Lane Manifest: <workspace-relative lane manifest>
 ```
 
 Send from the requester to the recorded reviewer, enabled pruner, and author.
-The author decides whether the current immutable snapshot remains valid. Settle
+The author decides whether the current dispatched snapshot remains valid. Settle
 the rejection after the contract write and required notifications succeed; an
 explicit retry may repeat the same revision safely.

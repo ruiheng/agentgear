@@ -1,6 +1,6 @@
 ---
 skill-selector: author-round
-selector-summary: Draft or revise one immutable technical design round and request review.
+selector-summary: Draft or revise one technical design snapshot and request review.
 selector-aliases: action:design_spec_draft_requested, action:design_spec_context_corrected
 ---
 
@@ -12,24 +12,33 @@ Authenticate the requester/author transport endpoints and Task against the lane
 manifest. Read the requester-owned Canonical Contract. A corrected-context
 notice names its new positive Context Revision; an older authenticated notice is
 a stale wake. Duplicate work is recognizable from the existing artifact and
-retained conversation; do not maintain a separate progress database.
+retained conversation.
 
 ## Draft
 
 For round 1, inspect the repository as needed. Later rounds start from the
-immediately preceding immutable artifact, reviewer/pruner reports, and their
+immediately preceding dispatched artifact, reviewer/pruner reports, and their
 ordinary diff while rechecking affected evidence. Write the smallest complete,
 implementation-ready design at
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`.
 
-Resolve technical questions from the repository, prior artifacts, and the
-Canonical Contract. If required user input genuinely blocks drafting, ask the
-user directly, carry the exact question and answer in the report, and
-have the requester record the confirmed answer in a User Decision Delta. Do not
-ask the requester to decide a technical detail. Never edit a round after
-dispatch. When a report requires changes, create the next numbered complete
-snapshot; the agent knows the active round from its dialogue and artifact
-history.
+Resolve technical questions from evidence. If a product or scope choice blocks
+drafting, ask the user directly; the requester records the answer in the
+Canonical Contract before work resumes. A dispatched round is review evidence;
+changes go into the next numbered snapshot.
+
+After a checkpoint round is reviewed, ask the user directly before drafting
+again. If they continue, advance the checkpoint and resume the same lane:
+
+```bash
+agentgear run tech-design-workflow advance-design-review-checkpoint.mjs \
+  --workdir "<current workspace>" \
+  --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
+  --expected-current-checkpoint "<current checkpoint>" \
+  --json
+```
+
+Checkpoint continuation does not change the Canonical Contract or Context Revision.
 
 ## Review Dispatch
 
@@ -50,6 +59,8 @@ Omit `--previous-artifact` for round 1. The program reads the layered TOML
 policy, measures the artifact, and sends the reviewer request without writing
 lane or review state.
 
+`USER_CHECKPOINT_REQUIRED` means no request was sent; use the checkpoint flow above.
+
 `PRUNER_REQUIRED` means no request was sent. Resolve and create the deterministic
 `design_pruner` sibling through the Tool Resolution and Session Host contracts,
 then rerun with `--pruner-session-id` and `--pruner-to-address`. The request gives
@@ -63,13 +74,11 @@ recognize stale or duplicate work.
 ## Reports and Delivery
 
 Authenticate reviewer and optional pruner reports by their actual transport
-endpoints, Task, Round, and artifact. Use the reports directly; do not copy them
-into the lane manifest. Wait for both reports when a pruner was requested.
+endpoints, Task, Round, and artifact. Keep reports in their messages. Wait for
+both reports when a pruner was requested.
 
-Revise on `NEEDS_REVISION` or `NEEDS_SIMPLIFICATION`. If user input is needed,
-ask the user directly and wait before revising; carry the exact question and
-answer in the resulting report or artifact, then wait for the requester to
-record the User Decision Delta. Deliver only after correctness is `SOUND` or
+Revise on `NEEDS_REVISION` or `NEEDS_SIMPLIFICATION`; use the direct-user flow
+above when a product or scope choice blocks revision. Deliver only after correctness is `SOUND` or
 `SOUND_WITH_CAVEATS`, and an enabled pruner reports `MINIMAL`.
 
 ```markdown

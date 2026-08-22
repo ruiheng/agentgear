@@ -20,7 +20,7 @@ On `design_spec_delivered`:
    artifact against the original request, current Canonical Contract, accepted
    user decisions expressed in the design, and repository evidence. Author and
    reviewer agreement is not a substitute. Return every substantive concern,
-   including over-design, to the author for another immutable reviewed round.
+   including over-design, to the author for another reviewed round.
 4. Reuse an existing committed formal doc only when it already represents the
    assessed design and exact caveats. Otherwise require the manifest archive
    branch as current, a clean index, and no merge/rebase/conflict state.

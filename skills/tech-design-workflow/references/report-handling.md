@@ -17,21 +17,19 @@ Authenticate the actual sender and recipient endpoints before acting:
 - committed-docs: retained reviewer -> requester.
 
 For a draft report, require its Task, Round, artifact, and lane manifest to match
-the request being handled. Use retained conversation and immutable artifact
-history to recognize an older or duplicate report. Do not copy reports,
-decisions, caveats, delivery status, or progress into the lane manifest.
+the request being handled. Use retained conversation and dispatched artifacts
+to recognize older or duplicate reports. Keep workflow progress out of the lane
+manifest.
 
 Apply the report with ordinary agent judgment. The requester is the canonical
 decision recorder, not a substitute decision maker:
 
-- `NEEDS_INPUT`: correct missing or invalid review input. Do not use it for an
-  ordinary technical question; investigate, record a finding, or request a
-  revision instead. Reports must carry any required user input as an exact
-  question and answer. Record that answer in a User Decision Delta and send the
-  corrected contract/context before resuming; do not re-ask a question already
-  handled by the reporting role;
+- `NEEDS_INPUT`: correct missing or invalid review input. Resolve ordinary
+  technical questions through evidence, findings, or revision. Carry required
+  user input as an exact question and answer; reuse answers already obtained;
 - `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after every requested role reports,
-  create the next complete immutable artifact;
+  create the next complete artifact; crossing the current review checkpoint
+  first requires the direct user check in `author-round`;
 - `SOUND`: accept correctness only with no caveats;
 - `SOUND_WITH_CAVEATS`: require every caveat to appear verbatim and in order in
   the reviewed artifact;

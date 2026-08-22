@@ -95,8 +95,11 @@ function validateManifest(manifest) {
     "author_to_address", "reviewer_session_id", "reviewer_to_address", "session_host",
     "context_file", "archive_branch", "pruner_policy"
   ]) plain(manifest[field], `lane manifest ${field}`);
-  if (!Number.isInteger(manifest.max_review_rounds) || manifest.max_review_rounds <= 0) {
-    fail("lane manifest max_review_rounds is invalid");
+  if (!Number.isInteger(manifest.review_checkpoint) || manifest.review_checkpoint <= 0) {
+    fail("lane manifest review_checkpoint is invalid");
+  }
+  if (!Number.isInteger(manifest.review_checkpoint_interval) || manifest.review_checkpoint_interval <= 0) {
+    fail("lane manifest review_checkpoint_interval is invalid");
   }
   if (!["auto", "always", "never"].includes(manifest.pruner_policy)) {
     fail("lane manifest pruner_policy is invalid");
@@ -189,7 +192,14 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const manifestFile = resolveWorkspaceFile(workdir, options.laneManifest, "lane manifest");
   const manifest = readJson(manifestFile);
   validateManifest(manifest);
-  if (options.round > manifest.max_review_rounds) fail("--round exceeds lane max_review_rounds");
+  if (options.round > manifest.review_checkpoint) {
+    fail(
+      `round ${options.round} crosses the user checkpoint at ${manifest.review_checkpoint}; `
+        + `ask the user whether to stop, redirect, or continue, then advance the checkpoint`,
+      3,
+      "USER_CHECKPOINT_REQUIRED"
+    );
+  }
 
   const expectedArtifact = expectedArtifactPath(manifest.author_session_id, options.round);
   if (options.artifact !== expectedArtifact) fail(`--artifact must equal ${expectedArtifact}`);

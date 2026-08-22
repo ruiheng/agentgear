@@ -31,7 +31,7 @@ Required:
   --author-session-id <id>
   --reviewer-session-id <id>
   --session-host <host>
-  --max-review-rounds <positive-integer>
+  --review-checkpoint <positive-integer>
   --archive-branch <branch>
   --from-address <address>
   --author-to-address <address>
@@ -41,6 +41,7 @@ Required:
 Optional:
   --pruner-policy <auto|always|never>
                                   Default: always with pruner args; auto otherwise
+  --review-checkpoint-interval <positive-integer>  Default: 2
   --pruner-session-id <id>      Enable the pruner; requires --pruner-to-address
   --pruner-to-address <address> Enable the pruner; requires --pruner-session-id
   --artifact-root <path>         Default: <workdir>/.agent-artifacts/design-spec-dispatch
@@ -238,8 +239,12 @@ function validateExistingManifest(manifest, options) {
     || stringField(manifest, "pruner_to_address") !== (options.prunerToAddress || "")) {
     fail("existing design lane manifest has a different initial pruner");
   }
-  if (manifest.max_review_rounds !== options.maxReviewRounds) {
-    fail("existing design lane manifest has a different max_review_rounds");
+  if (!Number.isInteger(manifest.review_checkpoint)
+    || manifest.review_checkpoint < options.reviewCheckpoint) {
+    fail("existing design lane manifest has an invalid initial review_checkpoint");
+  }
+  if (manifest.review_checkpoint_interval !== options.reviewCheckpointInterval) {
+    fail("existing design lane manifest has a different review_checkpoint_interval");
   }
 }
 
@@ -261,7 +266,8 @@ function initialManifest(options) {
     session_host: options.sessionHost,
     context_file: options.contextFile,
     archive_branch: options.archiveBranch,
-    max_review_rounds: options.maxReviewRounds
+    review_checkpoint: options.reviewCheckpoint,
+    review_checkpoint_interval: options.reviewCheckpointInterval
   };
 }
 
@@ -306,7 +312,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     values: [
       "--workdir", "--task-id", "--requester-session-id",
       "--author-session-id", "--reviewer-session-id", "--session-host",
-      "--max-review-rounds", "--archive-branch", "--from-address",
+      "--review-checkpoint", "--review-checkpoint-interval", "--archive-branch", "--from-address",
       "--author-to-address", "--reviewer-to-address", "--contract-file", "--artifact-root",
       "--pruner-policy", "--pruner-session-id", "--pruner-to-address", "--content-type", "--schema-version",
       "--send-timeout-ms"
@@ -316,6 +322,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       artifactRoot: "",
       contentType: "text/markdown",
       schemaVersion: "1",
+      reviewCheckpointInterval: "2",
       sendTimeoutMs: String(DEFAULT_SEND_TIMEOUT_MS),
       json: false
     }
@@ -328,7 +335,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     ["workdir", "--workdir"], ["taskId", "--task-id"],
     ["requesterSessionId", "--requester-session-id"],
     ["authorSessionId", "--author-session-id"], ["reviewerSessionId", "--reviewer-session-id"],
-    ["sessionHost", "--session-host"], ["maxReviewRounds", "--max-review-rounds"],
+    ["sessionHost", "--session-host"], ["reviewCheckpoint", "--review-checkpoint"],
     ["archiveBranch", "--archive-branch"], ["fromAddress", "--from-address"],
     ["authorToAddress", "--author-to-address"], ["reviewerToAddress", "--reviewer-to-address"],
     ["contractFile", "--contract-file"]
@@ -338,7 +345,11 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     || (options.prunerSessionId || options.prunerToAddress ? "always" : "auto");
 
   validateOptions(options);
-  options.maxReviewRounds = positiveInteger(options.maxReviewRounds, "--max-review-rounds");
+  options.reviewCheckpoint = positiveInteger(options.reviewCheckpoint, "--review-checkpoint");
+  options.reviewCheckpointInterval = positiveInteger(
+    options.reviewCheckpointInterval,
+    "--review-checkpoint-interval"
+  );
   options.sendTimeoutMs = nonNegativeInteger(options.sendTimeoutMs, "--send-timeout-ms");
   (dependencies.requireCommand || requireCommand)("waypost");
   if (!fs.statSync(options.workdir, { throwIfNoEntry: false })?.isDirectory()) fail(`workdir does not exist: ${options.workdir}`);
