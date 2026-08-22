@@ -20,5 +20,5 @@ manifest and do not inspect a design from a context notice alone.
 
 For each later review request, reread the contract and require the message's
 Context Revision to match. Missing or unsupported current context retrieves
-`review-tech-design/message-delivery` and sends Context Rejection to the actual
-inbound sender. Valid intake is retained and settled without a reply.
+`review-tech-design/message-delivery` and sends Context Rejection. Valid intake
+is retained and settled without a reply.

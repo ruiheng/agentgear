@@ -77,8 +77,10 @@ technical uncertainty.
 
 ## Context Rejection
 
-For invalid context, send `design_spec_review_context_rejected` to the actual
-inbound `sender_address` with this body:
+For invalid Contract context with an authenticated manifest and author route,
+send `design_spec_review_context_rejected` to the manifest's author address. If
+that route cannot authenticate, send it to the inbound requester as a lane-setup
+failure. Use this body:
 
 ```markdown
 Task: <task_id>

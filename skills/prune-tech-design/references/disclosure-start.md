@@ -49,8 +49,8 @@ and required behavior remain clear?
 - Recommend only remove, merge, compress, inline, reuse, or defer. Do not invent
   a replacement architecture or reward hypothetical future-proofing.
 - Ask the user directly and wait when required user input blocks pruning. Carry
-  the exact question and answer under `## User Decisions`; the requester records
-  the confirmed answer in the User Decision Delta.
+  the exact question and answer under `## User Decisions`; the draft author
+  records the confirmed answer in the User Decision Delta.
 
 ## Report
 
@@ -87,5 +87,8 @@ rejection uses `Input Kind: context-initial`, `Artifact: none`, and Round
 or create a special finding protocol.
 
 Send valid reports, including the final round, then follow the Async sender rule.
+Send initial-context `NEEDS_INPUT` to the manifest author when that route
+authenticates; otherwise return it to the inbound requester as a lane-setup
+failure.
 In direct-use mode omit the envelope through Round, start at `## Reviewed
 Target`, return directly, and do not send Waypost.

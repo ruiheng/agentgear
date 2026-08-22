@@ -243,9 +243,21 @@ test("draft reviewer decisions return to the author-owned Canonical Contract", (
     new URL("../skills/review-tech-design/references/message-delivery.md", import.meta.url),
     "utf8"
   );
+  const correction = fs.readFileSync(
+    new URL("../skills/tech-design-workflow/references/context-correction.md", import.meta.url),
+    "utf8"
+  );
+  const pruning = fs.readFileSync(
+    new URL("../skills/prune-tech-design/references/disclosure-start.md", import.meta.url),
+    "utf8"
+  );
   assert.match(reportHandling, /For any draft report with `User Decisions`/);
   assert.match(reportHandling, /before revision or delivery/);
+  assert.match(reportHandling, /initial prune-context rejection: requested pruner -> author/);
   assert.match(delivery, /Draft-review's author\s+records confirmed User Decision Deltas/);
+  assert.match(delivery, /manifest's author address/);
+  assert.match(pruning, /initial-context `NEEDS_INPUT` to the manifest author/);
+  assert.match(correction, /The requester reports the failure and\s+does not edit the Contract/);
 });
 
 test("partial notification failure leaves the lane manifest for retry", async () => {

@@ -1,7 +1,7 @@
 ---
 skill-selector: author-round
 selector-summary: Draft or revise one technical design snapshot and request review.
-selector-aliases: action:design_spec_draft_requested, action:design_spec_context_corrected
+selector-aliases: action:design_spec_draft_requested
 ---
 
 # Author Round
@@ -9,10 +9,8 @@ selector-aliases: action:design_spec_draft_requested, action:design_spec_context
 Retrieve `agentgear skill get multi-agent-protocol/shared-protocol tech-design-workflow/lane-manifest`.
 
 Authenticate the requester/author transport endpoints and Task against the lane
-manifest. Read the Canonical Contract. A corrected-context
-notice names its new positive Context Revision; an older authenticated notice is
-a stale wake. Duplicate work is recognizable from the existing artifact and
-retained conversation.
+manifest. Read the Canonical Contract. Duplicate work is recognizable from the
+existing artifact and retained conversation.
 
 ## Draft
 

@@ -13,10 +13,12 @@ Authenticate the actual sender and recipient endpoints before acting:
 
 - draft correctness: recorded reviewer -> author;
 - draft pruning: requested pruner -> author;
-- initial prune-context rejection: requested pruner -> requester;
+- initial prune-context rejection: requested pruner -> author;
 - committed-docs: retained reviewer -> requester.
 
-For a draft report, require its Task, Round, artifact, and lane manifest to match
+For pruner `NEEDS_INPUT` with `Input Kind: context-initial`, retrieve
+`tech-design-workflow/context-correction`. For any other draft report, require its
+Task, Round, artifact, and lane manifest to match
 the request being handled. Use retained conversation and dispatched artifacts
 to recognize older or duplicate reports. Keep workflow progress out of the lane
 manifest.
