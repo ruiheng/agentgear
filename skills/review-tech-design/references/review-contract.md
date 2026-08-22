@@ -43,8 +43,14 @@ the exact question and answer under User Decisions; do not emit a report with an
 unanswered user-input question. Report persisted-data effects only when
 relevant.
 
-## Review Limit
+## Review Checkpoint
 
-Require a positive Max Review Rounds in message review mode and require `Round <= Max Review Rounds`. In committed-docs, compare it with retained authority; any change requires an exact User Decision Delta approving the new value. Return NEEDS_INPUT without inspecting the target when the round exceeds the authorized maximum. A replacement snapshot advances the round; NEEDS_INPUT and same-snapshot review do not.
+Require a positive Review Checkpoint and `Round <= Review Checkpoint`. Draft mode
+reads the checkpoint and positive interval from the schema-2 lane manifest.
+Committed-docs starts at 5; after a completed checkpoint round, the requester may
+advance it by 2. Continuation is workflow state, not a Contract change or User
+Decision Delta.
 
-Send final-round results normally. The session that requested the review owns the stop-or-extend decision before creating another target.
+Return NEEDS_INPUT without opening a target beyond the checkpoint. Review the
+checkpoint round normally; the request sender asks the user before creating the
+next target. NEEDS_INPUT and same-snapshot review do not advance the round.

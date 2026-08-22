@@ -64,7 +64,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const workdir = fs.realpathSync(requestedWorkdir);
   const manifestFile = resolveManifest(workdir, options.laneManifest);
   const manifest = readJson(manifestFile);
-  if (manifest?.schema_version !== 1) fail("design lane manifest has an unsupported schema");
+  if (manifest?.schema_version !== 2) fail("design lane manifest must use schema 2");
   if (!Number.isInteger(manifest.review_checkpoint) || manifest.review_checkpoint <= 0) {
     fail("lane manifest review_checkpoint is invalid");
   }

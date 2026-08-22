@@ -89,7 +89,7 @@ export function measureDesign(source) {
 }
 
 function validateManifest(manifest) {
-  if (manifest?.schema_version !== 1) fail("design lane manifest has an unsupported schema");
+  if (manifest?.schema_version !== 2) fail("design lane manifest must use schema 2");
   for (const field of [
     "task_id", "requester_session_id", "requester_address", "author_session_id",
     "author_to_address", "reviewer_session_id", "reviewer_to_address", "session_host",

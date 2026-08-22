@@ -18,8 +18,8 @@ without opening the target:
 - conflicting or missing mode input is rejected with the generic response below.
 
 Draft-round has no Mode field. Authenticate Task and author -> reviewer
-transport endpoints against the manifest. Require a positive Round within its
-maximum, an artifact equal to
+transport endpoints against the manifest. Require schema 2, a positive Round
+within `review_checkpoint`, a positive `review_checkpoint_interval`, and an artifact equal to
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`, the immediately
 preceding artifact for later rounds, and a Context Revision equal to the current
 Canonical Contract before opening the target. Use retained conversation and
@@ -27,13 +27,13 @@ artifact history to recognize an older or duplicate request. Defer missing
 authority; reject a different task, endpoint, or target.
 
 For committed-docs, retain the requester route, initial contract, decisions,
-maximum, and each reviewed target by Task and Round. Round 1 carries the full
+review checkpoint, and each reviewed target by Task and Round. Round 1 carries the full
 contract. Later rounds preserve it, append any new exact User Decision Delta,
 and name the previous reviewed commit. Require sequential positive rounds and
-one request per Task/Round. The maximum stays fixed unless a Delta approves its
-exact replacement.
+one request per Task/Round. Checkpoint continuation is workflow state, not a
+User Decision Delta.
 
-Apply `review-contract`, including `Round <= Max Review Rounds`, before opening
+Apply `review-contract`, including `Round <= Review Checkpoint`, before opening
 either target.
 
 For an invalid discriminator, send to the inbound sender:

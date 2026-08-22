@@ -9,7 +9,7 @@ The requester creates this compact lane manifest:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "task_id": "<task_id>",
   "requester_session_id": "<real id>",
   "requester_address": "<Waypost address>",

@@ -219,7 +219,7 @@ export function failDelivery(label, result) {
 }
 
 function validateExistingManifest(manifest, options) {
-  if (manifest?.schema_version !== 1) fail("existing design lane manifest has an unsupported schema");
+  if (manifest?.schema_version !== 2) fail("existing design lane manifest must use schema 2");
   for (const [field, expected] of [
     ["task_id", options.taskId],
     ["requester_session_id", options.requesterSessionId],
@@ -250,7 +250,7 @@ function validateExistingManifest(manifest, options) {
 
 function initialManifest(options) {
   return {
-    schema_version: 1,
+    schema_version: 2,
     task_id: options.taskId,
     requester_session_id: options.requesterSessionId,
     requester_address: options.fromAddress,

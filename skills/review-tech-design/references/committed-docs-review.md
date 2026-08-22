@@ -5,7 +5,7 @@ selector-summary: Review committed design documents at an exact recorded commit.
 
 # Committed-Docs Review
 
-Require base branch, design branch, exact reviewed commit, explicit docs in scope, complete user context, and Max Review Rounds. Inspect the named documents at the stated commit; never silently review a moving worktree snapshot.
+Require base branch, design branch, exact reviewed commit, explicit docs in scope, complete user context, and Review Checkpoint. Inspect the named documents at the stated commit; never silently review a moving worktree snapshot.
 
 For round 1, independently inspect repository evidence needed to judge the committed specifications.
 

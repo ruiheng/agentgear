@@ -143,7 +143,7 @@ test("initial dispatch writes one stable manifest and notifies reviewer before a
       "design_spec_draft_requested"
     ]);
     const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
-    assert.equal(manifest.schema_version, 1);
+    assert.equal(manifest.schema_version, 2);
     assert.equal(manifest.pruner_policy, "auto");
     assert.equal(manifest.context_file, ".agent-artifacts/message/task.md");
     assert.equal(manifest.review_checkpoint, 5);
@@ -195,6 +195,43 @@ test("setup retry preserves manifest bytes and repeats idempotent notifications"
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }
+});
+
+test("schema-1 lanes are rejected as an explicit hard cut", async () => {
+  const item = fixture();
+  try {
+    await createLane(item);
+    const legacy = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
+    legacy.schema_version = 1;
+    legacy.max_review_rounds = legacy.review_checkpoint;
+    delete legacy.review_checkpoint;
+    delete legacy.review_checkpoint_interval;
+    fs.writeFileSync(item.manifestFile, `${JSON.stringify(legacy)}\n`);
+
+    await assert.rejects(dispatchDraft(item.args, {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }), /must use schema 2/);
+    writeArtifact(item, 1, "# Design\n");
+    await assert.rejects(dispatchReview(reviewArgs(item), {
+      requireCommand() {}, loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), /must use schema 2/);
+    await assert.rejects(advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--expected-current-checkpoint", "5"
+    ]), /must use schema 2/);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("reviewer protocol consumes review checkpoints instead of review maxima", () => {
+  const references = ["routes.md", "review-contract.md", "committed-docs-review.md", "message-delivery.md"]
+    .map(name => fs.readFileSync(new URL(`../skills/review-tech-design/references/${name}`, import.meta.url), "utf8"))
+    .join("\n");
+  assert.doesNotMatch(references, /Max Review Rounds|max_review_rounds/);
+  assert.match(references, /Review Checkpoint/);
+  assert.match(references, /schema-2 lane manifest/);
 });
 
 test("partial notification failure leaves the lane manifest for retry", async () => {
