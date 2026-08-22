@@ -13,6 +13,9 @@ selector-summary: Apply the canonical authority, independence, decision, and rou
 - Remain review-only. Do not edit a review target or reviewer-external state.
 - For draft-review, write reviewer state only under `.agent-artifacts/design-review/<reviewer_session_id>/<task_id>/`; the author must not write it.
 - Require a readable, self-contained target. A complete current target remains mandatory even when later-round review starts from a diff.
+- Require a coder-facing specification of the current intended change, not a
+  record of drafting, review, questions, or exploration. Require accepted
+  requirements and design decisions only where relevant to implementation.
 - Reuse a prior conclusion only when the Canonical Contract and retained User Decisions are unchanged. New authority requires a new review frame; unchanged repository facts may still be reused.
 
 ## Independent Review Frame

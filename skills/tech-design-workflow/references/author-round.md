@@ -20,6 +20,17 @@ ordinary diff while rechecking affected evidence. Write the smallest complete,
 implementation-ready design at
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`.
 
+Write for a coder who did not observe the workflow. Describe the current
+intended change and only the decisions, boundaries, and consequences material
+to safe implementation. Include rationale only for non-obvious choices.
+
+The artifact is a specification, not drafting history. Omit review dialogue,
+question-and-answer transcripts, exploration notes, workflow metadata, and
+discarded ideas. Apply accepted requirements and design decisions where
+relevant; discard process details with no implementation value. Ask the user
+about an implementation-blocking choice; do not copy the discussion into the
+specification.
+
 Resolve technical questions from evidence. If a product or scope choice blocks
 drafting, ask the user directly. Append the exact question and answer as a User
 Decision Delta and increment Context Revision before resuming. A dispatched

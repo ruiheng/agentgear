@@ -19,8 +19,13 @@ On `design_spec_delivered`:
 3. Retrieve `agentgear skill get assess-tech-design` and actively assess the
    artifact against the original request, current Canonical Contract, accepted
    user decisions expressed in the design, and repository evidence. Author and
-   reviewer agreement is not a substitute. Return every substantive concern,
-   including over-design, to the author for another reviewed round.
+   reviewer agreement is not a substitute. Require a coder-facing specification
+   of the current intended change. Keep relevant requirements and decisions;
+   reject drafting history, review dialogue, and process details with no
+   implementation value.
+   Return every substantive concern, including over-design or process material
+   that obscures the implementable design, to the author for another reviewed
+   round.
 4. Reuse an existing committed formal doc only when it already represents the
    assessed design and exact caveats. Otherwise require the manifest archive
    branch as current, a clean index, and no merge/rebase/conflict state.
