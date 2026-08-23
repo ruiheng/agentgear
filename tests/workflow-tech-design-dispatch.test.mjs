@@ -6,12 +6,15 @@ import test from "node:test";
 
 import {
   DEFAULT_SEND_TIMEOUT_MS,
+  DELIVERY_STATE_TIMEOUT_MS,
+  NUDGE_MESSAGE,
   expectedArtifactPath,
   main as dispatchDraft,
   readContract,
   sendOutputFrom,
   sendWaypost
 } from "../skills/tech-design-workflow/scripts/send-design-draft-with-review-context.mjs";
+import { AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS } from "../providers/session-hosts.mjs";
 import {
   main as dispatchReview,
   measureDesign
@@ -68,7 +71,7 @@ function successfulWaypost(records, hook) {
       stdout: JSON.stringify({
         delivery_id: `delivery-${sequence}`,
         message_id: `message-${sequence}`,
-        notify_status: "notified",
+        notify_status: "sent",
         notify_scheme: "test"
       }),
       stderr: "",
@@ -87,6 +90,64 @@ function writeArtifact(item, round, source) {
   return { relative, artifact };
 }
 
+function waypostReadState(state, records = []) {
+  return (command, args, options) => {
+    records.push({ command, args, options });
+    const deliveryId = args[2];
+    return {
+      status: 0,
+      stdout: JSON.stringify({ items: [{ delivery_id: deliveryId, state }] }),
+      stderr: "",
+      error: null,
+      signal: null,
+      timedOut: false
+    };
+  };
+}
+
+function successfulNudge(records) {
+  return (command, args, options) => {
+    records.push({ command, args, options });
+    return { status: 0, stdout: "", stderr: "", error: null, signal: null, timedOut: false };
+  };
+}
+
+function waypostWithFailedPrunerNudge(records) {
+  let sequence = 0;
+  return (command, args, options) => {
+    sequence += 1;
+    const action = actionFrom(options.input);
+    records.push({ command, args, action });
+    const pruner = action.startsWith("design_prune_");
+    return {
+      status: 0,
+      stdout: JSON.stringify({
+        delivery_id: `delivery-${sequence}`,
+        notify_status: pruner ? "failed" : "sent",
+        ...(pruner ? { notify_error: "simulated pruner nudge failure" } : {})
+      }),
+      stderr: "",
+      error: null,
+      signal: null,
+      timedOut: false
+    };
+  };
+}
+
+function failedNudge(records) {
+  return (command, args, options) => {
+    records.push({ command, args, options });
+    return {
+      status: 1,
+      stdout: "",
+      stderr: "simulated direct nudge failure",
+      error: null,
+      signal: null,
+      timedOut: false
+    };
+  };
+}
+
 function reviewArgs(item, round = 1) {
   return [
     "--workdir", item.workdir,
@@ -100,7 +161,7 @@ function reviewArgs(item, round = 1) {
 }
 
 async function createLane(item, records = []) {
-  await captureStdout(() => dispatchDraft(item.args, {
+  return captureStdout(() => dispatchDraft(item.args, {
     requireCommand() {},
     runWaypost: successfulWaypost(records)
   }));
@@ -181,7 +242,34 @@ test("always policy records and initializes one pruner", async () => {
   }
 });
 
-test("setup retry preserves manifest bytes and repeats idempotent notifications", async () => {
+test("initial text output reports an enabled pruner nudge failure", async () => {
+  const item = fixture();
+  const sends = [];
+  const nudges = [];
+  try {
+    const stdout = await captureStdout(() => dispatchDraft([
+      ...item.args.filter(argument => argument !== "--json"),
+      "--pruner-policy", "always",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      requireCommand() {},
+      runWaypost: waypostWithFailedPrunerNudge(sends),
+      runWaypostRead: waypostReadState("queued"),
+      runNudge: failedNudge(nudges)
+    }));
+    assert.deepEqual(sends.map(record => record.action), [
+      "design_spec_review_context", "design_prune_context", "design_spec_draft_requested"
+    ]);
+    assert.equal(nudges.length, 1);
+    assert.match(stdout, /pruner_context_delivery_id=delivery-2/);
+    assert.match(stdout, /pruner_context_notify_status=failed/);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("setup rerun preserves manifest bytes and starts a new dispatch", async () => {
   const item = fixture();
   try {
     await createLane(item);
@@ -260,7 +348,7 @@ test("draft reviewer decisions return to the author-owned Canonical Contract", (
   assert.match(correction, /The requester reports the failure and\s+does not edit the Contract/);
 });
 
-test("partial notification failure leaves the lane manifest for retry", async () => {
+test("partial durable failure leaves the stable lane manifest", async () => {
   const item = fixture();
   try {
     await assert.rejects(
@@ -278,6 +366,239 @@ test("partial notification failure leaves the lane manifest for retry", async ()
     const before = fs.readFileSync(item.manifestFile, "utf8");
     await createLane(item);
     assert.equal(fs.readFileSync(item.manifestFile, "utf8"), before);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("initial dispatch retries failed nudges inside the same invocation", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    const notifyFailed = (command, args, options) => {
+      records.push({ command, args, body: options.input });
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          delivery_id: `delivery-${records.length}`,
+          notify_status: "failed",
+          notify_scheme: "test",
+          notify_error: "simulated nudge failure"
+        }),
+        stderr: "",
+        error: null,
+        signal: null,
+        timedOut: false
+      };
+    };
+    const reads = [];
+    const nudges = [];
+    const result = JSON.parse(await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {},
+      runWaypost: notifyFailed,
+      runWaypostRead: waypostReadState("queued", reads),
+      runNudge: successfulNudge(nudges)
+    })));
+    assert.deepEqual(records.map(record => actionFrom(record.body)), [
+      "design_spec_review_context", "design_spec_draft_requested"
+    ]);
+    assert.equal(reads.length, 2);
+    assert.equal(nudges.length, 2);
+    assert.deepEqual(nudges.map(item => item.command), ["agent-deck", "agent-deck"]);
+    assert.deepEqual(nudges.map(item => item.options.timeoutMs), [
+      AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS,
+      AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS
+    ]);
+    assert.deepEqual(reads.map(item => item.options.timeoutMs), [
+      DELIVERY_STATE_TIMEOUT_MS,
+      DELIVERY_STATE_TIMEOUT_MS
+    ]);
+    assert.deepEqual(reads.map(item => item.args[2]), ["delivery-1", "delivery-2"]);
+    assert.deepEqual(nudges.map(item => item.args.at(-2)), ["reviewer-1", "author-1"]);
+    assert.deepEqual(nudges.map(item => item.args.at(-1)), [NUDGE_MESSAGE, NUDGE_MESSAGE]);
+    assert.equal(result.reviewer_context_notify_status, "sent");
+    assert.equal(result.reviewer_context_notify_error, null);
+    assert.equal(result.reviewer_context_nudge_retry_count, 1);
+    assert.equal(result.author_draft_nudge_retry_count, 1);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("initial dispatch replays target_queued notifications that never attempted a nudge", async () => {
+  const item = fixture();
+  const nudges = [];
+  try {
+    const result = JSON.parse(await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {},
+      runWaypost(command, args, options) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            delivery_id: options.input.includes("design_spec_review_context") ? "reviewer-delivery" : "author-delivery",
+            notify_status: "target_queued"
+          }),
+          stderr: "",
+          error: null,
+          signal: null,
+          timedOut: false
+        };
+      },
+      runWaypostRead: waypostReadState("queued"),
+      runNudge: successfulNudge(nudges)
+    })));
+    assert.equal(nudges.length, 2);
+    assert.equal(result.reviewer_context_notify_status, "sent");
+    assert.equal(result.reviewer_context_nudge_retry_count, 1);
+    assert.equal(result.author_draft_nudge_retry_count, 1);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("initial dispatch does not replay notification outcomes that need no wake", async () => {
+  for (const notifyStatus of ["skipped_local", "skipped_disabled", "skipped_already_claimed"]) {
+    const item = fixture();
+    const nudges = [];
+    try {
+      const result = JSON.parse(await captureStdout(() => dispatchDraft(item.args, {
+        requireCommand() {},
+        runWaypost(command, args, options) {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              delivery_id: options.input.includes("design_spec_review_context") ? "reviewer-delivery" : "author-delivery",
+              notify_status: notifyStatus
+            }),
+            stderr: "",
+            error: null,
+            signal: null,
+            timedOut: false
+          };
+        },
+        runWaypostRead() {
+          throw new Error(`delivery state must not be read for ${notifyStatus}`);
+        },
+        runNudge: successfulNudge(nudges)
+      })));
+      assert.deepEqual(nudges, []);
+      assert.equal(result.reviewer_context_notify_status, notifyStatus);
+      assert.equal(result.reviewer_context_nudge_retry_count, 0);
+      assert.equal(result.author_draft_notify_status, notifyStatus);
+    } finally {
+      fs.rmSync(item.workdir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("initial dispatch skips retry nudge when the delivery is already leased", async () => {
+  const item = fixture();
+  try {
+    const failedNotify = [];
+    const nudges = [];
+    const result = JSON.parse(await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {},
+      runWaypost(command, args, options) {
+        failedNotify.push(options.input);
+        return {
+          status: 0,
+          stdout: JSON.stringify({ delivery_id: `delivery-${failedNotify.length}`, notify_status: "failed" }),
+          stderr: "",
+          error: null,
+          signal: null,
+          timedOut: false
+        };
+      },
+      runWaypostRead: waypostReadState("leased"),
+      runNudge: successfulNudge(nudges)
+    })));
+    assert.deepEqual(nudges, []);
+    assert.equal(result.reviewer_context_notify_status, "skipped_already_claimed");
+    assert.equal(result.reviewer_context_nudge_retry_count, 0);
+    assert.equal(result.author_draft_notify_status, "skipped_already_claimed");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("initial dispatch replays a nudge when delivery state cannot be read", async () => {
+  const item = fixture();
+  const nudges = [];
+  try {
+    const result = JSON.parse(await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {},
+      runWaypost(command, args, options) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            delivery_id: options.input.includes("design_spec_review_context") ? "reviewer-delivery" : "author-delivery",
+            notify_status: "unknown"
+          }),
+          stderr: "",
+          error: null,
+          signal: null,
+          timedOut: false
+        };
+      },
+      runWaypostRead(command, args, options) {
+        assert.equal(options.timeoutMs, DELIVERY_STATE_TIMEOUT_MS);
+        return {
+          status: 1,
+          stdout: "",
+          stderr: "state unavailable",
+          error: null,
+          signal: null,
+          timedOut: false
+        };
+      },
+      runNudge: successfulNudge(nudges)
+    })));
+    assert.equal(nudges.length, 2);
+    assert.equal(result.reviewer_context_nudge_delivery_state, "unknown");
+    assert.equal(result.reviewer_context_nudge_retry_count, 1);
+    assert.equal(result.author_draft_nudge_retry_count, 1);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("direct nudge timeout and signal are reported as failed attempts", async () => {
+  const item = fixture();
+  let attempts = 0;
+  try {
+    const result = JSON.parse(await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {},
+      runWaypost(command, args, options) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            delivery_id: options.input.includes("design_spec_review_context") ? "reviewer-delivery" : "author-delivery",
+            notify_status: "failed"
+          }),
+          stderr: "",
+          error: null,
+          signal: null,
+          timedOut: false
+        };
+      },
+      runWaypostRead: waypostReadState("queued"),
+      runNudge(command, args, options) {
+        assert.equal(options.timeoutMs, AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS);
+        attempts += 1;
+        return attempts === 1
+          ? { status: 1, stdout: "", stderr: "", error: null, signal: "SIGTERM", timedOut: true }
+          : { status: 0, stdout: "", stderr: "", error: null, signal: "SIGTERM", timedOut: false };
+      }
+    })));
+    assert.equal(result.reviewer_context_notify_status, "failed");
+    assert.equal(
+      result.reviewer_context_notify_error,
+      `nudge timed out after ${AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS}ms`
+    );
+    assert.equal(result.author_draft_notify_status, "failed");
+    assert.equal(result.author_draft_notify_error, "nudge terminated by SIGTERM");
+    assert.equal(result.reviewer_context_nudge_retry_count, 1);
+    assert.equal(result.author_draft_nudge_retry_count, 1);
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }
@@ -387,10 +708,20 @@ test("below-threshold review dispatch sends only reviewer and never changes mani
     assert.deepEqual(records.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
     assert.equal(fs.readFileSync(item.manifestFile, "utf8"), before);
     assert.doesNotMatch(records[0].body, /SHA|Epoch|Gate/);
-    assert.deepEqual(JSON.parse(stdout), {
+    const summary = JSON.parse(stdout);
+    assert.deepEqual({
+      status: summary.status,
+      artifact: summary.artifact,
+      round: summary.round,
+      lines: summary.lines,
+      chars: summary.chars,
+      pruner_requested: summary.pruner_requested
+    }, {
       status: "sent", artifact: expectedArtifactPath("author-1", 1), round: 1,
       lines: 2, chars: 23, pruner_requested: false
     });
+    assert.equal(summary.reviewer_delivery_id, "delivery-1");
+    assert.equal(summary.reviewer_notify_status, "sent");
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }
@@ -431,6 +762,46 @@ test("auto policy blocks before sending until an oversized design has a lazy pru
   }
 });
 
+test("review dispatch retries a failed nudge inside the same invocation", async () => {
+  const item = fixture();
+  try {
+    await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }));
+    writeArtifact(item, 1, "# Design\n");
+    const sends = [];
+    const nudges = [];
+    const result = JSON.parse(await captureStdout(() => dispatchReview(reviewArgs(item), {
+      requireCommand() {},
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 }),
+      runWaypost(command, args, options) {
+        sends.push({ command, args, body: options.input });
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            delivery_id: "review-delivery-1",
+            notify_status: "failed",
+            notify_error: "reviewer nudge failed"
+          }),
+          stderr: "",
+          error: null,
+          signal: null,
+          timedOut: false
+        };
+      },
+      runWaypostRead: waypostReadState("queued"),
+      runNudge: successfulNudge(nudges)
+    })));
+    assert.deepEqual(sends.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
+    assert.equal(nudges.length, 1);
+    assert.equal(result.reviewer_delivery_id, "review-delivery-1");
+    assert.equal(result.reviewer_notify_status, "sent");
+    assert.equal(result.reviewer_nudge_retry_count, 1);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
 test("always and never policies deterministically override the threshold", async () => {
   for (const policy of ["always", "never"]) {
     const item = fixture();
@@ -454,6 +825,42 @@ test("always and never policies deterministically override the threshold", async
     } finally {
       fs.rmSync(item.workdir, { recursive: true, force: true });
     }
+  }
+});
+
+test("review text output reports an enabled pruner nudge failure", async () => {
+  const item = fixture();
+  const sends = [];
+  const nudges = [];
+  try {
+    await captureStdout(() => dispatchDraft([
+      ...item.args,
+      "--pruner-policy", "always",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      requireCommand() {},
+      runWaypost: successfulWaypost([])
+    }));
+    writeArtifact(item, 1, "# Design\n");
+    const stdout = await captureStdout(() => dispatchReview(
+      reviewArgs(item).filter(argument => argument !== "--json"),
+      {
+        requireCommand() {},
+        loadPolicy: () => ({ maxLines: 250, maxChars: 20000 }),
+        runWaypost: waypostWithFailedPrunerNudge(sends),
+        runWaypostRead: waypostReadState("queued"),
+        runNudge: failedNudge(nudges)
+      }
+    ));
+    assert.deepEqual(sends.map(record => record.action), [
+      "design_spec_review_requested", "design_prune_requested"
+    ]);
+    assert.equal(nudges.length, 1);
+    assert.match(stdout, /pruner_delivery_id=delivery-2/);
+    assert.match(stdout, /pruner_notify_status=failed/);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
   }
 });
 

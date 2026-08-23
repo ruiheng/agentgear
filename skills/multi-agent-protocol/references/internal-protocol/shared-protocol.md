@@ -107,9 +107,13 @@ is unresolved.
 - `waypost_send` completes delivery; replies are later inbound work.
 - After sending, continue independent work; do not poll for the reply.
 - Keep target execution receiver-owned. A failed or unverified wake does not
-  reverse durable delivery and may be a false negative. Do not resend, press
-  Enter, restart, inspect, or repair the target unless the user explicitly
-  authorizes troubleshooting that specific session.
+  reverse durable delivery and may be a false negative. A workflow whose fixed,
+  non-assertive wake notice is explicitly replayable may replay it once in the
+  same wrapper invocation; it may skip the replay for a just-created delivery
+  already leased or acknowledged, but a failed state check does not block the
+  replay. Never resend the Waypost message or replay from a later wrapper run.
+  Otherwise do not press Enter, restart, inspect, or repair the target unless
+  the user explicitly authorizes troubleshooting that specific session.
 
 ## Receiver Contract
 

@@ -75,10 +75,13 @@ lane or review state.
 then rerun with `--pruner-session-id` and `--pruner-to-address`. The request gives
 the lazy pruner the manifest, contract revision, and exact artifact it needs.
 
-Receipts are transport diagnostics. After an unclear send, inspect the durable
-Waypost result before deciding whether to repeat the same request. Reviewers use
-the authenticated message, exact artifact path, Round, and retained context to
-recognize stale or duplicate work.
+Receipts and nudge outcomes are transport diagnostics. Within one invocation, a
+returned delivery id is final durable success and never causes another Waypost
+send. If its nudge failed or is unknown, the dispatcher checks that delivery and
+sends only the fixed session-host wake notice unless it is already leased or
+acknowledged. Failure to read delivery state does not block that one replay. Do
+not rerun the dispatcher to repair a nudge. After an unclear durable send,
+inspect Waypost before retrying.
 
 ## Reports and Delivery
 

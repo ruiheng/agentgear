@@ -60,6 +60,10 @@ Policy `always` also supplies `--pruner-session-id` and `--pruner-to-address`;
 the other policies omit them.
 
 Run with host permission. The wrapper writes the manifest, then sends reviewer
-and enabled-pruner context before notifying the author. It is safe to rerun
-after partial failure or lost output. Report success on `sent`, then follow the
-Async sender rule.
+and enabled-pruner context before notifying the author. Within that invocation,
+a returned delivery id is final durable success and never causes another Waypost
+send. If its nudge failed or is unknown, the wrapper checks that delivery and
+sends only the fixed session-host wake notice unless it is already leased or
+acknowledged. Failure to read delivery state does not block that one replay. Do
+not rerun the wrapper to repair a nudge.
+Report delivery ids and nudge outcomes, then follow the Async sender rule.

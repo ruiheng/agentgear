@@ -88,8 +88,11 @@ ids in task context and include every predecessor and replacement as a closeout
 target under its exact cleanup role. Never append a suffix after `<task_id>`:
 task ids are prefix-ambiguous, so suffix matching cannot safely prove ownership.
 
-When a durable send succeeds but its wake is failed or unverified, report the
-wake result and stop. The host may have submitted the hint despite a false
-negative. Do not resend, press Enter, restart, inspect, or otherwise repair the
-target session unless the user explicitly authorizes troubleshooting that
-specific session.
+When a durable send succeeds but its wake is failed or unverified, normally
+report the wake result and stop. A workflow whose fixed, non-assertive wake
+notice is explicitly replayable may make one replay during that same wrapper
+invocation. It may inspect the just-created delivery to avoid the replay when it
+is already leased or acknowledged, but an unavailable state check does not
+block the replay. This exception never permits another Waypost send, a later
+wrapper rerun, pressing Enter, restarting, or otherwise repairing the target
+session.

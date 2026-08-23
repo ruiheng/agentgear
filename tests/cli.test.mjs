@@ -13,6 +13,11 @@ import { parseOptions } from "../cli/lib/options.mjs";
 import { createInstallTransaction, directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
 import {
+  AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS,
+  sessionNudgeSpec,
+  THURBOX_NUDGE_PROCESS_TIMEOUT_MS
+} from "../providers/session-hosts.mjs";
+import {
   legacyAgyPathIdentity,
   validateLegacyAgyDiscovery
 } from "../providers/legacy-agy-skill-discovery.mjs";
@@ -24,6 +29,28 @@ import {
 } from "../cli/lib/upstreams.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+test("session nudge provider maps the common wake request to each host CLI", () => {
+  assert.equal(AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS, 15000);
+  assert.equal(THURBOX_NUDGE_PROCESS_TIMEOUT_MS, 5000);
+  assert.deepEqual(sessionNudgeSpec({
+    host: "agent-deck", sessionId: "reviewer-1", message: "wake"
+  }), {
+    command: "agent-deck",
+    timeoutMs: AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS,
+    args: [
+      "session", "send", "-defer-if-busy", "-defer-timeout", "5s",
+      "-timeout", "5s", "reviewer-1", "wake"
+    ]
+  });
+  assert.deepEqual(sessionNudgeSpec({
+    host: "thurbox", sessionId: "reviewer-1", message: "wake"
+  }), {
+    command: "thurbox-cli",
+    timeoutMs: THURBOX_NUDGE_PROCESS_TIMEOUT_MS,
+    args: ["session", "send", "reviewer-1", "wake"]
+  });
+});
 
 test("agentgear run explains signal and nonzero child exits", () => {
   assert.deepEqual(childProcessOutcome({ status: null, signal: "SIGTERM" }, "workflow/send.mjs"), {

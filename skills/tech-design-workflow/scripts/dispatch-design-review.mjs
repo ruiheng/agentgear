@@ -18,10 +18,10 @@ import {
 } from "./action-producers.mjs";
 import {
   expectedArtifactPath,
-  failDelivery,
   readContract,
   requireSymlinkFreeContainedPath,
-  sendWaypost
+  sendWaypostWithNudgeRetry,
+  stageSummary
 } from "./send-design-draft-with-review-context.mjs";
 import { loadWorkflowPolicy } from "./workflow-policy.mjs";
 
@@ -230,20 +230,34 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     schemaVersion: options.schemaVersion,
     sendTimeoutMs: options.sendTimeoutMs
   };
-  const send = (sender, address, subject, body, label) => {
-    const result = sendWaypost(sender, sendOptions, address, subject, body, dependencies.runWaypost);
-    if (result.status !== "sent") failDelivery(label, result);
+  const send = (sender, sessionId, address, subject, body, label) => {
+    return sendWaypostWithNudgeRetry({
+      label,
+      sessionHost: manifest.session_host,
+      sessionId,
+      sender,
+      sendOptions,
+      toAddress: address,
+      subject,
+      message: body,
+      runCommand: dependencies.runWaypost,
+      readDeliveryCommand: dependencies.runWaypostRead,
+      runNudgeCommand: dependencies.runNudge
+    });
   };
-  send(
+  const reviewer = send(
     sendDesignSpecReviewRequestedMessage,
+    manifest.reviewer_session_id,
     manifest.reviewer_to_address,
     `design-spec review: ${manifest.task_id} r${options.round}`,
     reviewMessage(designSpecReviewRequestedMessage, manifest, options),
     "design review"
   );
+  let prunerResult = null;
   if (pruner) {
-    send(
+    prunerResult = send(
       sendDesignPruneRequestedMessage,
+      pruner.sessionId,
       pruner.address,
       `design prune: ${manifest.task_id} r${options.round}`,
       reviewMessage(designPruneRequestedMessage, manifest, options),
@@ -256,9 +270,16 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     round: options.round,
     lines: metrics.lines,
     chars: metrics.chars,
-    pruner_requested: Boolean(pruner)
+    pruner_requested: Boolean(pruner),
+    ...stageSummary("reviewer", reviewer),
+    ...stageSummary("pruner", prunerResult)
   };
-  process.stdout.write(options.json ? `${JSON.stringify(summary)}\n` : `Design review dispatched: ${manifest.task_id} r${options.round}\n`);
+  const prunerText = prunerResult
+    ? ` pruner_delivery_id=${prunerResult.receipt.delivery_id} pruner_notify_status=${prunerResult.notification.status}`
+    : "";
+  process.stdout.write(options.json
+    ? `${JSON.stringify(summary)}\n`
+    : `Design review dispatched: ${manifest.task_id} r${options.round} reviewer_delivery_id=${reviewer.receipt.delivery_id} reviewer_notify_status=${reviewer.notification.status}${prunerText}\n`);
 }
 
 if (isMain(import.meta.url)) execute(main);
