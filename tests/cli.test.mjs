@@ -13,6 +13,10 @@ import { parseOptions } from "../cli/lib/options.mjs";
 import { createInstallTransaction, directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
 import {
+  legacyAgyPathIdentity,
+  validateLegacyAgyDiscovery
+} from "../providers/legacy-agy-skill-discovery.mjs";
+import {
   provisionUpstreamSkill as provisionPinnedUpstreamSkill,
   retrieveUpstreamSkill,
   retrievedSkillMaterializationRoot,
@@ -438,6 +442,218 @@ test("default installation reaches every default target with the approved entry 
   }
 });
 
+test("legacy Agy target metadata migrates instead of invalidating installation state", () => {
+  const fixture = environmentFixture();
+  try {
+    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
+    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
+    const state = readState(fixture);
+    state.targets[geminiRoot].agyDiscovery = {
+      schemaVersion: 1,
+      entryCreated: true,
+      fileCreated: true,
+      baselineIncludeOnly: null,
+      claims: ["handoff"]
+    };
+    craftState(fixture, state);
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, `${JSON.stringify({
+      entries: [{ path: "~/.gemini/skills", include_only: ["^handoff$"] }]
+    }, null, 2)}\n`);
+
+    const result = spawnAgentgearLink(
+      ["--skill", "handoff", "--target", "gemini"],
+      fixture,
+      fixture.environment
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Migrated legacy Agy discovery state/);
+    assert.equal(fs.existsSync(configPath), false);
+    const migrated = readState(fixture).targets[geminiRoot];
+    assert.equal(migrated.agyDiscovery, undefined);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("user-modified legacy Agy config is preserved without blocking installation", () => {
+  const fixture = environmentFixture();
+  try {
+    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
+    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
+    const state = readState(fixture);
+    state.targets[geminiRoot].agyDiscovery = {
+      schemaVersion: 1,
+      entryCreated: true,
+      fileCreated: true,
+      baselineIncludeOnly: null,
+      claims: ["handoff"]
+    };
+    craftState(fixture, state);
+    const changedConfig = {
+      entries: [{
+        path: "~/.gemini/skills",
+        include_only: ["user-change"]
+      }]
+    };
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, `${JSON.stringify(changedConfig, null, 2)}\n`);
+
+    const result = spawnAgentgearLink(
+      ["--skill", "handoff", "--target", "gemini"],
+      fixture,
+      fixture.environment
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /migration will retry/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), changedConfig);
+    assert.deepEqual(readState(fixture).targets[geminiRoot].agyDiscovery, {
+      schemaVersion: 1,
+      entryCreated: true,
+      fileCreated: true,
+      baselineIncludeOnly: null,
+      claims: ["handoff"]
+    });
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("user-modified legacy Agy config does not block uninstall", () => {
+  const fixture = environmentFixture();
+  try {
+    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
+    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
+    const state = readState(fixture);
+    state.targets[geminiRoot].agyDiscovery = {
+      schemaVersion: 1,
+      entryCreated: true,
+      fileCreated: true,
+      baselineIncludeOnly: null,
+      claims: []
+    };
+    craftState(fixture, state);
+    const changedConfig = {
+      entries: [{
+        path: "~/.gemini/skills",
+        include_only: ["user-change"]
+      }]
+    };
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, `${JSON.stringify(changedConfig, null, 2)}\n`);
+
+    const result = spawnAgentgear(
+      ["uninstall", "--skill", "handoff", "--target", "gemini"],
+      fixture,
+      fixture.environment
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /retired stale ownership after managed skills changed/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), changedConfig);
+    assert.equal(readState(fixture).targets[geminiRoot], undefined);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("unreadable legacy Agy config is preserved without blocking installation", () => {
+  const fixture = environmentFixture();
+  const originalReadFile = fs.readFileSync;
+  try {
+    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
+    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
+    const state = readState(fixture);
+    state.targets[geminiRoot].agyDiscovery = {
+      schemaVersion: 1,
+      entryCreated: true,
+      fileCreated: true,
+      baselineIncludeOnly: null,
+      claims: ["handoff"]
+    };
+    craftState(fixture, state);
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, `${JSON.stringify({
+      entries: [{ path: "~/.gemini/skills", include_only: ["^handoff$"] }]
+    }, null, 2)}\n`);
+    fs.readFileSync = (filePath, ...argumentsList) => {
+      if (path.resolve(String(filePath)) === configPath) {
+        const error = new Error("permission denied");
+        error.code = "EACCES";
+        throw error;
+      }
+      return originalReadFile(filePath, ...argumentsList);
+    };
+
+    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+
+    fs.readFileSync = originalReadFile;
+    assert.equal(fs.existsSync(configPath), true);
+    assert.equal(Boolean(readState(fixture).targets[geminiRoot].agyDiscovery), true);
+  } finally {
+    fs.readFileSync = originalReadFile;
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("legacy Agy target identity folds Windows path casing", () => {
+  const context = { home: "C:\\Users\\Example", platform: "win32" };
+  assert.equal(
+    legacyAgyPathIdentity("c:\\users\\example\\.GEMINI\\SKILLS", context),
+    legacyAgyPathIdentity("C:\\Users\\Example\\.gemini\\skills", context)
+  );
+  assert.deepEqual(validateLegacyAgyDiscovery({
+    targetPath: "c:\\users\\example\\.GEMINI\\SKILLS",
+    targetRecord: {
+      skills: { handoff: {} },
+      agyDiscovery: {
+        schemaVersion: 1,
+        entryCreated: true,
+        fileCreated: true,
+        baselineIncludeOnly: null,
+        claims: ["handoff"]
+      }
+    },
+    env: { HOME: "C:\\Users\\Example" },
+    platform: "win32"
+  }), { valid: true });
+});
+
+test("legacy Agy compatibility accepts only the exact historical ownership shape", () => {
+  const fixture = environmentFixture();
+  try {
+    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
+    const state = readState(fixture);
+    state.targets[geminiRoot].agyDiscovery = {
+      schemaVersion: 1,
+      entryCreated: true,
+      fileCreated: true,
+      baselineIncludeOnly: null,
+      claims: ["handoff"],
+      unexpected: true
+    };
+    craftState(fixture, state);
+
+    const result = spawnAgentgearLink(
+      ["--skill", "handoff", "--target", "gemini"],
+      fixture,
+      fixture.environment
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /invalid legacy Agy discovery ownership/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("an explicit skill does not add the default all pack", () => {
   const catalog = loadCatalog(rootDir);
   const selection = selected(catalog, parseOptions(["--skill", "handoff"]));
@@ -465,6 +681,26 @@ test("transactional file transform preserves a concurrently created destination"
       .find(name => name.includes("shared.json.agentgear-backup"));
     assert.ok(backup);
     assert.equal(fs.readFileSync(path.join(fixture.temporary, backup), "utf8"), "original\n");
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("optional transactional file transform reports a restored failure", () => {
+  const fixture = environmentFixture();
+  try {
+    const filePath = path.join(fixture.temporary, "optional.json");
+    fs.writeFileSync(filePath, "original\n");
+    const transaction = createInstallTransaction();
+
+    const result = transaction.tryTransformFile(filePath, () => {
+      throw new Error("optional migration failed");
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error.message, /optional migration failed/);
+    assert.equal(fs.readFileSync(filePath, "utf8"), "original\n");
+    transaction.commit();
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -2158,6 +2394,10 @@ test("mutating commands reject malformed, legacy, and escaping state before any 
   const invalidStates = [
     { ...valid(), schemaVersion: 1 },
     { ...valid(), extraField: true },
+    {
+      ...valid(),
+      targets: { [targetRoot]: { ...valid().targets[targetRoot], futureMetadata: { version: 1 } } }
+    },
     { ...valid(), channel: "staging" },
     { ...valid(), releases: ["0.1.0-1786000000000-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/../evil"] },
     { ...valid(), releases: ["b", "a"] },

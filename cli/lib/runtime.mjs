@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { validateLegacyAgyDiscovery } from "../../providers/legacy-agy-skill-discovery.mjs";
 import { buildSkillContentIndex, validateSkillContentIndex } from "./skill-content.mjs";
 
 const RUNTIME_MARKER = ".agentgear-runtime.json";
@@ -321,6 +322,71 @@ export function createInstallTransaction() {
     }
   }
 
+  function transformFileAttempt(destination, transform, tolerateFailure) {
+    if (settled) throw new Error("Installation transaction is already settled");
+    const entry = {
+      destination,
+      backup: null,
+      hadOriginal: exists(destination),
+      moved: false,
+      transformedFile: true,
+      writtenIdentity: null,
+      writtenContents: null,
+      writtenMode: null,
+      writeComplete: false
+    };
+    const entries = [entry];
+    try {
+      let original = { existed: false, contents: null, mode: null };
+      if (entry.hadOriginal) {
+        entry.backup = transactionBackupPath(destination);
+        fs.renameSync(destination, entry.backup);
+        entry.moved = true;
+        const info = fs.lstatSync(entry.backup);
+        if (!info.isFile() || info.isSymbolicLink()) {
+          throw new Error(`Refusing unsafe transactional file path: ${destination}`);
+        }
+        original = {
+          existed: true,
+          contents: fs.readFileSync(entry.backup),
+          mode: info.mode & 0o777
+        };
+      }
+
+      const transformed = transform(original);
+      if (!transformed || !Object.hasOwn(transformed, "contents")) {
+        throw new Error("File transform must return an object with contents");
+      }
+      if (transformed.contents !== null) {
+        const contents = Buffer.isBuffer(transformed.contents)
+          ? transformed.contents
+          : Buffer.from(String(transformed.contents));
+        fs.mkdirSync(path.dirname(destination), { recursive: true });
+        fs.writeFileSync(destination, contents, { flag: "wx" });
+        const writtenInfo = fs.lstatSync(destination);
+        entry.writtenIdentity = { dev: writtenInfo.dev, ino: writtenInfo.ino };
+        entry.writtenContents = contents;
+        const requestedMode = transformed.mode ?? original.mode;
+        if (requestedMode !== null) fs.chmodSync(destination, requestedMode);
+        entry.writtenMode = requestedMode === null
+          ? fs.lstatSync(destination).mode & 0o777
+          : requestedMode;
+        entry.writeComplete = true;
+      }
+      groups.push(entries);
+      return { ok: true, value: transformed.value };
+    } catch (error) {
+      try {
+        restoreTransactionEntries(entries);
+      } catch (restoreError) {
+        error.message += `; additionally failed to restore installation paths: ${restoreError.message}`;
+        throw error;
+      }
+      if (tolerateFailure) return { ok: false, error };
+      throw error;
+    }
+  }
+
   return {
     replace,
 
@@ -329,66 +395,11 @@ export function createInstallTransaction() {
     },
 
     transformFile(destination, transform) {
-      if (settled) throw new Error("Installation transaction is already settled");
-      const entry = {
-        destination,
-        backup: null,
-        hadOriginal: exists(destination),
-        moved: false,
-        transformedFile: true,
-        writtenIdentity: null,
-        writtenContents: null,
-        writtenMode: null,
-        writeComplete: false
-      };
-      const entries = [entry];
-      try {
-        let original = { existed: false, contents: null, mode: null };
-        if (entry.hadOriginal) {
-          entry.backup = transactionBackupPath(destination);
-          fs.renameSync(destination, entry.backup);
-          entry.moved = true;
-          const info = fs.lstatSync(entry.backup);
-          if (!info.isFile() || info.isSymbolicLink()) {
-            throw new Error(`Refusing unsafe transactional file path: ${destination}`);
-          }
-          original = {
-            existed: true,
-            contents: fs.readFileSync(entry.backup),
-            mode: info.mode & 0o777
-          };
-        }
+      return transformFileAttempt(destination, transform, false).value;
+    },
 
-        const transformed = transform(original);
-        if (!transformed || !Object.hasOwn(transformed, "contents")) {
-          throw new Error("File transform must return an object with contents");
-        }
-        if (transformed.contents !== null) {
-          const contents = Buffer.isBuffer(transformed.contents)
-            ? transformed.contents
-            : Buffer.from(String(transformed.contents));
-          fs.mkdirSync(path.dirname(destination), { recursive: true });
-          fs.writeFileSync(destination, contents, { flag: "wx" });
-          const writtenInfo = fs.lstatSync(destination);
-          entry.writtenIdentity = { dev: writtenInfo.dev, ino: writtenInfo.ino };
-          entry.writtenContents = contents;
-          const requestedMode = transformed.mode ?? original.mode;
-          if (requestedMode !== null) fs.chmodSync(destination, requestedMode);
-          entry.writtenMode = requestedMode === null
-            ? fs.lstatSync(destination).mode & 0o777
-            : requestedMode;
-          entry.writeComplete = true;
-        }
-        groups.push(entries);
-        return transformed.value;
-      } catch (error) {
-        try {
-          restoreTransactionEntries(entries);
-        } catch (restoreError) {
-          error.message += `; additionally failed to restore installation paths: ${restoreError.message}`;
-        }
-        throw error;
-      }
+    tryTransformFile(destination, transform) {
+      return transformFileAttempt(destination, transform, true);
     },
 
     rollback() {
@@ -662,8 +673,9 @@ function markerShapedReleaseChildren(paths) {
     .map(entry => entry.name);
 }
 
-// Strict schema-v2 state grammar. Every mutating command validates before any
-// filesystem mutation; `--force` is powerless at this gate.
+// Validate schema-v2 ownership fields before mutation. The one known legacy
+// target extension is accepted only in its exact historical shape so it can be
+// migrated; `--force` remains powerless against invalid ownership evidence.
 export function validateStateGrammar(state, env = process.env) {
   const invalid = reason => ({ valid: false, reason });
   if (state === null || state === undefined) return { valid: true };
@@ -707,10 +719,15 @@ export function validateStateGrammar(state, env = process.env) {
     if (!path.isAbsolute(targetPath) || path.resolve(targetPath) !== targetPath) {
       return invalid(`target path is not normalized absolute: ${targetPath}`);
     }
+    const targetKeys = isPlainObject(targetRecord) ? Object.keys(targetRecord) : [];
     if (!isPlainObject(targetRecord)
-      || Object.keys(targetRecord).length !== 1
-      || !isPlainObject(targetRecord.skills)) {
+      || !isPlainObject(targetRecord.skills)
+      || targetKeys.some(key => !["skills", "agyDiscovery"].includes(key))) {
       return invalid(`invalid target record for ${targetPath}`);
+    }
+    if (Object.hasOwn(targetRecord, "agyDiscovery")) {
+      const legacy = validateLegacyAgyDiscovery({ targetPath, targetRecord, env });
+      if (!legacy.valid) return invalid(legacy.reason);
     }
     const currentRoot = paths.currentPath;
     for (const [skill, record] of Object.entries(targetRecord.skills)) {
@@ -1410,7 +1427,7 @@ export function targetState(state, targetPath) {
 }
 
 export function updateTargetState(state, targetPath, value) {
-  if (Object.keys(value.skills).length === 0) {
+  if (Object.keys(value.skills).length === 0 && !value.agyDiscovery) {
     delete state.targets[targetPath];
   } else {
     state.targets[targetPath] = value;

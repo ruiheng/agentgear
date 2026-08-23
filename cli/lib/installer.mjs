@@ -41,6 +41,8 @@ import {
   validateStateGrammar,
   writeInstalledSkillMarker
 } from "./runtime.mjs";
+import { retireLegacyAgyDiscovery } from "../../providers/legacy-agy-skill-discovery.mjs";
+
 export const DEFAULT_TARGETS = ["general", "gemini", "agy", "claude"];
 
 const PERMISSION_MIGRATION_COMMANDS = new Set(["adwf-send-and-wake"]);
@@ -448,6 +450,7 @@ export function installSelection({
       }
     }
 
+    retireLegacyAgyDiscovery({ state: currentState, transaction, env, print });
     addReleaseToInventory(currentState, runtime.id);
     if (currentState.channel === null) currentState.channel = requestedChannel;
     if (mode === "shared") {

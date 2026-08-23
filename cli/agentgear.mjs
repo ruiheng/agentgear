@@ -51,6 +51,7 @@ import {
   resolveSkillAddress
 } from "./lib/skill-content.mjs";
 import { resolveAgentProfiles } from "../providers/agent-profiles.mjs";
+import { retireLegacyAgyDiscovery } from "../providers/legacy-agy-skill-discovery.mjs";
 import { migrateLegacySkills } from "./lib/legacy-skill-migration.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
@@ -202,6 +203,7 @@ function uninstall(catalog, options) {
       const record = targetState(state, target.root);
       updateTargetState(state, target.root, record);
     }
+    retireLegacyAgyDiscovery({ state, transaction, print });
     saveInstallState(state);
     transaction.commit();
   } catch (error) {
@@ -323,6 +325,7 @@ function purge(catalog, options) {
       const record = targetState(state, target.root);
       updateTargetState(state, target.root, record);
     }
+    retireLegacyAgyDiscovery({ state, transaction, print });
 
     if (Object.keys(state.targets).length > 0) {
       saveInstallState(state);

@@ -97,11 +97,11 @@ ownership of the internal `current` path.
 
 ## Compact State Contract
 
-Because the npm package has not been published, new state uses
-`schemaVersion: 2` and no migration machinery is added. Every present
-schema-v1 state is an incompatible legacy shape and is rejected before any
-other interpretation or mutation. A present state file is valid only when all
-of these rules hold:
+New state uses `schemaVersion: 2`. Every present schema-v1 state is an
+incompatible legacy shape and is rejected before any other interpretation or
+mutation. The retired `agyDiscovery` target extension is the only compatible
+legacy exception and has a one-time migration. A present state file is valid
+only when all of these rules hold:
 
 - The top-level value is a plain object with exactly `schemaVersion`,
   `channel`, `releases`, `targets`, and `commands`; `schemaVersion` is the
@@ -118,7 +118,9 @@ of these rules hold:
   channel and first release in the same state write. The value persists even
   when `current` is temporarily missing.
 - Every target key is an absolute path already equal to its lexical normalized
-  form. Its value has exactly one field, `skills`, which is a plain object.
+  form. Its value has exactly one `skills` field which is a plain object, or
+  also has an exact historical `agyDiscovery` ownership record on the global
+  Gemini target. Other target metadata is invalid.
 - A skill key matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`, so joining it to the
   target root always produces one direct child.
 - A linked-skill record has exactly `{mode, source}` with `mode="link"` and a
@@ -139,10 +141,10 @@ of these rules hold:
   uses `mode="wrapper"`, and names either that same `current` target or the
   corresponding module in one direct marked release below `releases/` whose
   ID occurs in the release inventory. Windows commands always use this mode.
-- Unknown fields, missing required fields, forbidden extra fields, arrays
-  other than the exact `releases` array, null records, non-normalized paths,
-  escaping names, duplicate or unsorted release IDs, and malformed
-  fingerprints invalidate the entire file.
+- Unknown fields, missing required fields, arrays other than the exact
+  `releases` array, null records, non-normalized paths, escaping names,
+  duplicate or unsorted release IDs, and malformed fingerprints invalidate the
+  entire file, apart from the exact legacy exception above.
 
 The written shape is therefore:
 
@@ -304,9 +306,13 @@ The wrapper verifier compares the artifact with the stored fingerprint; it
 does not regenerate the current wrapper template. A later template change can
 therefore still update or purge an older valid wrapper.
 
-Changing this serialization is an explicit incompatible-state boundary and
-cannot silently reinterpret schema-v2 records. It requires a future explicit
-state-version decision; no migration mechanism is added now.
+Changing ownership-bearing fields is an explicit incompatible-state boundary
+and cannot silently reinterpret schema-v2 records. The retired `agyDiscovery`
+extension is removed after its old config contribution is restored. If the
+config cannot be safely reconciled, normal commands continue and retain the
+ownership record for a later retry; a command that removes one of its claimed
+skills or empties the target instead preserves the config and retires the
+now-stale ownership.
 
 ## Exact Ownership Evidence
 
@@ -549,17 +555,18 @@ another state field or verifier for it.
 - `README.md`, `docs/ARCHITECTURE.md`, and `tests/cli.test.mjs`
   - document and verify the conservative recovery boundary.
 
-No catalog, provider, skill payload, marker-version bump, state-migration
-machinery, new manifest, or new runtime file is required.
+The compatibility exception adds one provider-scoped migration helper. It
+does not require a catalog or skill-payload change, marker-version bump, new
+manifest, or new runtime file.
 
 ## Focused Test Matrix
 
 1. Developer links use exact `current` paths; release installs copy skills;
    the public package exposes no link command.
-2. State grammar writes only schemaVersion 2 and rejects every schema-v1 or
-   other legacy state, path-escaping skills, unsafe/duplicate/unsorted release
-   IDs, unknown commands, invalid channels, extra fields, and malformed
-   fingerprints.
+2. State grammar writes only schemaVersion 2 and rejects every schema-v1,
+   path-escaping skills, unsafe/duplicate/unsorted release IDs, unknown
+   commands, invalid channels, extra fields, and malformed fingerprints, while
+   accepting the exact historical `agyDiscovery` record for migration.
 3. Exact recorded commands dangling only because `current` is absent recover
    when every inventoried release remains intact. A `current` link dangling
    because its inventoried release is absent blocks `install`, `update`, and
