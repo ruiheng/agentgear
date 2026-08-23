@@ -62,6 +62,7 @@ currently rejects the Claude-only field; retain it as a cross-harness exception.
 - Refactor Reviewer (`refactor-review`): advisory reviewer that inspects existing code for duplication and simplification opportunities without making changes
 - Roundtable Moderator (`roundtable`): user-facing discussion controller; creates Waypost group, selects participants, drains group updates, and presents synthesis
 - Roundtable Participant (`roundtable-participant`): persistent host session that reads a group stream as one participant and posts concise role-specific replies
+- Intent Framer (`intent-framing` sequence mode): a user-selected persistent model that contributes through its own artifact and may exchange direct turns with the user
 - User: makes acceptance decisions only when the workflow explicitly requires human gating
 
 ## Execution Surfaces
@@ -130,6 +131,10 @@ Use `roundtable` when the user wants a multi-agent discussion, brainstorm, criti
 7. Group subscriber updates arrive as normal personal `group_message_available` deliveries, so the moderator uses normal `check-waypost-messages` pickup and then runs `roundtable` Moderator Group Check.
 8. Moderator presents synthesis to the user with per-participant `message_id` traceability; raw group history remains the source of truth.
 9. Ending keeps sessions and Waypost message history by default. Generic workflow code does not delete provider-owned participant sessions.
+
+## Intent Framing Workflow
+
+`intent-framing` offers one entry with two modes. Sequence mode gives each selected model an independent artifact under one flow directory; framers run in order and may exchange direct user turns. Roundtable mode wraps the existing moderated group workflow and records its identity and syntheses beside the preserved original input. Either mode can stop and deliver its current directory at any time.
 
 ## Flow Diagram
 

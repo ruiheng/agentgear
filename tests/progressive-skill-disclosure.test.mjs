@@ -24,6 +24,7 @@ const entrySkills = [
   "explore-defects",
   "fix-strategy",
   "handoff",
+  "intent-framing",
   "refactor-review",
   "roundtable",
   "simplify-review",
@@ -574,12 +575,12 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
     retrievable: true,
     exposure: "upstream"
   });
-  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 26);
+  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 27);
 
   const text = command(["list"]);
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Upstream retrievable skills: agent-deck/);
-  assert.match(text.stdout, /Skills \(26\)/);
+  assert.match(text.stdout, /Skills \(27\)/);
 });
 
 test("upstream skill get returns resourceBase from a verified runtime and rejects selectors", () => {
@@ -670,7 +671,8 @@ test("action aliases are complete, direct, and selector validation resolves mult
     "design_spec_delivered", "design_spec_draft_requested",
     "design_spec_review_context", "design_spec_review_context_rejected",
     "design_spec_review_report", "design_spec_review_requested",
-    "execute_delegate_task", "execute_delegated_task", "execute_plan", "group_message_available", "message_rejected",
+    "execute_delegate_task", "execute_delegated_task", "execute_plan", "group_message_available",
+    "intent_framer_turn", "intent_framer_update", "message_rejected",
     "plan_report_delivered", "refactor_review_report", "refactor_review_requested", "review_requested",
     "review_task_context", "rework_required", "roundtable_participant_turn", "simplify_review_report",
     "simplify_review_requested", "work_accepted"

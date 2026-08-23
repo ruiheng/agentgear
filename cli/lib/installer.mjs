@@ -116,7 +116,7 @@ export function printPermissionMigrationRequirement({
     print("SECURITY ACTION REQUIRED: permission_migration_required tool=session_resolve");
   }
   if (launcherMissing) {
-    print("SECURITY ACTION REQUIRED: permission_migration_required missing=tech-design-workflow-launcher");
+    print("SECURITY ACTION REQUIRED: permission_migration_required missing=workflow-launcher");
   }
   if (waypostFailMissing) {
     print("SECURITY ACTION REQUIRED: permission_migration_required missing=waypost-cli-fail");

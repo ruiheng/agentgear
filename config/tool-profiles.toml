@@ -25,6 +25,7 @@ architect_reviewer = "architect_default"
 # The pruner stays independent unless design_pruner itself is overridden.
 design_pruner = "design_pruner_default"
 browser_tester = "browser_tester_default"
+intent_framer = "roundtable_participant_default"
 roundtable_participant = "roundtable_participant_default"
 
 [profiles.planner_default]

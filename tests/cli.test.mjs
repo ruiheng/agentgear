@@ -1390,7 +1390,7 @@ test("workflow update requires permission reinitialization for a missing design 
     );
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /SECURITY ACTION REQUIRED: permission_migration_required missing=tech-design-workflow-launcher/);
+    assert.match(result.stdout, /SECURITY ACTION REQUIRED: permission_migration_required missing=workflow-launcher/);
     assert.match(result.stdout, /Detected outdated workflow launcher approvals in scope\(s\): user,project/);
     assert.match(result.stdout, /Run: agentgear permissions init/);
     assert.match(result.stdout, /Restart existing agent sessions/);
