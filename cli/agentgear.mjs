@@ -26,19 +26,13 @@ import {
   validateStateGrammar
 } from "./lib/runtime.mjs";
 import {
-  isAgyGlobalSkillsPath,
-  resolveAgyDiscoveryContext,
-  syncAgySkillDiscovery
-} from "../providers/agy-skill-discovery.mjs";
-import {
   DEFAULT_TARGETS,
   installSelection,
   printPermissionMigrationRequirement,
   resolveTargetRoots,
   retiredPermissionMigrationScopes,
   selected,
-  selectedInstallableSkills,
-  selectedInstallableSkillsForTarget
+  selectedInstallableSkills
 } from "./lib/installer.mjs";
 import { parseOptions } from "./lib/options.mjs";
 import {
@@ -74,26 +68,6 @@ function print(message = "") {
 
 function fail(message) {
   throw new Error(message);
-}
-
-function syncAgyDiscoveryAfterRemovals({ catalog, state, removals, transaction }) {
-  const context = resolveAgyDiscoveryContext(catalog);
-  const targetRoot = removals.find(item =>
-    isAgyGlobalSkillsPath(item.target.root, context))?.target.root;
-  if (!targetRoot) return;
-  const record = targetState(state, targetRoot);
-  if (!record.agyDiscovery) return;
-  const claims = record.agyDiscovery.claims
-    .filter(claim => Object.hasOwn(record.skills, claim));
-  syncAgySkillDiscovery({
-    catalog,
-    targetRecord: record,
-    claims,
-    createIfMissing: false,
-    transaction,
-    print
-  });
-  updateTargetState(state, targetRoot, record);
 }
 
 function usage() {
@@ -224,7 +198,6 @@ function uninstall(catalog, options) {
       transaction.remove([destination]);
       delete record.skills[skill];
     }
-    syncAgyDiscoveryAfterRemovals({ catalog, state, removals, transaction });
     for (const target of targets) {
       const record = targetState(state, target.root);
       updateTargetState(state, target.root, record);
@@ -346,7 +319,6 @@ function purge(catalog, options) {
       const record = targetState(state, item.target.root);
       delete record.skills[item.skill];
     }
-    syncAgyDiscoveryAfterRemovals({ catalog, state, removals: plan, transaction });
     for (const target of targets) {
       const record = targetState(state, target.root);
       updateTargetState(state, target.root, record);
@@ -512,10 +484,10 @@ function build(catalog) {
     "Install the npm package or use the normal Agentgear installer; do not copy this tree into a harness discovery directory."
   ].join("\n") + "\n");
   const selection = selected(catalog, parseOptions([]));
-  for (const [targetName, target] of Object.entries(catalog.targets.targets)) {
+  for (const target of Object.values(catalog.targets.targets)) {
     const destination = path.join(stagingRoot, target.dist);
     fs.mkdirSync(destination, { recursive: true });
-    for (const skill of selectedInstallableSkillsForTarget(selection, targetName)) {
+    for (const skill of selectedInstallableSkills(catalog, selection)) {
       fs.cpSync(path.join(skillsRoot, skill), path.join(destination, skill), {
         recursive: true,
         preserveTimestamps: true

@@ -41,13 +41,7 @@ import {
   validateStateGrammar,
   writeInstalledSkillMarker
 } from "./runtime.mjs";
-import {
-  isAgyGlobalSkillsPath,
-  resolveAgyDiscoveryContext,
-  syncAgySkillDiscovery
-} from "../../providers/agy-skill-discovery.mjs";
-
-export const DEFAULT_TARGETS = ["general", "gemini", "claude"];
+export const DEFAULT_TARGETS = ["general", "gemini", "agy", "claude"];
 
 const PERMISSION_MIGRATION_COMMANDS = new Set(["adwf-send-and-wake"]);
 
@@ -150,27 +144,6 @@ export function selectedInstallableSkills(catalog, selection) {
   return [...selection.exposedSkills];
 }
 
-export function selectedInstallableSkillsForTarget(selection, targetName) {
-  return targetName === "gemini"
-    ? [...selection.capabilitySkills]
-    : [...selection.exposedSkills];
-}
-
-function canonicalCollisionPath(candidate) {
-  const resolved = path.resolve(candidate);
-  const suffix = [];
-  let existing = resolved;
-  while (!fs.existsSync(existing)) {
-    const parent = path.dirname(existing);
-    if (parent === existing) break;
-    suffix.unshift(path.basename(existing));
-    existing = parent;
-  }
-  const canonicalParent = fs.realpathSync.native(existing);
-  const canonical = path.resolve(canonicalParent, ...suffix);
-  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
-}
-
 export function resolveTargetRoots(catalog, options, env = process.env) {
   const names = options.targets.length === 0
     ? (options.destination ? ["general"] : DEFAULT_TARGETS)
@@ -178,7 +151,7 @@ export function resolveTargetRoots(catalog, options, env = process.env) {
   if (options.destination && names.length !== 1) {
     fail("--dest requires exactly one target");
   }
-  const targets = names.map(name => {
+  const roots = names.map(name => {
     const target = catalog.targets.targets[name];
     if (!target) fail("Unknown target: " + name);
     const configuredPath = options.destination || target[options.scope];
@@ -187,16 +160,12 @@ export function resolveTargetRoots(catalog, options, env = process.env) {
       : path.resolve(options.project, configuredPath);
     return { name, root };
   });
-  if (options.destination) {
-    const globalGeminiRoot = path.resolve(expandHome(catalog.targets.targets.gemini.global, env));
-    const canonicalGeminiRoot = canonicalCollisionPath(globalGeminiRoot);
-    const collidesWithGemini = targets.some(target =>
-      canonicalCollisionPath(target.root) === canonicalGeminiRoot);
-    if (collidesWithGemini) {
-      fail(`--dest cannot use the reserved global Gemini skills directory: ${globalGeminiRoot}; use --target gemini without --dest`);
-    }
-  }
-  return targets;
+  const seen = new Set();
+  return roots.filter(target => {
+    if (seen.has(target.root)) return false;
+    seen.add(target.root);
+    return true;
+  });
 }
 
 function ensureSourceSkills(sourceRoot, selection) {
@@ -292,7 +261,7 @@ export function installSelection({
   const upstreamPlans = selectedUpstreamSkillPlans(catalog, selection, state, env);
   const skillsByTarget = new Map(targets.map(target => [
     target.root,
-    selectedInstallableSkillsForTarget(selection, target.name)
+    selectedInstallableSkills(catalog, selection)
   ]));
   const installedSkills = [...new Set([...skillsByTarget.values()].flat())];
   const installLauncher = !options.noLauncher;
@@ -306,39 +275,6 @@ export function installSelection({
     skillsByTarget,
     selection.packs.length > 0
   );
-  const agyContext = resolveAgyDiscoveryContext(catalog, env);
-  const globalGeminiRoot = agyContext.targetRoot;
-  const globalGeminiTarget = options.scope === "global" && !options.destination
-    ? targets.find(target => target.name === "gemini")
-    : null;
-  const installsGlobalGemini = Boolean(globalGeminiTarget);
-  const geminiRemovals = [...retiredSkills, ...withdrawnSkills]
-    .filter(item => isAgyGlobalSkillsPath(item.targetRoot, agyContext));
-  const agyTargetRoot = globalGeminiTarget?.root
-    ?? geminiRemovals[0]?.targetRoot
-    ?? globalGeminiRoot;
-  const reconcilesAgyDiscovery = installsGlobalGemini || geminiRemovals.length > 0;
-  let agyDiscoveryIntent = null;
-  if (reconcilesAgyDiscovery) {
-    const previousGemini = state?.targets?.[agyTargetRoot] ?? { skills: {} };
-    const removed = new Set(geminiRemovals.map(item => item.skill));
-    const previousClaims = previousGemini.agyDiscovery?.claims
-      ?? Object.keys(previousGemini.skills)
-        .filter(skill => !removed.has(skill))
-        .filter(skill => catalog.skills.skills[skill]?.exposure === "entry");
-    const selectedClaims = installsGlobalGemini
-      ? [...selection.exposedSkills]
-      : [];
-    const nextClaims = (installsGlobalGemini && selection.packs.length > 0
-      ? selectedClaims
-      : [...previousClaims, ...selectedClaims])
-      .filter(claim => !removed.has(claim));
-    agyDiscoveryIntent = {
-      targetRoot: agyTargetRoot,
-      nextClaims,
-      createIfMissing: installsGlobalGemini
-    };
-  }
   const retiredCommands = retiredCommandEntries(env)
     .filter(entry => state?.commands?.[entry.destination]);
   const detectedPermissionScopes = permissionMigrationScopes(options, env);
@@ -486,20 +422,6 @@ export function installSelection({
         }
       }
       updateTargetState(currentState, target.root, record);
-    }
-
-    if (agyDiscoveryIntent) {
-      const record = targetState(currentState, agyDiscoveryIntent.targetRoot);
-      syncAgySkillDiscovery({
-        catalog,
-        targetRecord: record,
-        claims: agyDiscoveryIntent.nextClaims,
-        createIfMissing: agyDiscoveryIntent.createIfMissing,
-        transaction,
-        env,
-        print
-      });
-      updateTargetState(currentState, agyDiscoveryIntent.targetRoot, record);
     }
 
     for (const entry of retiredCommands) {

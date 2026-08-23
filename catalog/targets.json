@@ -8,10 +8,16 @@
       "dist": "general/.agents/skills"
     },
     "gemini": {
-      "description": "Gemini CLI and Agy shared skills",
+      "description": "Gemini CLI",
       "global": "~/.gemini/skills",
       "project": ".gemini/skills",
       "dist": "gemini/.gemini/skills"
+    },
+    "agy": {
+      "description": "Agy",
+      "global": "~/.gemini/config/skills",
+      "project": ".agents/skills",
+      "dist": "agy/.gemini/config/skills"
     },
     "claude": {
       "description": "Claude Code",

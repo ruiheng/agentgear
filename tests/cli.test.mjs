@@ -10,19 +10,7 @@ import { main as linkMain } from "../cli/link.mjs";
 import { loadCatalog } from "../cli/lib/catalog.mjs";
 import { installSelection, permissionMigrationScopes, resolveTargetRoots, selected } from "../cli/lib/installer.mjs";
 import { parseOptions } from "../cli/lib/options.mjs";
-import {
-  agySkillsPathIdentity,
-  isAgyGlobalSkillsPath,
-  syncAgySkillDiscovery
-} from "../providers/agy-skill-discovery.mjs";
-import {
-  createInstallTransaction,
-  directoryFingerprint,
-  saveInstallState,
-  stageRuntime,
-  validateStateGrammar,
-  wrapperFingerprint
-} from "../cli/lib/runtime.mjs";
+import { createInstallTransaction, directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
 import {
   provisionUpstreamSkill as provisionPinnedUpstreamSkill,
@@ -108,10 +96,6 @@ function environmentFixture() {
 
 function readState(fixture) {
   return JSON.parse(fs.readFileSync(fixture.stateFile, "utf8"));
-}
-
-function exactAgyPatterns(skills) {
-  return skills.map(skill => `^${skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 }
 
 function craftState(fixture, state) {
@@ -354,32 +338,25 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
 
 test("lists the catalog and builds every target layout", () => {
   run(["build"]);
-  assert.deepEqual(Object.keys(loadCatalog(rootDir).targets.targets), ["general", "gemini", "claude", "kiro"]);
+  assert.deepEqual(Object.keys(loadCatalog(rootDir).targets.targets), ["general", "gemini", "agy", "claude", "kiro"]);
   for (const [target, directory] of [
-    ["general", ".agents"],
-    ["gemini", ".gemini"],
-    ["claude", ".claude"],
-    ["kiro", ".kiro"]
+    ["general", ".agents/skills"],
+    ["gemini", ".gemini/skills"],
+    ["agy", ".gemini/config/skills"],
+    ["claude", ".claude/skills"],
+    ["kiro", ".kiro/skills"]
   ]) {
     assert.equal(
-      fs.existsSync(path.join(rootDir, "dist", target, directory, "skills", "handoff", "SKILL.md")),
+      fs.existsSync(path.join(rootDir, "dist", target, directory, "handoff", "SKILL.md")),
       true
     );
   }
   for (const removedTarget of ["opencode", "antigravity"]) {
     assert.equal(fs.existsSync(path.join(rootDir, "dist", removedTarget)), false);
   }
-  assert.equal(
-    fs.existsSync(path.join(rootDir, "dist", "gemini", ".gemini", "skills", "multi-agent-protocol", "SKILL.md")),
-    true
-  );
-  assert.equal(
-    fs.existsSync(path.join(rootDir, "dist", "general", ".agents", "skills", "multi-agent-protocol", "SKILL.md")),
-    false
-  );
 });
 
-test("general, Gemini, and Claude are the default skill targets", () => {
+test("general, Gemini, Agy, and Claude are the default skill targets", () => {
   const fixture = environmentFixture();
   try {
     const targets = resolveTargetRoots(loadCatalog(rootDir), parseOptions([]), fixture.environment);
@@ -391,6 +368,10 @@ test("general, Gemini, and Claude are the default skill targets", () => {
       {
         name: "gemini",
         root: path.join(fixture.home, ".gemini", "skills")
+      },
+      {
+        name: "agy",
+        root: path.join(fixture.home, ".gemini", "config", "skills")
       },
       {
         name: "claude",
@@ -407,6 +388,28 @@ test("general, Gemini, and Claude are the default skill targets", () => {
       ),
       [{ name: "general", root: customRoot }]
     );
+
+    const project = path.join(fixture.temporary, "project");
+    assert.deepEqual(
+      resolveTargetRoots(
+        loadCatalog(rootDir),
+        parseOptions(["--scope", "project", "--project", project]),
+        fixture.environment
+      ),
+      [
+        { name: "general", root: path.join(project, ".agents", "skills") },
+        { name: "gemini", root: path.join(project, ".gemini", "skills") },
+        { name: "claude", root: path.join(project, ".claude", "skills") }
+      ]
+    );
+    assert.deepEqual(
+      resolveTargetRoots(
+        loadCatalog(rootDir),
+        parseOptions(["--target", "agy", "--scope", "project", "--project", project]),
+        fixture.environment
+      ),
+      [{ name: "agy", root: path.join(project, ".agents", "skills") }]
+    );
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -418,514 +421,31 @@ test("default installation reaches every default target with the approved entry 
     run(["install"], fixture.environment);
     for (const skillsRoot of [
       path.join(fixture.home, ".agents", "skills"),
+      path.join(fixture.home, ".gemini", "skills"),
+      path.join(fixture.home, ".gemini", "config", "skills"),
       path.join(fixture.home, ".claude", "skills")
     ]) {
       assert.equal(fs.existsSync(path.join(skillsRoot, "handoff", "SKILL.md")), true);
       assert.equal(fs.existsSync(path.join(skillsRoot, "tech-design-workflow", "SKILL.md")), true);
       assert.equal(fs.existsSync(path.join(skillsRoot, "multi-agent-protocol", "SKILL.md")), false);
     }
-    const geminiSkills = path.join(fixture.home, ".gemini", "skills");
-    assert.equal(fs.existsSync(path.join(geminiSkills, "handoff", "SKILL.md")), true);
-    assert.equal(fs.existsSync(path.join(geminiSkills, "multi-agent-protocol", "SKILL.md")), true);
-    const automaticSkills = exactAgyPatterns(
-      [...selected(loadCatalog(rootDir), parseOptions([])).exposedSkills].sort()
-    );
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(path.join(fixture.home, ".gemini", "config", "skills.json"), "utf8")),
-      { entries: [{ path: "~/.gemini/skills", include_only: automaticSkills }] }
+    assert.equal(
+      fs.existsSync(path.join(fixture.home, ".gemini", "config", "skills.json")),
+      false
     );
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
 });
 
-test("global Gemini installation merges Agy discovery without replacing user configuration", () => {
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    const original = {
-      enabled: true,
-      entries: [{ path: "/opt/team/skills", include_only: ["team-.*"] }]
-    };
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify(original, null, 2)}\n`);
-
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
-      ...original,
-      entries: [...original.entries, { path: "~/.gemini/skills", include_only: ["^handoff$"] }]
-    });
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
+test("an explicit skill does not add the default all pack", () => {
+  const catalog = loadCatalog(rootDir);
+  const selection = selected(catalog, parseOptions(["--skill", "handoff"]));
+  assert.deepEqual(selection.packs, []);
+  assert.deepEqual(selection.skills, ["handoff"]);
 });
 
-test("explicit Gemini skill installation extends Agy include_only and preserves exclude", () => {
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    const original = {
-      entries: [{
-        path: "~/.gemini/skills",
-        include_only: ["assess-tech-design", "delegate-.*"],
-        exclude: ["experimental-.*"]
-      }]
-    };
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify(original, null, 2)}\n`);
-
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
-      entries: [{
-        path: "~/.gemini/skills",
-        include_only: ["^handoff$", "assess-tech-design", "delegate-.*"],
-        exclude: ["experimental-.*"]
-      }]
-    });
-
-    run(["install", "--pack", "core", "--target", "gemini"], fixture.environment);
-    const coreEntries = [...selected(
-      loadCatalog(rootDir),
-      parseOptions(["--pack", "core"])
-    ).exposedSkills].sort();
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
-      entries: [{
-        path: "~/.gemini/skills",
-        include_only: [...new Set([
-          "assess-tech-design", "delegate-.*", ...exactAgyPatterns(coreEntries)
-        ])].sort(),
-        exclude: ["experimental-.*"]
-      }]
-    });
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("project Gemini installation does not change global Agy discovery", () => {
-  const fixture = environmentFixture();
-  try {
-    const project = path.join(fixture.temporary, "project");
-    run([
-      "install", "--skill", "handoff", "--target", "gemini",
-      "--scope", "project", "--project", project
-    ], fixture.environment);
-    assert.equal(fs.existsSync(path.join(fixture.home, ".gemini", "config", "skills.json")), false);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("custom destinations cannot alias the reserved global Gemini skills root", () => {
-  const fixture = environmentFixture();
-  try {
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    assert.throws(
-      () => run([
-        "install", "--skill", "handoff", "--target", "general", "--dest", geminiRoot
-      ], fixture.environment),
-      /--dest cannot use the reserved global Gemini skills directory/
-    );
-    assert.equal(fs.existsSync(path.join(geminiRoot, "handoff")), false);
-    assert.equal(fs.existsSync(path.join(fixture.home, ".gemini", "config", "skills.json")), false);
-    assert.equal(fs.existsSync(fixture.stateFile), false);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("custom destinations cannot reach the reserved Gemini root through filesystem aliases", t => {
-  if (process.platform === "win32") {
-    t.skip("Creating junction aliases is not reliable in all Windows test environments");
-    return;
-  }
-  const fixture = environmentFixture();
-  try {
-    const geminiDirectory = path.join(fixture.home, ".gemini");
-    const geminiRoot = path.join(geminiDirectory, "skills");
-    fs.mkdirSync(geminiRoot, { recursive: true });
-
-    const directAlias = path.join(fixture.home, "agy-skills");
-    fs.symlinkSync(geminiRoot, directAlias, "dir");
-    assert.throws(
-      () => run([
-        "install", "--skill", "handoff", "--target", "general", "--dest", directAlias
-      ], fixture.environment),
-      /--dest cannot use the reserved global Gemini skills directory/
-    );
-
-    const parentAlias = path.join(fixture.home, "gemini-alias");
-    fs.symlinkSync(geminiDirectory, parentAlias, "dir");
-    assert.throws(
-      () => run([
-        "install", "--skill", "handoff", "--target", "general",
-        "--dest", path.join(parentAlias, "skills")
-      ], fixture.environment),
-      /--dest cannot use the reserved global Gemini skills directory/
-    );
-
-    assert.equal(fs.existsSync(path.join(geminiRoot, "handoff")), false);
-    assert.equal(fs.existsSync(path.join(geminiDirectory, "config", "skills.json")), false);
-    assert.equal(fs.existsSync(fixture.stateFile), false);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("focused Gemini install adopts existing entry skills without exposing prompt-only skills", () => {
-  const fixture = environmentFixture();
-  try {
-    const catalog = loadCatalog(rootDir);
-    const legacySelection = selected(catalog, parseOptions(["--pack", "workflow"]));
-    const oldEntrySkills = [...legacySelection.exposedSkills];
-    const oldPromptOnlySkills = legacySelection.capabilitySkills
-      .filter(skill => !legacySelection.exposedSkills.includes(skill));
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-
-    run(["install", "--pack", "workflow", "--target", "gemini"], fixture.environment);
-    const legacyState = readState(fixture);
-    delete legacyState.targets[geminiRoot].agyDiscovery;
-    craftState(fixture, legacyState);
-    fs.rmSync(configPath);
-
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-
-    const expectedClaims = [...new Set([...oldEntrySkills, "handoff"])].sort();
-    const state = readState(fixture);
-    assert.deepEqual(state.targets[geminiRoot].agyDiscovery.claims, expectedClaims);
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only,
-      exactAgyPatterns(expectedClaims)
-    );
-    assert.ok(oldPromptOnlySkills.length > 0);
-    for (const skill of oldPromptOnlySkills) {
-      assert.equal(fs.existsSync(path.join(geminiRoot, skill, "SKILL.md")), true);
-      assert.equal(expectedClaims.includes(skill), false);
-    }
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("authoritative Gemini pack replaces claims while adopting pre-ownership state", () => {
-  const fixture = environmentFixture();
-  try {
-    const catalog = loadCatalog(rootDir);
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    run(["install", "--pack", "workflow", "--target", "gemini"], fixture.environment);
-    const legacyState = readState(fixture);
-    delete legacyState.targets[geminiRoot].agyDiscovery;
-    craftState(fixture, legacyState);
-    fs.rmSync(configPath);
-
-    run(["install", "--pack", "core", "--target", "gemini"], fixture.environment);
-
-    const expectedClaims = [...selected(
-      catalog,
-      parseOptions(["--pack", "core"])
-    ).exposedSkills].sort();
-    assert.deepEqual(readState(fixture).targets[geminiRoot].agyDiscovery.claims, expectedClaims);
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only,
-      exactAgyPatterns(expectedClaims)
-    );
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("invalid Agy discovery config blocks installation without mutation", () => {
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, "{ invalid json\n");
-
-    assert.throws(
-      () => run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment),
-      /Invalid Agy skills config/
-    );
-    assert.equal(fs.readFileSync(configPath, "utf8"), "{ invalid json\n");
-    assert.equal(fs.existsSync(path.join(fixture.home, ".gemini", "skills", "handoff")), false);
-    assert.equal(fs.existsSync(fixture.stateFile), false);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery normalizes an existing absolute Gemini skills path", () => {
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    const absoluteSkills = path.join(fixture.home, ".gemini", "skills") + path.sep;
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify({ entries: [{ path: absoluteSkills }] }, null, 2)}\n`);
-
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
-      entries: [{ path: absoluteSkills, include_only: ["^handoff$"] }]
-    });
-
-    run(["uninstall", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
-      entries: [{ path: absoluteSkills }]
-    });
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery rejects duplicate equivalent Gemini paths before installation", () => {
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify({ entries: [
-      { path: "~/.gemini/skills" },
-      { path: path.join(fixture.home, ".gemini", "skills") + path.sep }
-    ] }, null, 2)}\n`);
-
-    assert.throws(
-      () => run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment),
-      /multiple entries resolve/
-    );
-    assert.equal(fs.existsSync(path.join(fixture.home, ".gemini", "skills", "handoff")), false);
-    assert.equal(fs.existsSync(fixture.stateFile), false);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery claims reconcile across partial uninstall and purge", () => {
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    run(["install", "--skill", "review-code", "--target", "gemini"], fixture.environment);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only, [
-      "^handoff$", "^review-code$"
-    ]);
-
-    run(["uninstall", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only, ["^review-code$"]);
-
-    run(["uninstall", "--purge", "--target", "gemini"], fixture.environment);
-    assert.equal(fs.existsSync(configPath), false);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("explicit prompt-only Gemini skills remain uninstallable", () => {
-  const fixture = environmentFixture();
-  try {
-    const skill = "review-code";
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    const skillPath = path.join(geminiRoot, skill);
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-
-    run(["install", "--skill", skill, "--target", "gemini"], fixture.environment);
-
-    assert.equal(fs.existsSync(path.join(skillPath, "SKILL.md")), true);
-    let state = readState(fixture);
-    assert.equal(Boolean(state.targets[geminiRoot].skills[skill]), true);
-    assert.deepEqual(state.targets[geminiRoot].agyDiscovery.claims, [skill]);
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only,
-      exactAgyPatterns([skill])
-    );
-
-    run(["uninstall", "--skill", skill, "--target", "gemini"], fixture.environment);
-
-    assert.equal(fs.existsSync(skillPath), false);
-    assert.equal(fs.existsSync(configPath), false);
-    state = readState(fixture);
-    assert.equal(state.targets[geminiRoot], undefined);
-    assert.deepEqual(validateStateGrammar(state, fixture.environment), { valid: true });
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery keeps an empty allowlist while managed prompt-only skills remain", () => {
-  const fixture = environmentFixture();
-  try {
-    const catalog = loadCatalog(rootDir);
-    const selection = selected(catalog, parseOptions(["--pack", "workflow"]));
-    const promptOnlySkills = selection.capabilitySkills
-      .filter(skill => !selection.exposedSkills.includes(skill));
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-
-    run(["install", "--pack", "workflow", "--target", "gemini"], fixture.environment);
-    for (const skill of selection.exposedSkills) {
-      run(["uninstall", "--skill", skill, "--target", "gemini"], fixture.environment);
-    }
-
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    assert.ok(promptOnlySkills.length > 0);
-    for (const skill of promptOnlySkills) {
-      assert.equal(fs.existsSync(path.join(geminiRoot, skill, "SKILL.md")), true);
-    }
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
-      entries: [{ path: "~/.gemini/skills", include_only: [] }]
-    });
-
-    run(["uninstall", "--purge", "--target", "gemini"], fixture.environment);
-    assert.equal(fs.existsSync(configPath), false);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery preserves the mode of an existing config file", t => {
-  if (process.platform === "win32") {
-    t.skip("POSIX mode semantics do not apply on Windows");
-    return;
-  }
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify({ entries: [] }, null, 2)}\n`);
-    fs.chmodSync(configPath, 0o600);
-
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
-
-    run(["uninstall", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery merges the latest config at transaction time", () => {
-  const fixture = environmentFixture();
-  try {
-    const catalog = loadCatalog(rootDir);
-    const targetRecord = { skills: { handoff: {} } };
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    const latestUserConfig = {
-      enabled: true,
-      entries: [{ path: "/opt/team/skills", exclude: ["draft-.*"] }]
-    };
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify(latestUserConfig, null, 2)}\n`);
-
-    const transaction = createInstallTransaction();
-    syncAgySkillDiscovery({
-      catalog,
-      targetRecord,
-      claims: ["handoff"],
-      createIfMissing: true,
-      transaction,
-      env: fixture.environment
-    });
-    transaction.commit();
-
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
-      ...latestUserConfig,
-      entries: [
-        ...latestUserConfig.entries,
-        { path: "~/.gemini/skills", include_only: ["^handoff$"] }
-      ]
-    });
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery anchors and escapes managed names without rewriting baseline patterns", () => {
-  const fixture = environmentFixture();
-  try {
-    const catalog = loadCatalog(rootDir);
-    const targetRecord = { skills: { "foo.bar": {} } };
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify({
-      entries: [{
-        path: "~/.gemini/skills",
-        include_only: ["delegate-.*"]
-      }]
-    }, null, 2)}\n`);
-
-    const transaction = createInstallTransaction();
-    syncAgySkillDiscovery({
-      catalog,
-      targetRecord,
-      claims: ["foo.bar"],
-      createIfMissing: true,
-      transaction,
-      env: fixture.environment
-    });
-    transaction.commit();
-
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only,
-      ["^foo\\.bar$", "delegate-.*"]
-    );
-    assert.deepEqual(targetRecord.agyDiscovery.claims, ["foo.bar"]);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy discovery fails closed when a managed entry changes before synchronization", () => {
-  const fixture = environmentFixture();
-  try {
-    const catalog = loadCatalog(rootDir);
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    const state = readState(fixture);
-    const targetRecord = state.targets[path.join(fixture.home, ".gemini", "skills")];
-    const changed = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    changed.entries[0].include_only.push("external-change");
-    fs.writeFileSync(configPath, `${JSON.stringify(changed, null, 2)}\n`);
-
-    const transaction = createInstallTransaction();
-    assert.throws(
-      () => syncAgySkillDiscovery({
-        catalog,
-        targetRecord,
-        claims: ["handoff"],
-        createIfMissing: true,
-        transaction,
-        env: fixture.environment
-      }),
-      /managed include_only differs/
-    );
-    transaction.rollback();
-
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), changed);
-    assert.deepEqual(state.targets[path.join(fixture.home, ".gemini", "skills")].agyDiscovery.claims, ["handoff"]);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy path identity folds Windows casing without changing path storage semantics", () => {
-  const home = "C:\\Users\\MixedCase";
-  const expected = "c:\\users\\mixedcase\\.gemini\\skills";
-  assert.equal(agySkillsPathIdentity("~/.gemini/skills", {
-    home,
-    platform: "win32"
-  }), expected);
-  assert.equal(agySkillsPathIdentity("c:\\users\\mixedcase\\.GEMINI\\SKILLS\\", {
-    home,
-    platform: "win32"
-  }), expected);
-  assert.equal(isAgyGlobalSkillsPath("C:\\Users\\MixedCase\\.gemini\\skills", {
-    home,
-    entryIdentity: expected,
-    platform: "win32"
-  }), true);
-});
-
-test("transactional file transform never overwrites a concurrently created destination", () => {
+test("transactional file transform preserves a concurrently created destination", () => {
   const fixture = environmentFixture();
   try {
     const filePath = path.join(fixture.temporary, "shared.json");
@@ -957,7 +477,6 @@ test("transactional removal preserves a concurrently recreated destination on ro
     fs.mkdirSync(destination);
     fs.writeFileSync(path.join(destination, "original.txt"), "original\n");
     const transaction = createInstallTransaction();
-
     transaction.remove([destination]);
     fs.mkdirSync(destination);
     fs.writeFileSync(path.join(destination, "concurrent.txt"), "concurrent\n");
@@ -967,133 +486,27 @@ test("transactional removal preserves a concurrently recreated destination on ro
       /preserved concurrently created .*original retained at/
     );
     assert.equal(fs.readFileSync(path.join(destination, "concurrent.txt"), "utf8"), "concurrent\n");
-    assert.equal(fs.existsSync(path.join(destination, "original.txt")), false);
     const backup = fs.readdirSync(fixture.temporary)
       .find(name => name.includes("managed-skill.agentgear-backup"));
     assert.ok(backup);
-    assert.equal(
-      fs.readFileSync(path.join(fixture.temporary, backup, "original.txt"), "utf8"),
-      "original\n"
-    );
+    assert.equal(fs.readFileSync(path.join(fixture.temporary, backup, "original.txt"), "utf8"), "original\n");
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
 });
 
-test("Agy discovery removal fails closed when managed include_only changes", () => {
+test("custom-destination install does not retire a skill in another target", () => {
   const fixture = environmentFixture();
   try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    const skillPath = path.join(fixture.home, ".gemini", "skills", "handoff");
     run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    config.entries[0].include_only.push("user-change");
-    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-
-    assert.throws(
-      () => run(["uninstall", "--skill", "handoff", "--target", "gemini"], fixture.environment),
-      /managed include_only differs/
-    );
-    assert.equal(fs.existsSync(skillPath), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), config);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("Agy purge retains claims for a locally changed preserved skill", () => {
-  const fixture = environmentFixture();
-  try {
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    const skillFile = path.join(fixture.home, ".gemini", "skills", "handoff", "SKILL.md");
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    fs.appendFileSync(skillFile, "\nLocal change\n");
-
-    run(["uninstall", "--purge", "--target", "gemini"], fixture.environment);
-
-    assert.equal(fs.existsSync(skillFile), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only, ["^handoff$"]);
-    assert.equal(fs.existsSync(fixture.stateFile), true);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("full purge keeps Gemini discovery claims for same-named skills preserved only in Gemini", () => {
-  const fixture = environmentFixture();
-  try {
-    const skill = "review-code";
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    const geminiSkillFile = path.join(geminiRoot, skill, "SKILL.md");
-    const generalSkill = path.join(fixture.home, ".agents", "skills", skill);
-    const claudeSkill = path.join(fixture.home, ".claude", "skills", skill);
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-
-    run(["install", "--skill", skill], fixture.environment);
-    fs.appendFileSync(geminiSkillFile, "\nLocal Gemini change\n");
-
-    run(["uninstall", "--purge"], fixture.environment);
-
-    assert.equal(fs.existsSync(geminiSkillFile), true);
-    assert.equal(fs.existsSync(generalSkill), false);
-    assert.equal(fs.existsSync(claudeSkill), false);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only, exactAgyPatterns([skill]));
-    const state = readState(fixture);
-    assert.equal(Boolean(state.targets[geminiRoot].skills[skill]), true);
-    assert.deepEqual(state.targets[geminiRoot].agyDiscovery.claims, [skill]);
-    assert.deepEqual(validateStateGrammar(state, fixture.environment), { valid: true });
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("focused non-Gemini install reconciles retired Gemini discovery claims", () => {
-  const fixture = environmentFixture();
-  try {
-    const retiredSkill = "handoff";
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    const geminiSkill = path.join(fixture.home, ".gemini", "skills", retiredSkill);
-    run(["install", "--skill", retiredSkill, "--target", "gemini"], fixture.environment);
-
     const catalog = structuredClone(loadCatalog(rootDir));
-    delete catalog.skills.skills[retiredSkill];
+    delete catalog.skills.skills.handoff;
     catalog.skills.retiredSkills = [...new Set([
       ...(catalog.skills.retiredSkills ?? []),
-      retiredSkill
-    ])];
-    installSelection({
-      catalog,
-      options: parseOptions(["--skill", "explain-for-me", "--target", "general"]),
-      sourceRoot: rootDir,
-      env: fixture.environment
-    });
-
-    assert.equal(fs.existsSync(geminiSkill), false);
-    assert.equal(fs.existsSync(configPath), false);
-    const state = readState(fixture);
-    assert.equal(state.targets[path.join(fixture.home, ".gemini", "skills")], undefined);
-    assert.deepEqual(validateStateGrammar(state, fixture.environment), { valid: true });
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("custom-destination install does not retire or reconfigure global Gemini skills", () => {
-  const fixture = environmentFixture();
-  try {
-    const retiredSkill = "handoff";
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    const geminiSkill = path.join(geminiRoot, retiredSkill, "SKILL.md");
-    const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
-    run(["install", "--skill", retiredSkill, "--target", "gemini"], fixture.environment);
-
-    const catalog = structuredClone(loadCatalog(rootDir));
-    delete catalog.skills.skills[retiredSkill];
-    catalog.skills.retiredSkills = [...new Set([
-      ...(catalog.skills.retiredSkills ?? []),
-      retiredSkill
+      "handoff"
     ])];
     const customRoot = path.join(fixture.temporary, "custom-skills");
+
     installSelection({
       catalog,
       options: parseOptions([
@@ -1103,42 +516,12 @@ test("custom-destination install does not retire or reconfigure global Gemini sk
       env: fixture.environment
     });
 
-    assert.equal(fs.existsSync(path.join(customRoot, "explain-for-me", "SKILL.md")), true);
+    const geminiSkill = path.join(fixture.home, ".gemini", "skills", "handoff", "SKILL.md");
     assert.equal(fs.existsSync(geminiSkill), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).entries[0].include_only, exactAgyPatterns([retiredSkill]));
-    const state = readState(fixture);
-    assert.equal(Boolean(state.targets[geminiRoot].skills[retiredSkill]), true);
-    assert.deepEqual(state.targets[geminiRoot].agyDiscovery.claims, [retiredSkill]);
-    assert.deepEqual(validateStateGrammar(state, fixture.environment), { valid: true });
+    assert.equal(Boolean(readState(fixture).targets[path.dirname(path.dirname(geminiSkill))].skills.handoff), true);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
-});
-
-test("installation state persistence rejects orphaned Agy discovery claims", () => {
-  const fixture = environmentFixture();
-  try {
-    run(["install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
-    const original = fs.readFileSync(fixture.stateFile, "utf8");
-    const state = JSON.parse(original);
-    const geminiRoot = path.join(fixture.home, ".gemini", "skills");
-    state.targets[geminiRoot].agyDiscovery.claims.push("missing-skill");
-
-    assert.throws(
-      () => saveInstallState(state, fixture.environment),
-      /Refusing to save invalid installation state: invalid Agy discovery ownership/
-    );
-    assert.equal(fs.readFileSync(fixture.stateFile, "utf8"), original);
-  } finally {
-    fs.rmSync(fixture.temporary, { recursive: true, force: true });
-  }
-});
-
-test("an explicit skill does not add the default all pack", () => {
-  const catalog = loadCatalog(rootDir);
-  const selection = selected(catalog, parseOptions(["--skill", "handoff"]));
-  assert.deepEqual(selection.packs, []);
-  assert.deepEqual(selection.skills, ["handoff"]);
 });
 
 test("agentgear-link help states every option default", () => {
@@ -1149,7 +532,7 @@ test("agentgear-link help states every option default", () => {
     for (const expectation of [
       /--pack NAME\s+Install one or more packs \(default: all\)/,
       /--skill NAME\s+Install named skills when --pack is omitted \(default: none\)/,
-      /--target NAME\[,NAME\]\s+Select destinations \(default: general,gemini,claude\)/,
+      /--target NAME\[,NAME\]\s+Select destinations \(default: general,gemini,agy,claude\)/,
       /--scope global\|project\s+Use global or project destinations \(default: global\)/,
       /--project DIR\s+Project root for --scope project \(default: current directory\)/,
       /--dest DIR\s+Override one destination directory \(default: none; defaults to general\)/,
@@ -2500,6 +1883,64 @@ test("targeted purge retains shared runtime while another target remains managed
     assert.equal(pathExists(launcher), false);
     assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
   } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("ordinary uninstall restores removed skills when state persistence fails", () => {
+  const fixture = environmentFixture();
+  const originalWrite = fs.writeFileSync;
+  try {
+    run(["install", "--skill", "handoff", "--target", "general"], fixture.environment);
+    const skillFile = path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md");
+    const previousSkill = fs.readFileSync(skillFile, "utf8");
+    const previousState = fs.readFileSync(fixture.stateFile, "utf8");
+    fs.writeFileSync = (filePath, ...argumentsList) => {
+      if (String(filePath).includes("installs.json")) {
+        throw new Error("simulated uninstall state write failure");
+      }
+      return originalWrite(filePath, ...argumentsList);
+    };
+
+    assert.throws(
+      () => run(["uninstall", "--skill", "handoff", "--target", "general"], fixture.environment),
+      /simulated uninstall state write failure/
+    );
+    fs.writeFileSync = originalWrite;
+
+    assert.equal(fs.readFileSync(skillFile, "utf8"), previousSkill);
+    assert.equal(fs.readFileSync(fixture.stateFile, "utf8"), previousState);
+  } finally {
+    fs.writeFileSync = originalWrite;
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("targeted purge restores removed skills when state persistence fails", () => {
+  const fixture = environmentFixture();
+  const originalWrite = fs.writeFileSync;
+  try {
+    run(["install", "--skill", "handoff", "--target", "general,claude"], fixture.environment);
+    const skillFile = path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md");
+    const previousSkill = fs.readFileSync(skillFile, "utf8");
+    const previousState = fs.readFileSync(fixture.stateFile, "utf8");
+    fs.writeFileSync = (filePath, ...argumentsList) => {
+      if (String(filePath).includes("installs.json")) {
+        throw new Error("simulated purge state write failure");
+      }
+      return originalWrite(filePath, ...argumentsList);
+    };
+
+    assert.throws(
+      () => run(["uninstall", "--purge", "--target", "general"], fixture.environment),
+      /simulated purge state write failure/
+    );
+    fs.writeFileSync = originalWrite;
+
+    assert.equal(fs.readFileSync(skillFile, "utf8"), previousSkill);
+    assert.equal(fs.readFileSync(fixture.stateFile, "utf8"), previousState);
+  } finally {
+    fs.writeFileSync = originalWrite;
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
 });

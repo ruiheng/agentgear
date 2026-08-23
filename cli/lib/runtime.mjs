@@ -708,33 +708,9 @@ export function validateStateGrammar(state, env = process.env) {
       return invalid(`target path is not normalized absolute: ${targetPath}`);
     }
     if (!isPlainObject(targetRecord)
-      || !Object.keys(targetRecord).every(key => ["skills", "agyDiscovery"].includes(key))
+      || Object.keys(targetRecord).length !== 1
       || !isPlainObject(targetRecord.skills)) {
       return invalid(`invalid target record for ${targetPath}`);
-    }
-    if (targetRecord.agyDiscovery !== undefined) {
-      const discovery = targetRecord.agyDiscovery;
-      const expectedSkillsPath = path.resolve(paths.home, ".gemini", "skills");
-      const discoveryKeys = [
-        "schemaVersion", "entryCreated", "fileCreated", "baselineIncludeOnly", "claims"
-      ];
-      if (!isPlainObject(discovery)
-        || Object.keys(discovery).length !== discoveryKeys.length
-        || !discoveryKeys.every(key => Object.hasOwn(discovery, key))
-        || discovery.schemaVersion !== 1
-        || targetPath !== expectedSkillsPath
-        || typeof discovery.entryCreated !== "boolean"
-        || typeof discovery.fileCreated !== "boolean"
-        || !(discovery.baselineIncludeOnly === null
-          || (Array.isArray(discovery.baselineIncludeOnly)
-            && discovery.baselineIncludeOnly.every(value => typeof value === "string")))
-        || !Array.isArray(discovery.claims)
-        || discovery.claims.some(claim => !SKILL_KEY_PATTERN.test(claim))
-        || discovery.claims.some(claim => !Object.hasOwn(targetRecord.skills, claim))
-        || new Set(discovery.claims).size !== discovery.claims.length
-        || [...discovery.claims].sort().join("\0") !== discovery.claims.join("\0")) {
-        return invalid(`invalid Agy discovery ownership for ${targetPath}`);
-      }
     }
     const currentRoot = paths.currentPath;
     for (const [skill, record] of Object.entries(targetRecord.skills)) {
@@ -1434,7 +1410,7 @@ export function targetState(state, targetPath) {
 }
 
 export function updateTargetState(state, targetPath, value) {
-  if (Object.keys(value.skills).length === 0 && !value.agyDiscovery) {
+  if (Object.keys(value.skills).length === 0) {
     delete state.targets[targetPath];
   } else {
     state.targets[targetPath] = value;
