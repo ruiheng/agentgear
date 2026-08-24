@@ -25,13 +25,24 @@ function escapeRegex(value) {
 function writeWaypostExecutable(directory, name = "waypost") {
   const executable = path.join(directory, name);
   fs.mkdirSync(directory, { recursive: true });
-  fs.writeFileSync(executable, `#!${process.execPath}
+  const source = process.platform === "win32" ? `#!${process.execPath}
 const args = process.argv.slice(2);
 const supported = (args[0] === "mcp" && args[1] === "--help") ||
   (args[0] === "doc" && args[1] === "--help") ||
   (args[0] === "--state-dir" && ["read", "list", "fail", "forward", "wait", "undefer", "group", "address", "renew"].includes(args[2]) && args[3] === "--help");
 process.exit(supported ? 0 : 1);
-`);
+` : `#!/bin/sh
+if [ "$#" -eq 2 ] && { [ "$1" = "mcp" ] || [ "$1" = "doc" ]; } && [ "$2" = "--help" ]; then
+  exit 0
+fi
+if [ "$#" -eq 4 ] && [ "$1" = "--state-dir" ] && [ "$4" = "--help" ]; then
+  case "$3" in
+    read|list|fail|forward|wait|undefer|group|address|renew) exit 0 ;;
+  esac
+fi
+exit 1
+`;
+  fs.writeFileSync(executable, source);
   fs.chmodSync(executable, 0o755);
   return executable;
 }

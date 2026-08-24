@@ -678,11 +678,13 @@ test("action aliases are complete, direct, and selector validation resolves mult
     "simplify_review_requested", "work_accepted"
   ];
   assert.deepEqual([...aliases.keys()].sort(), expected);
-  for (const token of expected) {
-    const result = command(["skill", "get", "--", `action:${token}`]);
-    assert.equal(result.status, 0, `${token}: ${result.stderr}`);
-    assert.notEqual(result.stdout, "");
-  }
+  const requestedAddresses = expected.map(token => `action:${token}`);
+  const result = command(["skill", "get", "--json", "--", ...requestedAddresses]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(
+    JSON.parse(result.stdout).selections.map(selection => selection.address),
+    requestedAddresses
+  );
   const discriminatorTokens = new Set([
     "browser_check_report", "design_spec_review_requested",
     "group_message_available",
@@ -690,7 +692,6 @@ test("action aliases are complete, direct, and selector validation resolves mult
   ]);
   for (const token of expected) {
     if (discriminatorTokens.has(token)) continue;
-    const result = command(["skill", "get", "--", `action:${token}`]);
     const record = aliases.get(token);
     const canonical = `${record.owner}/${record.selector}`;
     assert.equal(index.byCanonicalAddress.get(canonical), record, `${token} must directly own ${canonical}`);
@@ -874,10 +875,16 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
 });
 
 test("action-template validation checks every declared Waypost sender without parsing inert JavaScript", () => {
-  const catalog = loadCatalog(rootDir);
-  const index = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-action-template-test-"));
+  const checkout = path.join(temporary, "checkout");
+  fs.mkdirSync(checkout, { recursive: true });
+  for (const directory of ["catalog", "skills"]) {
+    fs.cpSync(path.join(rootDir, directory), path.join(checkout, directory), { recursive: true });
+  }
+  const catalog = loadCatalog(checkout);
+  const index = buildSkillContentIndex(checkout, catalog, { validateBootstraps: true });
   const aliases = actionAliases(index);
-  const declaration = path.join(rootDir, "skills", "multi-agent-protocol", "action-producers.json");
+  const declaration = path.join(checkout, "skills", "multi-agent-protocol", "action-producers.json");
   const original = fs.readFileSync(declaration, "utf8");
   try {
     const cleanProducerSyntax = [
@@ -889,24 +896,23 @@ test("action-template validation checks every declared Waypost sender without pa
       "/* Action: not_registered */",
       String.raw`const pattern = /Action: ([^\\n]+)/;`
     ].join("\n");
-    fs.writeFileSync(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "producer-fixture.mjs"), cleanProducerSyntax);
-    const cleanIndex = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+    fs.writeFileSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "producer-fixture.mjs"), cleanProducerSyntax);
+    const cleanIndex = buildSkillContentIndex(checkout, catalog, { validateBootstraps: true });
     assert.deepEqual(validateActionTemplates(cleanIndex, aliases), []);
 
     const invalid = JSON.parse(original);
     invalid.actions.REVIEW_TASK_CONTEXT.token = "not_registered";
     fs.writeFileSync(declaration, `${JSON.stringify(invalid, null, 2)}\n`);
-    const invalidIndex = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+    const invalidIndex = buildSkillContentIndex(checkout, catalog, { validateBootstraps: true });
     assert.equal(validateActionTemplates(invalidIndex, aliases).some(error => /action-producers\.json: unregistered Action token not_registered/.test(error)), true);
 
     const missingBoundary = JSON.parse(original);
     missingBoundary.actions.REVIEW_TASK_CONTEXT.script = "producer-fixture.mjs";
     fs.writeFileSync(declaration, `${JSON.stringify(missingBoundary, null, 2)}\n`);
-    const boundaryIndex = buildSkillContentIndex(rootDir, catalog, { validateBootstraps: true });
+    const boundaryIndex = buildSkillContentIndex(checkout, catalog, { validateBootstraps: true });
     assert.equal(validateActionTemplates(boundaryIndex, aliases).some(error => /Action producer script does not reference declared factory reviewTaskContextMessage/.test(error)), true);
   } finally {
-    fs.writeFileSync(declaration, original);
-    fs.rmSync(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "producer-fixture.mjs"), { force: true });
+    fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
 

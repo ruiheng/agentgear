@@ -40,7 +40,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "validate": "node scripts/validate.mjs",
-    "test": "node --test --test-concurrency=1 tests/cli.test.mjs tests/permission-presets.test.mjs tests/progressive-skill-disclosure.test.mjs tests/workflow-permissions.test.mjs tests/workflow-send-delegate.test.mjs tests/workflow-tech-design-dispatch.test.mjs tests/workflow-intent-framing.test.mjs tests/workflow-closeout-cleanup.test.mjs skills/multi-agent-protocol/scripts/resolve-tool-command.test.js",
+    "test": "node --test --test-concurrency=4 tests/cli.test.mjs tests/permission-presets.test.mjs tests/progressive-skill-disclosure.test.mjs tests/workflow-permissions.test.mjs tests/workflow-send-delegate.test.mjs tests/workflow-tech-design-dispatch.test.mjs tests/workflow-intent-framing.test.mjs tests/workflow-closeout-cleanup.test.mjs skills/multi-agent-protocol/scripts/resolve-tool-command.test.js",
     "check": "npm run validate && npm run build && npm test",
     "prepublishOnly": "npm run check"
   }
