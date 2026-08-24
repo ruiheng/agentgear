@@ -11,14 +11,22 @@ Use `delegate-task` in Selection-Only Use first when another action owns surface
 ## Code Scope
 
 - Use this only for the workflow-owned Waypost code lane. Local, harness-subagent, and explicit user-owned direct work retain their own lifecycle.
-- Keep code tasks serial. Decompose locally; ask only if splitting changes scope, priority, or tradeoffs.
+- Keep code tasks serial.
+
+## Decomposition Gate
+
+Before session, workspace, or brief work, decide whether the request is one independently reviewable task or an ordered task queue. Do not dispatch before making this decision.
+
+- Split distinct testable outcomes or dependency boundaries, not files, layers, or implementation steps. For an approved plan item, only verify that it is cohesive.
+- Each unit must have one outcome and testable acceptance criteria. Include prerequisites or boundaries only when relevant. Ask only when splitting changes scope, priority, or tradeoffs.
+- Dispatch only the first ready unit and keep the queue serial. The planner owns cross-task decomposition; the coder owns implementation breakdown within that unit.
 
 ## Brief Quality
 
 Delegate the outcome, not a solution recipe.
 
 - Give the coder only decision-relevant context: parent goal when it affects local choices, hard boundaries, established evidence, non-obvious fixed decisions with source, and testable acceptance criteria.
-- Let the coder investigate, decompose, choose the implementation, and validate it.
+- Let the coder investigate, decompose implementation within the selected task unit, choose the implementation, and validate it.
 - Optimize for the smallest conflict surface that still completes the task; exclude unrelated refactors, renames, moves, and cleanup.
 - List only required reading and useful references. Omit empty optional sections rather than inventing context. Do not pin a commit unless an exact historical snapshot is explicitly required.
 - Treat an unusually long brief as a framing smell. Remove detail that does not change the outcome, boundary, risk, or acceptance criteria.
