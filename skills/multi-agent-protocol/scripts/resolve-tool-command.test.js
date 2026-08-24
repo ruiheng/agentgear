@@ -1043,6 +1043,30 @@ test("design pruner prefers agy with GPT-5.6 Sol medium as fallback", () => {
   assert.match(resolved.tool_candidates[1].command, /codex --model gpt-5\.6-sol -c model_reasoning_effort=medium/);
 });
 
+test("intent framer has an independent high-reasoning default profile", () => {
+  const config = loadToolConfig(
+    path.resolve(__dirname, "../../../config/tool-profiles.toml"),
+    []
+  );
+  const resolved = resolveToolCommand({
+    role: "intent_framer",
+    showList: true,
+    inspectCommand: availableInspection,
+    config,
+  });
+
+  assert.equal(resolved.tool_profile, "intent_framer_default");
+  assert.equal(resolved.resolution_source, "role_default_profile");
+  assert.match(
+    resolved.tool_candidates[0].command,
+    /codex --model gpt-5\.6-sol -c model_reasoning_effort=high/
+  );
+  assert.match(
+    resolved.tool_candidates[1].command,
+    /codex --model gpt-5\.6-terra -c model_reasoning_effort=high/
+  );
+});
+
 test("resolveToolCommand prefers inherited command over role default profile", () => {
   const resolved = resolveToolCommand({
     role: "planner",

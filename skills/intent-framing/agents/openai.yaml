@@ -1,4 +1,4 @@
 interface:
   display_name: "Intent Framing"
   short_description: "Clarify intent with a sequence or roundtable"
-  default_prompt: "Use $intent-framing to clarify my real intent before acting."
+  default_prompt: "Use $intent-framing to clarify or reassess my real intent."
