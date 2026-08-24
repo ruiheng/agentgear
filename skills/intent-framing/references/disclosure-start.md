@@ -12,7 +12,7 @@ Choose from explicit input; ask only when unclear:
 - `sequence`: user-selected framers contribute in order and may talk directly with the user.
 - `roundtable`: iterative moderated discussion; use the existing `roundtable` skill.
 
-Per run: dedicated `.agent-artifacts/intent-framing/<flow_id>/`. Initialize once from the original input; never rewrite `input.md`; append later context. The directory stays deliverable at any stop.
+Per run: dedicated `.agent-artifacts/intent-framing/<flow_id>/`. Initialize `input.md` from the original request and needed user-authored context, preserving their wording; never substitute coordinator interpretation. Record later context and hypotheses as sourced additions; never rewrite `input.md`. The directory stays deliverable at any stop.
 
 Use `agentgear run intent-framing flow.mjs` for artifact state. Commands are agent-facing; do not make the user remember or assemble them.
 
