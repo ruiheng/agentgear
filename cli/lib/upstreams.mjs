@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { upstreamSkillPlans } from "./catalog.mjs";
+import { upstreamSkillEntries, upstreamSkillEntry, upstreamSkillPlans } from "./catalog.mjs";
 
 const UPSTREAM_DIGEST_PREFIX = "sha256-v1:";
 const UPSTREAM_DIGEST_HEADER = "agentgear-upstream-content-v1\0";
@@ -123,10 +123,7 @@ function digestHex(source) {
 }
 
 function upstreamPlanBySkill(catalog, skill) {
-  for (const plan of upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {}))) {
-    if (plan.name === skill) return plan;
-  }
-  return null;
+  return upstreamSkillEntry(catalog, skill);
 }
 
 function manifestPath(candidate) {
@@ -332,7 +329,7 @@ export function retrievedUpstreamSkillPlans(catalog, env = process.env) {
   const info = fs.lstatSync(root, { throwIfNoEntry: false });
   if (!info) return { valid: [], preserved: [] };
   if (!info.isDirectory() || info.isSymbolicLink()) return { valid: [], preserved: [root] };
-  const plans = new Map(upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {})).map(plan => [plan.name, plan]));
+  const plans = new Map(upstreamSkillEntries(catalog).map(plan => [plan.name, plan]));
   const valid = [];
   const preserved = [];
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -390,7 +387,7 @@ function reusePinnedUpstreamSkill(plan, previousRuntimeRoots, destination) {
 
 export function selectedUpstreamSkillPlans(catalog, selection, state, env = process.env) {
   const selected = new Map();
-  const all = new Map(upstreamSkillPlans(catalog, Object.keys(catalog.skills.sessionHosts ?? {}))
+  const all = new Map(upstreamSkillEntries(catalog)
     .map(plan => [plan.name, plan]));
   // A locally usable selected host may retain a verified copy in the staged
   // runtime. It remains prompt-only: no target exposure is implied.

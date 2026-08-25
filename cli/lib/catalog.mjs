@@ -18,6 +18,22 @@ function upstreamSkillName(upstream) {
   return path.posix.basename(upstream.skillPath);
 }
 
+function skillCatalog(catalog) {
+  return isPlainObject(catalog?.skills?.skills) ? catalog.skills : catalog;
+}
+
+export function upstreamSkillEntries(catalog) {
+  return Object.entries(skillCatalog(catalog)?.upstreams ?? {}).map(([upstream, source]) => ({
+    upstream,
+    name: upstreamSkillName(source),
+    source: { ...source }
+  }));
+}
+
+export function upstreamSkillEntry(catalog, name) {
+  return upstreamSkillEntries(catalog).find(entry => entry.name === name) ?? null;
+}
+
 function isSafeRelativeSkillPath(value) {
   if (typeof value !== "string" || value.trim() === "") return false;
   const segments = value.split("/");
@@ -102,12 +118,13 @@ export function resolveSelection(catalog, { packs = [], skills = [] } = {}) {
 }
 
 export function upstreamSkillPlans(catalog, sessionHosts) {
+  const definitions = skillCatalog(catalog);
   const plans = [];
   const names = new Set();
   for (const hostName of sessionHosts) {
-    const host = catalog.skills.sessionHosts?.[hostName];
+    const host = definitions.sessionHosts?.[hostName];
     if (!host?.upstream) continue;
-    const source = catalog.skills.upstreams?.[host.upstream] ?? catalog.upstreams?.[host.upstream];
+    const source = definitions.upstreams?.[host.upstream];
     if (!source?.skillPath) continue;
     const name = upstreamSkillName(source);
     if (names.has(name)) continue;
@@ -135,6 +152,7 @@ export function validateCatalog(rootDir, catalog) {
   const retiredSkills = catalog.skills.retiredSkills ?? [];
   const presetRoot = path.join(rootDir, "catalog", "permission-presets");
   const declaredPresetFiles = new Set();
+  const exposedUpstreams = new Map();
 
   for (const [name, preset] of Object.entries(catalog.skills.permissionPresets ?? {})) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
@@ -193,6 +211,17 @@ export function validateCatalog(rootDir, catalog) {
     }
     if (!isSafeRelativeSkillPath(upstream.skillPath)) {
       errors.push(`upstream ${name} has unsafe skillPath`);
+    } else {
+      const exposedName = upstreamSkillName(upstream);
+      if (!isSafeSkillName(exposedName)) {
+        errors.push(`upstream ${name} exposes invalid skill name: ${exposedName}`);
+      } else if (catalog.skills.skills[exposedName]) {
+        errors.push(`upstream ${name} exposes canonical skill name: ${exposedName}`);
+      } else if (exposedUpstreams.has(exposedName)) {
+        errors.push(`upstreams ${exposedUpstreams.get(exposedName)} and ${name} expose duplicate skill name: ${exposedName}`);
+      } else {
+        exposedUpstreams.set(exposedName, name);
+      }
     }
     if (typeof upstream.ref !== "string" || upstream.ref.trim() === "") {
       errors.push(`upstream ${name} is missing ref`);
@@ -265,15 +294,15 @@ export function listSkills(catalog) {
     installable: true,
     retrievable: true
   }));
-  const upstream = Object.entries(catalog.skills.upstreams ?? {}).map(([upstreamName, source]) => ({
-    name: upstreamSkillName(source),
+  const upstream = upstreamSkillEntries(catalog).map(entry => ({
+    name: entry.name,
     tags: [],
     exposure: "upstream",
     kind: "upstream",
     installable: false,
     retrievable: true,
-    upstream: upstreamName,
-    description: source.reason ?? "Explicitly retrievable upstream skill."
+    upstream: entry.upstream,
+    description: entry.source.reason ?? "Explicitly retrievable upstream skill."
   }));
   return [...canonical, ...upstream].sort((left, right) => left.name.localeCompare(right.name));
 }

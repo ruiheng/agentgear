@@ -8,6 +8,7 @@ import {
   listPacks,
   listSkills,
   loadCatalog,
+  upstreamSkillEntry,
   validateCatalog
 } from "./lib/catalog.mjs";
 import {
@@ -78,8 +79,8 @@ function usage() {
     "",
     "Commands:",
     "  list [--json]",
-    "  skill get [--json] [--agent-profile NAME] [--] ADDRESS...",
-    "  skill list [--json] [--] SKILL",
+    "  skill get [--agent-profile NAME] ADDRESS...",
+    "  skill list [--json] [SKILL]",
     "  migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]",
     "  build",
     "  install [--pack NAME] [--skill NAME] [--target NAME[,NAME]] [--scope global|project]",
@@ -574,12 +575,20 @@ function list(catalog, options) {
 function skillUsage() {
   return [
     "Usage:",
-    "  agentgear skill get [--json] [--agent-profile NAME] [--] ADDRESS...",
-    "  agentgear skill list [--json] [--] SKILL",
+    "  agentgear skill get [--agent-profile NAME] ADDRESS...",
+    "  agentgear skill list [--json] [SKILL]",
     "",
     "Addresses: SKILL loads its entry; SKILL/SELECTOR is exact; a bare SELECTOR",
     "searches all skills and must match exactly one slice. Multiple addresses are allowed.",
     "Agent-specific guidance is selected automatically; --agent-profile is a debug override.",
+    "",
+    "Examples:",
+    "  agentgear skill get review-code",
+    "  agentgear skill get review-code/review",
+    "  agentgear skill get action:review_requested",
+    "  agentgear skill get review-code/review review-code/continue-1",
+    "  agentgear skill list",
+    "  agentgear skill list review-code",
     "",
     "Skill text is stable. Remember and reuse it; reload only if you no longer remember it,",
     "the user asks, or there is evidence it changed."
@@ -592,21 +601,47 @@ function skill(catalog, argumentsList) {
     print(skillUsage());
     return;
   }
+  const optionBoundary = rawArguments.indexOf("--");
+  const optionArguments = optionBoundary === -1
+    ? rawArguments
+    : rawArguments.slice(0, optionBoundary);
+  if (operation === "get" && optionArguments.includes("--list")) {
+    fail("skill get has no --list option; use `agentgear skill list` or `agentgear skill list NAME`");
+  }
   const options = parseOptions(rawArguments, { allowAgentProfile: true });
   if (options.help) {
     print(skillUsage());
     return;
   }
-  if ([...options.supplied].some(option => !new Set(["json", "agent-profile"]).has(option))) {
-    fail("skill accepts only --json, --agent-profile, and positional addresses");
+  if (operation === "get" && options.json) {
+    fail("skill get does not support --json; output is always text");
   }
-  const [skillName, ...selectors] = options.positional;
-  if (!skillName) fail(`skill ${operation} requires ${operation === "get" ? "ADDRESS" : "SKILL"}`);
   if (operation !== "get" && options.agentProfile !== undefined) {
     fail("--agent-profile is only valid with skill get");
   }
+  const allowedOptions = operation === "list"
+    ? new Set(["json"])
+    : new Set(["agent-profile"]);
+  if ([...options.supplied].some(option => !allowedOptions.has(option))) {
+    fail(operation === "list"
+      ? "skill list accepts only --json and one positional skill"
+      : "skill get accepts only --agent-profile and positional addresses");
+  }
+  const [skillName, ...selectors] = options.positional;
+  if (!skillName && operation === "list") {
+    const records = listSkills(catalog);
+    if (options.json) {
+      print(JSON.stringify(records, null, 2));
+    } else if (records.length > 0) {
+      process.stdout.write(records.map(record => record.name).join("\n") + "\n");
+    }
+    return;
+  }
+  if (!skillName) {
+    fail("skill get requires at least one ADDRESS; try `agentgear skill list`");
+  }
   const index = buildSkillContentIndex(rootDir, catalog);
-  const upstream = catalog.skills.upstreams?.[skillName];
+  const upstream = upstreamSkillEntry(catalog, skillName);
   if (upstream) {
     if (operation === "list") {
       if (selectors.length) fail("skill list accepts exactly one SKILL");
@@ -623,18 +658,7 @@ function skill(catalog, argumentsList) {
     });
     if (!resource) throw new SkillContentError(`Unknown skill: ${skillName}. Run agentgear list for known skills.`, { kind: "unknown" });
     const overview = fs.readFileSync(path.join(resource.payload, "SKILL.md"), "utf8").replace(/\r\n/g, "\n").replace(/\n*$/, "") + "\n";
-    if (options.json) {
-      print(JSON.stringify({
-        selections: [{ address: skillName, owner: skillName, body: overview }],
-        resourceBase: resource.payload,
-        repository: resource.plan.source.repository,
-        ref: resource.plan.source.ref,
-        commit: resource.plan.source.commit,
-        contentDigest: resource.plan.source.contentDigest
-      }, null, 2));
-    } else {
-      process.stdout.write(`Base directory for this skill: ${resource.payload}\n${overview}`);
-    }
+    process.stdout.write(`Base directory for this skill: ${resource.payload}\n${overview}`);
     return;
   }
   if (operation === "list") {
@@ -659,22 +683,7 @@ function skill(catalog, argumentsList) {
   const agentProfiles = resolveAgentProfiles({ override: options.agentProfile });
   const selections = addresses.map(address =>
     appendAgentGuidance(index, resolveSkillAddress(index, address), agentProfiles));
-  if (options.json) {
-    const payload = {
-      selections: selections.map(record => ({
-        address: record.requestedAddress,
-        owner: record.owner,
-        selector: record.canonicalSelector,
-        aliases: record.aliases,
-        summary: record.summary,
-        body: record.body,
-        ...(record.agentAppendices ? { agentAppendices: record.agentAppendices } : {})
-      }))
-    };
-    print(JSON.stringify(payload, null, 2));
-  } else {
-    process.stdout.write(formatSkillText({ selections }));
-  }
+  process.stdout.write(formatSkillText({ selections }));
 }
 
 function migrate(catalog, argumentsList) {

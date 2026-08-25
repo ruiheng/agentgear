@@ -5,7 +5,7 @@ import childProcess from "node:child_process";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadCatalog, resolveSelection } from "../cli/lib/catalog.mjs";
+import { listSkills, loadCatalog, resolveSelection, upstreamSkillEntries, validateCatalog } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
 import { actionAliases, appendAgentGuidance, buildSkillContentIndex, formatSkillText, listSkillSelectors, resolveSkillAddress, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { detectAgentProfiles, resolveAgentProfiles } from "../providers/agent-profiles.mjs";
@@ -80,7 +80,15 @@ function contentIndexFixture({ skill = "fixture", selector = "start", aliases = 
   }
   return {
     temporary,
-    catalog: { skills: { skills: { [skill]: {} }, upstreams } }
+    catalog: {
+      skills: {
+        skills: { [skill]: {} },
+        upstreams: Object.fromEntries(Object.entries(upstreams).map(([name, source]) => [
+          name,
+          { skillPath: `skills/${name}`, ...source }
+        ]))
+      }
+    }
   };
 }
 
@@ -274,6 +282,37 @@ test("catalog exposes exactly the approved entry surface", () => {
   assert.equal(all.exposedSkills.includes("agent-deck"), false);
 });
 
+test("upstream public skill names are independent from internal identifiers and cannot collide", () => {
+  const catalog = structuredClone(loadCatalog(rootDir));
+  const source = catalog.skills.upstreams["agent-deck"];
+  delete catalog.skills.upstreams["agent-deck"];
+  catalog.skills.upstreams.documentationSource = source;
+  catalog.skills.sessionHosts["agent-deck"].upstream = "documentationSource";
+
+  assert.deepEqual(validateCatalog(rootDir, catalog), []);
+  assert.deepEqual(upstreamSkillEntries(catalog).map(entry => ({
+    upstream: entry.upstream,
+    name: entry.name
+  })), [{ upstream: "documentationSource", name: "agent-deck" }]);
+  const listed = listSkills(catalog).filter(skill => skill.kind === "upstream");
+  assert.deepEqual(listed.map(skill => ({ name: skill.name, upstream: skill.upstream })), [
+    { name: "agent-deck", upstream: "documentationSource" }
+  ]);
+  const index = buildSkillContentIndex(rootDir, catalog);
+  assert.equal(index.upstreamEntryAddresses.has("agent-deck"), true);
+  assert.equal(index.upstreamEntryAddresses.has("documentationSource"), false);
+
+  const duplicate = structuredClone(catalog);
+  duplicate.skills.upstreams.secondSource = { ...source, skillPath: "vendor/agent-deck" };
+  assert.equal(validateCatalog(rootDir, duplicate).some(error =>
+    /upstreams documentationSource and secondSource expose duplicate skill name: agent-deck/.test(error)), true);
+
+  const canonicalCollision = structuredClone(catalog);
+  canonicalCollision.skills.upstreams.documentationSource.skillPath = "skills/review-code";
+  assert.equal(validateCatalog(rootDir, canonicalCollision).some(error =>
+    /upstream documentationSource exposes canonical skill name: review-code/.test(error)), true);
+});
+
 test("plan dispatch is an internal protocol selector rather than a skill", () => {
   const internal = command(["skill", "get", "multi-agent-protocol/internal/dispatch-plan"]);
   assert.equal(internal.status, 0, internal.stderr);
@@ -302,18 +341,22 @@ test("refactor review requests use an internal selector rather than a skill", ()
 test("skill help states the stable guidance policy once", () => {
   const result = command(["skill", "--help"]);
   assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /skill get[^\n]*--json/);
+  assert.doesNotMatch(result.stdout, /skill get[^\n]*\[--\]/);
+  assert.match(result.stdout, /skill list \[--json\]/);
+  assert.match(result.stdout, /agentgear skill get action:review_requested/);
   assert.match(result.stdout, /Skill text is stable\. Remember and reuse it; reload only if you no longer remember it,/);
   assert.match(result.stdout, /the user asks, or there is evidence it changed\./);
 });
 
 test("check-waypost-messages loads its Codex appendix only for Codex", () => {
-  const generic = command(["skill", "get", "--json", "--agent-profile", "generic", "check-waypost-messages"]);
+  const generic = command(["skill", "get", "--agent-profile", "generic", "check-waypost-messages"]);
   assert.equal(generic.status, 0, generic.stderr);
-  assert.equal(JSON.parse(generic.stdout).selections[0].agentAppendices, undefined);
+  assert.doesNotMatch(generic.stdout, /## For Codex only/);
 
-  const codex = command(["skill", "get", "--json", "--agent-profile", "codex", "check-waypost-messages"]);
+  const codex = command(["skill", "get", "--agent-profile", "codex", "check-waypost-messages"]);
   assert.equal(codex.status, 0, codex.stderr);
-  assert.deepEqual(JSON.parse(codex.stdout).selections[0].agentAppendices, [{ agent: "codex" }]);
+  assert.match(codex.stdout, /## For Codex only/);
 });
 
 test("skill get resolves independent addresses, global fallbacks, and atomic errors", () => {
@@ -343,9 +386,31 @@ test("skill get resolves independent addresses, global fallbacks, and atomic err
   assert.equal(unknown.status, 2);
   assert.equal(unknown.stdout, "");
   assert.match(unknown.stderr, /Unknown skill address: not-real/);
+  assert.match(unknown.stderr, /agentgear skill list/);
+  assert.doesNotMatch(unknown.stderr, /skill list SKILL/);
+
+  const actionTypo = command(["skill", "get", "action:review-request"]);
+  assert.equal(actionTypo.status, 2);
+  assert.match(actionTypo.stderr, /agentgear skill get action:review_requested/);
+
+  const wrongOwner = command(["skill", "get", "delegate-code-task/review-request"]);
+  assert.equal(wrongOwner.status, 2);
+  assert.match(wrongOwner.stderr, /agentgear skill get review-request\/request/);
+  assert.match(wrongOwner.stderr, /agentgear skill list delegate-code-task/);
 });
 
 test("skill list is deterministic and emits directly resolvable owned addresses", () => {
+  const all = command(["skill", "list"]);
+  assert.equal(all.status, 0, all.stderr);
+  const names = all.stdout.trim().split("\n");
+  assert.deepEqual(names, [...names].sort());
+  assert.ok(names.includes("agent-deck"));
+  assert.ok(names.includes("review-code"));
+
+  const allJson = command(["skill", "list", "--json"]);
+  assert.equal(allJson.status, 0, allJson.stderr);
+  assert.deepEqual(JSON.parse(allJson.stdout).map(record => record.name), names);
+
   const result = command(["skill", "list", "check-waypost-messages", "--json"]);
   assert.equal(result.status, 0, result.stderr);
   const records = JSON.parse(result.stdout);
@@ -514,7 +579,7 @@ test("reference validation accepts upstream entries but rejects their subaddress
 
     fs.writeFileSync(overviewPath, "Run `agentgear skill get agent-deck/not-real`.\n");
     let errors = validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog));
-    assert.equal(errors.some(error => /Unknown skill: agent-deck/.test(error)), true);
+    assert.equal(errors.some(error => /Unknown skill address: agent-deck\/not-real/.test(error)), true);
 
     for (const addresses of ["agent-deck fixture/start", "fixture/start agent-deck"]) {
       fs.writeFileSync(overviewPath, `Run \`agentgear skill get ${addresses}\`.\n`);
@@ -583,17 +648,21 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
   assert.match(text.stdout, /Skills \(27\)/);
 });
 
-test("upstream skill get returns resourceBase from a verified runtime and rejects selectors", () => {
+test("upstream skill get returns a usable base directory from a verified runtime and rejects selectors", () => {
   const item = fixture();
   try {
     const runtime = path.join(item.env.XDG_DATA_HOME, "agentgear", "current");
     fs.cpSync(rootDir, runtime, {
       recursive: true,
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+        && !path.basename(source).startsWith(".dist-")
     });
     const source = path.join(runtime, "catalog", "skills.json");
     const catalog = JSON.parse(fs.readFileSync(source, "utf8"));
     const upstream = catalog.upstreams["agent-deck"];
+    delete catalog.upstreams["agent-deck"];
+    catalog.upstreams.documentationSource = upstream;
+    catalog.sessionHosts["agent-deck"].upstream = "documentationSource";
     const upstreamTree = path.join(runtime, "skills", "agent-deck");
     fs.mkdirSync(path.join(upstreamTree, "references"), { recursive: true });
     fs.writeFileSync(path.join(upstreamTree, "SKILL.md"), "# Agent Deck\nRead `references/guide.md`.\n");
@@ -605,22 +674,28 @@ test("upstream skill get returns resourceBase from a verified runtime and reject
       [path.join(runtime, "bin", "agentgear.mjs"), ...argumentsList],
       { cwd: runtime, env: { ...process.env, ...item.env }, encoding: "utf8" }
     );
+    const listed = runtimeCommand(["skill", "list"]);
+    assert.equal(listed.status, 0, listed.stderr);
+    assert.equal(listed.stdout.trim().split("\n").includes("agent-deck"), true);
+    assert.equal(listed.stdout.includes("documentationSource"), false);
+    const selectors = runtimeCommand(["skill", "list", "agent-deck", "--json"]);
+    assert.equal(selectors.status, 0, selectors.stderr);
+    assert.deepEqual(JSON.parse(selectors.stdout), []);
     const text = runtimeCommand(["skill", "get", "agent-deck"]);
     assert.equal(text.status, 0, text.stderr);
     assert.match(text.stdout, /^Base directory for this skill: /);
     assert.match(text.stdout, /# Agent Deck/);
-    const json = runtimeCommand(["skill", "get", "--json", "agent-deck"]);
-    assert.equal(json.status, 0, json.stderr);
-    const payload = JSON.parse(json.stdout);
-    assert.equal(payload.selections[0].address, "agent-deck");
-    assert.equal(payload.selections[0].body, "# Agent Deck\nRead `references/guide.md`.\n");
-    assert.equal(path.isAbsolute(payload.resourceBase), true);
-    assert.equal(fs.readFileSync(path.join(payload.resourceBase, "references", "guide.md"), "utf8"), "# Guide\n");
+    const resourceBase = /^Base directory for this skill: (.+)$/m.exec(text.stdout)?.[1];
+    assert.equal(path.isAbsolute(resourceBase), true);
+    assert.equal(fs.readFileSync(path.join(resourceBase, "references", "guide.md"), "utf8"), "# Guide\n");
     assert.equal(fs.existsSync(path.join(item.env.HOME, ".agents", "skills", "agent-deck")), false);
     assert.equal(fs.existsSync(path.join(item.env.XDG_STATE_HOME, "agentgear", "installs.json")), false);
     const unknown = runtimeCommand(["skill", "get", "agent-deck/not-real"]);
     assert.equal(unknown.status, 2);
     assert.equal(unknown.stdout, "");
+    const internalIdentifier = runtimeCommand(["skill", "get", "documentationSource"]);
+    assert.equal(internalIdentifier.status, 2);
+    assert.equal(internalIdentifier.stdout, "");
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }
@@ -635,6 +710,7 @@ test("skill get works through source, staged release, shared current, and copy-f
     fs.cpSync(rootDir, runtime, {
       recursive: true,
       filter: sourcePath => ![".git", "dist", "node_modules"].includes(path.basename(sourcePath))
+        && !path.basename(sourcePath).startsWith(".dist-")
     });
     const invokeRuntime = executable => childProcess.spawnSync(
       process.execPath,
@@ -679,10 +755,10 @@ test("action aliases are complete, direct, and selector validation resolves mult
   ];
   assert.deepEqual([...aliases.keys()].sort(), expected);
   const requestedAddresses = expected.map(token => `action:${token}`);
-  const result = command(["skill", "get", "--json", "--", ...requestedAddresses]);
+  const result = command(["skill", "get", "--", ...requestedAddresses]);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(
-    JSON.parse(result.stdout).selections.map(selection => selection.address),
+    [...result.stdout.matchAll(/^agentgear skill: (.+)$/gm)].map(match => match[1]),
     requestedAddresses
   );
   const discriminatorTokens = new Set([
@@ -964,7 +1040,14 @@ test("Action producer manifests cover every actual sender exactly once", () => {
 test("skill and migration option boundaries reject unrelated and unsafe input", () => {
   const skill = command(["skill", "get", "--scope", "global", "handoff"]);
   assert.equal(skill.status, 1);
-  assert.match(skill.stderr, /skill accepts only/);
+  assert.match(skill.stderr, /skill get accepts only/);
+  const jsonGet = command(["skill", "get", "--json", "handoff"]);
+  assert.equal(jsonGet.status, 1);
+  assert.equal(jsonGet.stdout, "");
+  assert.match(jsonGet.stderr, /skill get does not support --json; output is always text/);
+  const listThroughGet = command(["skill", "get", "--list"]);
+  assert.equal(listThroughGet.status, 1);
+  assert.match(listThroughGet.stderr, /use `agentgear skill list`/);
   const debugOverride = command(["skill", "get", "--agent-profile", "generic", "handoff"]);
   assert.equal(debugOverride.status, 0, debugOverride.stderr);
   const unknownProfile = command(["skill", "get", "--agent-profile", "not-real", "handoff"]);

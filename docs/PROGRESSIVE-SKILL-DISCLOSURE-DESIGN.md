@@ -82,13 +82,13 @@ Every Agentgear-owned canonical skills/<name>/SKILL.md must be at most 2 KiB. Ea
 Add one skill-centric retrieval namespace to the existing launcher:
 
 ~~~text
-agentgear skill get ADDRESS... [--json]
-agentgear skill list SKILL [--json]
+agentgear skill get ADDRESS...
+agentgear skill list [SKILL] [--json]
 ~~~
 
 There is no agentgear prompt command.
 
-Each positional argument is one independent address. Options may appear before the addresses, and `--` may end option parsing before the first address.
+Each positional argument is one independent address. Options may appear before the addresses. The parser retains the conventional `--` option boundary for compatibility, but help and agent-facing instructions omit it because every valid address begins with an alphanumeric character.
 
 An address equal to an Agentgear-owned skill name resolves to that skill's entry selector. An address containing `/` resolves the exact canonical or alias address. Any other address searches canonical selectors and aliases across all skills: one match succeeds, no match fails, and multiple matches fail with the fully qualified candidates. Every argument is resolved independently, so one invocation may combine slices from different skills.
 
@@ -104,11 +104,9 @@ Frontmatter is never included in a returned prompt body. Each body otherwise rem
 
 An owning skill may add best-effort agent guidance without changing the selector address or its base body. A Markdown file below that skill's `references/` directory declares exactly `agent` and `append-to-selector` in frontmatter. When the runtime recognizes the native command environment for that agent, it appends the file's body to the addressed base selector with one empty line between them. Detection failure returns the complete base selector unchanged. An appendix begins with a protective `## For <Agent> only` heading, cannot declare selector aliases or message headers, and must never be required for workflow correctness. The `--agent-profile` option exists only as a deterministic test and diagnostic override; normal prompt instructions do not pass it.
 
-skill list is the separate deterministic selector-discovery operation. Text mode writes every canonical address and alias owned by the named skill, one per line in bytewise order. Local addresses are qualified so every listed value can be passed directly to skill get; global aliases such as `action:<token>` remain bare. It accepts no query, returns an empty success for a skill with no selectors, and performs no fuzzy matching. JSON mode returns ordered records with requested skill, address in the selector field, canonical owner, canonical selector, aliases, and summary.
+skill list is the separate deterministic discovery operation. Without a skill name, text mode writes every canonical and upstream-retrievable skill name, one per line; JSON mode returns their catalog records. With a skill name, text mode writes every canonical address and alias owned by that skill, one per line in bytewise order. Local addresses are qualified so every listed value can be passed directly to skill get; global aliases such as `action:<token>` remain bare. Selector listing accepts no query, returns an empty success for a skill with no selectors, and performs no fuzzy matching. Its JSON mode returns ordered records with requested skill, address in the selector field, canonical owner, canonical selector, aliases, and summary.
 
-get --json returns one JSON document only after every address resolves. Its ordered `selections` records contain address, owner, selector, aliases, summary, body, and optional resourceBase. Repeated arguments produce repeated records. JSON mode does not use text block labels.
-
-Unknown or ambiguous addresses exit status 2 with a concise diagnostic and candidate or listing guidance; corrupt or duplicate runtime metadata exits status 1. Neither operation accepts a filesystem path, glob, URL, Waypost body, workflow state, or execution arguments.
+Unknown or ambiguous addresses exit status 2 with a concise diagnostic, up to three deterministic similarity-ranked candidates, and a directly executable discovery or selector-listing command. Candidates are diagnostic only: resolution remains exact, and unknown Action aliases are never silently corrected. Corrupt or duplicate runtime metadata exits status 1. Neither operation accepts a filesystem path, glob, URL, Waypost body, workflow state, or execution arguments.
 
 The selector index is built in memory for each command invocation by scanning skills/*/references/**/*.md below the runtime root containing the CLI. Traversal is contained, symlink-free, and deterministic. There is no generated index and no persistent cache. Source checkouts, staged physical releases, shared current launchers, and copy-fallback wrappers therefore use the same content model.
 
@@ -174,7 +172,7 @@ check-waypost-messages/SKILL.md remains directly installed and fits within the 2
 2. Call waypost_recv to claim one personal delivery.
 3. If no delivery is returned, report that and stop.
 4. Treat a body with no Action field as an ordinary personal message.
-5. For an explicit Action field, validate exactly one header, invoke `agentgear skill get -- action:<validated-token>`, and follow the returned selector body.
+5. For an explicit Action field, validate exactly one header, invoke `agentgear skill get action:<validated-token>`, and follow the returned selector body.
 6. Use fixed invalid-envelope or unknown-action selectors to reject routing errors to the reported sender.
 7. Before ending, settle every claim owned by the session.
 
@@ -188,7 +186,7 @@ The Action parser contract is exact:
 - The token must match [A-Za-z0-9][A-Za-z0-9_.-]{0,127}. Do not trim arbitrary payload into validity.
 - Never pass the raw body or raw header line to a shell or to skill lookup.
 - Construct the lookup key only after validation by prefixing the token with the constant action:.
-- Invoke the launcher through a structured argv-capable tool. When only a shell tool is available, use a fixed command template plus a grammar-validated token as one quoted argument after --; eval, command substitution, pipes, redirection, and concatenating an unvalidated string are forbidden.
+- Invoke the launcher through a structured argv-capable tool. When only a shell tool is available, use a fixed command template plus a grammar-validated token as one quoted argument; eval, command substitution, pipes, redirection, and concatenating an unvalidated string are forbidden.
 
 Malformed Action fields retrieve `agentgear skill get check-waypost-messages/invalid-envelope`. A syntactically valid but unregistered action produces status 2 and retrieves `agentgear skill get check-waypost-messages/unknown-action`. Both selectors send a fixed `message_rejected` response to the `sender_address` returned by Waypost, without copying the rejected body. Send success acknowledges the original delivery. A missing sender or failed response uses the exact executable and state directory returned by `waypost_status` to run CLI `fail`; it never releases the delivery. The `message_rejected` action never replies, so rejection cannot form a loop.
 
@@ -235,6 +233,8 @@ The upstream payload may still be provisioned while staging a new immutable mana
 
 The same skill get namespace handles the catalog-declared upstream agent-deck skill. It has no indexed selectors in this release; its skill-name address returns the upstream overview plus a usable resource base, while skill list agent-deck returns an empty list.
 
+An upstream declaration has two distinct identities: its catalog object key is an internal identifier used by session-host references and pin verification, while the basename of `skillPath` is its public skill address. Listing, selector discovery, retrieval, persisted materialization names, and prompt-reference validation all resolve through that public address. Catalog validation rejects duplicate public upstream addresses and collisions with canonical skill names; it does not require the internal identifier to equal the public address or require an explicitly retrievable upstream to belong to a session host.
+
 For agent-deck:
 
 - skill get accepts the catalog-declared upstream name as a lone address; an upstream sub-address or combination is unknown and fails status 2.
@@ -243,7 +243,6 @@ For agent-deck:
 - On each get, validate an existing materialization's manifest and complete tree digest. If absent, first reuse an already staged copy from a current or retained immutable runtime only when that runtime's catalog pin matches and the payload passes digest verification. Otherwise perform the existing sparse pinned fetch in a temporary checkout.
 - Copy the complete verified tree into a same-parent temporary materialization, verify it again, write the manifest, and atomically rename it into the final content-addressed path. Never write into a published immutable runtime. If a concurrent creator wins the rename, accept its result only after revalidation.
 - Text mode prepends the minimum launcher-controlled resource context required by this multi-file upstream skill: Base directory for this skill: <absolute payload path>. It then writes the exact upstream SKILL.md body with one trailing newline. This is not a generic address wrapper; it supplies the same base-directory fact the upstream instructions require for relative references and scripts.
-- JSON mode returns skill, overview, and resourceBase plus repository, ref, commit, and contentDigest. resourceBase is a deliberate public filesystem address because the retrieved multi-file skill requires it.
 - It does not copy or link the skill into any harness target, add an installation-state target record, alter exposure selection, or index third-party resources as canonical selectors.
 - Unknown or non-upstream skill names exit status 2. Fetch, digest, or runtime corruption fails status 1.
 - Because first materialization may require the network, it uses the existing upstream-fetch trust and permission boundary. A verified materialization is durable and offline-retrievable.
@@ -487,7 +486,7 @@ Later-round design review may use an ordinary diff between immutable design arti
 
 1. The user invokes check-waypost-messages; the harness loads only its small bootstrap.
 2. The agent claims one delivery and applies the strict envelope parser.
-3. For a valid token, it invokes `agentgear skill get -- action:<token>` with argv-safe arguments.
+3. For a valid token, it invokes `agentgear skill get action:<token>` with argv-safe arguments.
 4. The alias resolves directly to the owning executable selector, or to one tiny discriminator selector for the five branching actions listed above.
 5. The agent retrieves any additional addresses named by that stage, optionally batching cross-skill needs in one ordered invocation, executes them, and settles the claim.
 6. The agent reuses remembered guidance. It repeats the exact alias or selector lookup only when it no longer remembers that guidance, the user asks, or there is evidence it changed.
@@ -549,12 +548,12 @@ Installation state stays schema version 2. Canonical selector lookup creates no 
 
 Add or update tests for:
 
-1. selector frontmatter parsing, contained traversal, symlink rejection, deterministic selector listing, exact canonical and alias lookup, frontmatter removal, trailing-newline normalization, JSON output, and status 1 versus status 2 failures;
+1. selector frontmatter parsing, contained traversal, symlink rejection, deterministic selector listing, exact canonical and alias lookup, frontmatter removal, trailing-newline normalization, text output, and status 1 versus status 2 failures;
 2. agentgear skill get/list from a source checkout, staged physical release, shared current launcher, and copy-fallback wrapper, including skill-name entry lookup, one-address plain output, repeated and cross-skill caller order, exact `agentgear skill: <address>` labels, two-space body indentation, one empty line between blocks, and atomic unknown/ambiguous-address failure with empty stdout;
-3. agentgear skill get agent-deck from an existing verified materialization, a verified immutable-runtime copy, and a fresh pinned fetch, including the complete multi-file tree, required Base directory for this skill preamble, JSON resourceBase, atomic concurrent creation, offline reuse, digest/manifest corruption, unknown sub-address status 2, no mutation of published runtimes, no target write, and no installation-state exposure record;
+3. agentgear skill get agent-deck from an existing verified materialization, a verified immutable-runtime copy, and a fresh pinned fetch, including the complete multi-file tree, required Base directory for this skill preamble, atomic concurrent creation, offline reuse, digest/manifest corruption, unknown sub-address status 2, no mutation of published runtimes, no target write, and no installation-state exposure record;
 4. catalog exposure validation, global alias uniqueness, list --json reporting, and the exact fourteen-entry set with no implicit upstream host skill;
 5. the complete current action-alias set, with every exact message-template Action covered and every alias target present; include all current design, review, browser, plan, delegation, advisory, group, and result actions rather than representative samples;
-6. strict receiver parsing: missing, duplicate, case-variant, malformed, overlong, whitespace-bearing, and shell-metacharacter Action values never reach dynamic lookup; a valid token uses one argv element after --;
+6. strict receiver parsing: missing, duplicate, case-variant, malformed, overlong, whitespace-bearing, and shell-metacharacter Action values never reach dynamic lookup; a valid token uses one grammar-validated argv element;
 7. direct one-lookup routing for one-to-one actions and small discriminator routing only for browser_check_report, design_spec_review_requested, group_message_available, rework_required, work_accepted, and abort_iteration;
 8. implicit/default all installation exposing exactly the fourteen accepted canonical entry names on every target, and each explicit pack exposing exactly the entry subset in its resolved closure: core exposes its six entries, workflow exposes its eight entries, browser exposes the same eight through workflow inclusion, and explicit pack unions plus --skill expose the corresponding union; agent-deck is never implicit in any case;
 9. explicit installation of a prompt-only canonical skill, mixed pack-plus-skill retention for that invocation, explicit-skill-only additive behavior, and later authoritative pack withdrawal;

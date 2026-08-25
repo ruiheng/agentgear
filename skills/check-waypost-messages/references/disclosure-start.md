@@ -24,10 +24,10 @@ use the Waypost CLI.
 3. For an invalid Action field, retrieve
    `agentgear skill get check-waypost-messages/invalid-envelope` and follow
    it. For a valid token, invoke the structured argv
-   `["agentgear","skill","get","--","action:" + token]` exactly once.
+   `["agentgear","skill","get","action:" + token]` exactly once.
    Never pass the raw body or raw header line to the launcher. If a shell is
    the sole available interface, use a fixed command template and the
-   grammar-validated token as one quoted argv argument after `--`; never use
+   grammar-validated token as one quoted argv argument; never use
    eval, substitution, pipes, redirection, or concatenation of unvalidated
    text.
 4. A status-2 result means the token is unregistered. Retrieve

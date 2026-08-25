@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentProfiles } from "../../providers/agent-profiles.mjs";
+import { upstreamSkillEntries } from "./catalog.mjs";
 
 const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const SELECTOR = /^[a-z0-9][a-z0-9._\-/]*$/;
@@ -31,6 +32,94 @@ export class SkillContentError extends Error {
 
 function compareUtf8(left, right) {
   return Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
+
+function normalizeSuggestion(value) {
+  return value.toLowerCase().replaceAll("_", "-");
+}
+
+function editDistance(left, right) {
+  if (left === right) return 0;
+  if (left.length === 0) return right.length;
+  if (right.length === 0) return left.length;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+function textSimilarity(left, right) {
+  const maximum = Math.max(left.length, right.length);
+  return maximum === 0 ? 1 : 1 - editDistance(left, right) / maximum;
+}
+
+function suggestionTokens(value) {
+  return new Set(value.split(/[:/._-]+/).filter(Boolean));
+}
+
+function tokenSimilarity(left, right) {
+  const leftTokens = suggestionTokens(left);
+  const rightTokens = suggestionTokens(right);
+  let matches = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) matches += 1;
+  }
+  return matches / Math.max(leftTokens.size, rightTokens.size, 1);
+}
+
+function suggestionScore(requested, candidate) {
+  const normalizedRequested = normalizeSuggestion(requested);
+  const normalizedCandidate = normalizeSuggestion(candidate);
+  if (normalizedRequested === normalizedCandidate) return 10;
+  const requestedLeaf = normalizedRequested.split(/[:/]/).at(-1);
+  const candidateLeaf = normalizedCandidate.split(/[:/]/).at(-1);
+  const requestedOwner = normalizedRequested.includes("/") ? normalizedRequested.split("/", 1)[0] : null;
+  const candidateOwner = normalizedCandidate.includes("/") ? normalizedCandidate.split("/", 1)[0] : null;
+  return (
+    0.45 * textSimilarity(normalizedRequested, normalizedCandidate) +
+    0.35 * tokenSimilarity(normalizedRequested, normalizedCandidate) +
+    0.2 * textSimilarity(requestedLeaf, candidateLeaf) +
+    (requestedOwner !== null && requestedOwner === candidateOwner ? 0.1 : 0) +
+    (requestedLeaf === candidateLeaf ? 0.25 : 0) +
+    (candidateOwner !== null && requestedLeaf === candidateOwner ? 0.3 : 0)
+  );
+}
+
+function rankedSuggestions(requested, candidates, limit = 3) {
+  return [...new Set(candidates)]
+    .filter(candidate => candidate !== requested)
+    .map(candidate => ({ candidate, score: suggestionScore(requested, candidate) }))
+    .filter(record => record.score >= 0.38)
+    .sort((left, right) => right.score - left.score || compareUtf8(left.candidate, right.candidate))
+    .slice(0, limit)
+    .map(record => record.candidate);
+}
+
+function skillNameSuggestions(index, requested) {
+  return rankedSuggestions(requested, [...index.names, ...index.upstreamEntryAddresses]);
+}
+
+function skillAddressSuggestions(index, requested) {
+  return rankedSuggestions(requested, [
+    ...index.names,
+    ...index.upstreamEntryAddresses,
+    ...index.byCanonicalAddress.keys(),
+    ...index.byAliasAddress.keys()
+  ]);
+}
+
+function suggestionDiagnostic(candidates, operation) {
+  if (candidates.length === 0) return "";
+  return `\nDid you mean:\n${candidates.map(candidate => `  agentgear skill ${operation} ${candidate}`).join("\n")}`;
 }
 
 function escapeRegex(source) {
@@ -211,7 +300,7 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   const skillsRoot = path.resolve(rootDir, "skills");
   regularDirectory(skillsRoot, "Canonical skills directory");
   const names = canonicalSkillNames(catalog);
-  const upstreamEntryAddresses = new Set(Object.keys(catalog?.skills?.upstreams ?? {}));
+  const upstreamEntryAddresses = new Set(upstreamSkillEntries(catalog).map(entry => entry.name));
   const entryAddresses = new Set([...names, ...upstreamEntryAddresses]);
   const byCanonicalAddress = new Map();
   const byAliasAddress = new Map();
@@ -378,7 +467,6 @@ function parseSkillGetReference(source, filePath) {
     return { addresses: [] };
   }
   let cursor = 3;
-  if (argv[cursor] === "--json") cursor += 1;
   if (argv[cursor] === "--") cursor += 1;
   const addresses = argv.slice(cursor);
   if (addresses.length === 0) {
@@ -394,16 +482,34 @@ function parseSkillGetReference(source, filePath) {
 
 export function resolveSkillOverview(index, skill) {
   const overview = index.overviews.get(skill);
-  if (!overview) throw new SkillContentError(`Unknown skill: ${skill}. Run agentgear list for known skills.`, { kind: "unknown" });
+  if (!overview) {
+    const suggestions = suggestionDiagnostic(skillNameSuggestions(index, skill), "list");
+    throw new SkillContentError(
+      `Unknown skill: ${skill}.${suggestions}\nDiscover skills:\n  agentgear skill list`,
+      { kind: "unknown" }
+    );
+  }
   return overview;
 }
 
 export function resolveSkillSelector(index, skill, selector) {
-  resolveSkillOverview(index, skill);
+  if (!index.overviews.has(skill)) {
+    const requested = `${skill}/${selector}`;
+    const suggestions = suggestionDiagnostic(skillAddressSuggestions(index, requested), "get");
+    throw new SkillContentError(
+      `Unknown skill address: ${requested}.${suggestions}\nDiscover skills:\n  agentgear skill list`,
+      { kind: "unknown" }
+    );
+  }
   const canonical = index.byCanonicalAddress.get(`${skill}/${selector}`);
   const record = canonical ?? index.byAliasAddress.get(`${skill}/${selector}`);
   if (!record) {
-    throw new SkillContentError(`Unknown selector ${skill}/${selector}. Run agentgear skill list ${skill}.`, { kind: "unknown" });
+    const requested = `${skill}/${selector}`;
+    const suggestions = suggestionDiagnostic(skillAddressSuggestions(index, requested), "get");
+    throw new SkillContentError(
+      `Unknown selector: ${requested}.${suggestions}\nInspect selectors:\n  agentgear skill list ${skill}`,
+      { kind: "unknown" }
+    );
   }
   return selectorRecordForSkill(record, skill, selector);
 }
@@ -424,7 +530,10 @@ function bareSelectorCandidates(index, selector) {
 
 export function resolveSkillAddress(index, address) {
   if (!ALIAS_SELECTOR.test(address)) {
-    throw new SkillContentError(`Invalid skill address: ${address}`, { kind: "unknown" });
+    throw new SkillContentError(
+      `Invalid skill address: ${address}\nDiscover skills:\n  agentgear skill list`,
+      { kind: "unknown" }
+    );
   }
   if (index.overviews.has(address)) {
     const record = index.byCanonicalAddress.get(`${address}/start`) ?? index.byAliasAddress.get(`${address}/start`);
@@ -452,7 +561,11 @@ export function resolveSkillAddress(index, address) {
       { kind: "unknown" }
     );
   }
-  throw new SkillContentError(`Unknown skill address: ${address}. Run agentgear list or agentgear skill list SKILL.`, { kind: "unknown" });
+  const suggestions = suggestionDiagnostic(skillAddressSuggestions(index, address), "get");
+  throw new SkillContentError(
+    `Unknown skill address: ${address}.${suggestions}\nDiscover skills:\n  agentgear skill list`,
+    { kind: "unknown" }
+  );
 }
 
 function withoutTerminalNewline(body, label) {
