@@ -7,7 +7,7 @@ selector-summary: Run a linear sequence of independent intent framers.
 
 Initialize the flow. Per framer: explicit model, profile, or command wins; otherwise resolve `intent_framer`. Resolve independently; record exact model, launcher, focus. Resolver fallback is launch recovery only, never another framer. Never silently replace explicit choices or diversify. Unmappable exact model: ask.
 
-One fresh persistent session per framer; run serially. Read input and additions; unless explicitly independent, also read prior framer files in order. Prior frames remain contestable contributions, not accumulated truth. Focus selects a lens, never a premise or required conclusion. One artifact per framer; requester alone appends relayed exchanges.
+One fresh persistent session per framer; run serially. Read input and additions; unless explicitly independent, also read prior framer files in order. Prior frames remain contestable contributions, not accumulated truth. Focus directs attention; it must not supply premises, a domain model, a solution direction, or the conclusion. Unless the user selects a lens, use `none`; do not invent one from coordinator synthesis. One artifact per framer; requester alone appends relayed exchanges.
 
 Each artifact: an intent frame or material refinement. Preserve independent views; synthesize only through a user-selected framer.
 
