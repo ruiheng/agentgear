@@ -7,14 +7,16 @@ import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { listSkills, loadCatalog, resolveSelection, upstreamSkillEntries, validateCatalog } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
-import { actionAliases, appendAgentGuidance, buildSkillContentIndex, formatSkillText, listSkillSelectors, resolveSkillAddress, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { actionAliases, appendAgentGuidance, appendRuntimeGuidance, buildSkillContentIndex, formatSkillText, listSkillSelectors, resolveSkillAddress, runtimeCommandDefinitions, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { detectAgentProfiles, resolveAgentProfiles } from "../providers/agent-profiles.mjs";
+import { codeGraphIndexReady, readyExternalCommands, resolveExternalCommand } from "../providers/external-commands.mjs";
 import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
 import { actionHeader, loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entrySkills = [
   "assess-tech-design",
+  "browse-web",
   "check-waypost-messages",
   "code-health-review",
   "commit-staged",
@@ -27,6 +29,7 @@ const entrySkills = [
   "intent-framing",
   "refactor-review",
   "roundtable",
+  "search-files",
   "simplify-review",
   "tech-design-workflow"
 ];
@@ -44,9 +47,9 @@ function fixture() {
   };
 }
 
-function command(argumentsList, env = {}) {
+function command(argumentsList, env = {}, cwd = rootDir) {
   return childProcess.spawnSync(process.execPath, [path.join(rootDir, "bin", "agentgear.mjs"), ...argumentsList], {
-    cwd: rootDir,
+    cwd,
     env: { ...process.env, ...env },
     encoding: "utf8"
   });
@@ -97,6 +100,23 @@ function writeAgentAppendix(item, { selector = "start", agent = "codex", body = 
   fs.writeFileSync(filePath, [
     "---",
     `agent: ${agent}`,
+    `append-to-selector: ${selector}`,
+    "---",
+    "",
+    body
+  ].join("\n"));
+  return filePath;
+}
+
+function writeRuntimeAppendix(item, {
+  selector = "start",
+  command = "test-tool",
+  body = `## Runtime guidance: ${command}\n\nCandidate guidance.\n`
+} = {}) {
+  const filePath = path.join(item.temporary, "skills", "fixture", "references", `${selector}-${command}.md`);
+  fs.writeFileSync(filePath, [
+    "---",
+    `runtime-command: ${command}`,
     `append-to-selector: ${selector}`,
     "---",
     "",
@@ -216,6 +236,200 @@ test("agent appendix guards accept CommonMark heading indentation", () => {
   }
 });
 
+test("runtime appendices compose independent advisory candidates", () => {
+  const item = contentIndexFixture();
+  item.catalog.skills.runtimeCommands = {
+    "first-tool": {},
+    codegraph: { readiness: "codegraph-index" }
+  };
+  try {
+    writeRuntimeAppendix(item, { command: "codegraph" });
+    writeRuntimeAppendix(item, { command: "first-tool" });
+    const index = buildSkillContentIndex(item.temporary, item.catalog);
+    const base = resolveSkillAddress(index, "fixture");
+    const firstOnly = appendRuntimeGuidance(index, base, new Set(["first-tool"]));
+    const both = appendRuntimeGuidance(index, base, new Set(["first-tool", "codegraph"]));
+
+    assert.match(firstOnly.body, /Runtime guidance: first-tool/);
+    assert.doesNotMatch(firstOnly.body, /Runtime guidance: codegraph/);
+    assert.match(both.body, /Runtime guidance: first-tool/);
+    assert.match(both.body, /Runtime guidance: codegraph/);
+    const definitions = runtimeCommandDefinitions(index, [base]);
+    assert.deepEqual(new Set(definitions.map(definition => definition.name)), new Set(["first-tool", "codegraph"]));
+    assert.deepEqual(definitions.find(definition => definition.name === "codegraph"), {
+      name: "codegraph",
+      readiness: "codegraph-index"
+    });
+    assert.equal(appendRuntimeGuidance(index, base, new Set()), base);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("runtime appendices validate declarations, targets, guards, and workflow isolation", () => {
+  const cases = [
+    {
+      mutate(item) { writeRuntimeAppendix(item, { command: "missing-tool" }); },
+      buildError: /command missing-tool is not declared/
+    },
+    {
+      mutate(item) { writeRuntimeAppendix(item, { selector: "missing" }); },
+      buildError: /Runtime appendix targets an unknown selector: fixture\/missing/
+    },
+    {
+      mutate(item) { writeRuntimeAppendix(item, { body: "Runtime guidance without a guard.\n" }); },
+      validationError: /runtime appendix must start with "## Runtime guidance: test-tool"/
+    },
+    {
+      mutate(item) { writeRuntimeAppendix(item, { body: "## Runtime guidance: test-tool\n\nAction: unsafe\n" }); },
+      validationError: /runtime appendix cannot declare an Action header/
+    },
+    {
+      mutate(item) { writeRuntimeAppendix(item, { body: "## Runtime guidance: test-tool\n\nFrom: duplicate\n" }); },
+      validationError: /runtime appendix cannot declare a transport header/
+    }
+  ];
+
+  for (const itemCase of cases) {
+    const item = contentIndexFixture();
+    item.catalog.skills.runtimeCommands = { "test-tool": {} };
+    try {
+      itemCase.mutate(item);
+      if (itemCase.buildError) {
+        assert.throws(() => buildSkillContentIndex(item.temporary, item.catalog), itemCase.buildError);
+      } else {
+        const errors = validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog));
+        assert.equal(errors.some(error => itemCase.validationError.test(error)), true, errors.join("\n"));
+      }
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("runtime command catalog rejects malformed declarations and readiness", () => {
+  const cases = [
+    catalog => { catalog.skills.runtimeCommands = []; },
+    catalog => { catalog.skills.runtimeCommands["agent-browser"] = "available"; },
+    catalog => { catalog.skills.runtimeCommands["agent-browser"].extra = true; },
+    catalog => { catalog.skills.runtimeCommands["agent-browser"].readiness = "not-real"; },
+    catalog => { catalog.skills.runtimeCommands["agent-browser"].readiness = "codegraph-index"; },
+    catalog => { delete catalog.skills.runtimeCommands.codegraph.readiness; },
+    catalog => { catalog.skills.runtimeCommands["bad/name"] = {}; }
+  ];
+  for (const mutate of cases) {
+    const catalog = structuredClone(loadCatalog(rootDir));
+    mutate(catalog);
+    assert.notDeepEqual(validateCatalog(rootDir, catalog), []);
+  }
+});
+
+test("external command probes and CodeGraph requires a workspace index", () => {
+  const temporary = path.join(os.tmpdir(), "agentgear-runtime-command-test-fixture");
+  const bin = path.join(temporary, "bin");
+  const workspace = path.join(temporary, "workspace", "nested");
+  const agentBrowser = path.join(bin, "agent-browser");
+  const executableFiles = new Set([agentBrowser, path.join(bin, "codegraph")]);
+  const indexDirectories = new Set();
+  const indexFiles = new Set();
+  const env = { PATH: bin };
+  const stat = filePath => {
+    if (executableFiles.has(filePath) || indexFiles.has(filePath)) {
+      return { isFile: () => true, isDirectory: () => false };
+    }
+    if (indexDirectories.has(filePath)) {
+      return { isFile: () => false, isDirectory: () => true };
+    }
+    throw new Error("missing fixture path");
+  };
+  const access = filePath => {
+    if (!executableFiles.has(filePath)) throw new Error("not executable");
+  };
+  const probeOptions = { env, stat, access };
+
+  assert.equal(resolveExternalCommand("agent-browser", probeOptions), agentBrowser);
+  assert.equal(resolveExternalCommand("../agent-browser", probeOptions), null);
+  assert.equal(codeGraphIndexReady(workspace, { env, stat }), false);
+  assert.deepEqual(
+    readyExternalCommands(
+      [{ name: "agent-browser" }, { name: "codegraph", readiness: "codegraph-index" }],
+      { workdir: workspace, ...probeOptions }
+    ),
+    new Set(["agent-browser"])
+  );
+
+  const dataDirectory = path.join(temporary, "workspace", ".codegraph");
+  indexDirectories.add(dataDirectory);
+  assert.equal(codeGraphIndexReady(workspace, { env, stat }), false);
+  indexFiles.add(path.join(dataDirectory, "codegraph.db"));
+  assert.equal(codeGraphIndexReady(workspace, { env, stat }), true);
+  assert.deepEqual(
+    readyExternalCommands(
+      [{ name: "codegraph", readiness: "codegraph-index" }],
+      { workdir: workspace, ...probeOptions }
+    ),
+    new Set(["codegraph"])
+  );
+
+  indexDirectories.delete(dataDirectory);
+  indexFiles.delete(path.join(dataDirectory, "codegraph.db"));
+  const customDataDirectory = path.join(temporary, "workspace", ".codegraph-linux");
+  indexDirectories.add(customDataDirectory);
+  indexFiles.add(path.join(customDataDirectory, "codegraph.db"));
+  assert.equal(codeGraphIndexReady(workspace, { env: { ...env, CODEGRAPH_DIR: ".codegraph-linux" }, stat }), true);
+  assert.equal(codeGraphIndexReady(workspace, { env: { ...env, CODEGRAPH_DIR: " .codegraph-linux " }, stat }), true);
+  assert.equal(codeGraphIndexReady(workspace, { env: { ...env, CODEGRAPH_DIR: "../outside" }, stat }), false);
+
+  const embeddedDotsDirectory = path.join(temporary, "workspace", "foo..bar");
+  indexDirectories.add(embeddedDotsDirectory);
+  indexFiles.add(path.join(embeddedDotsDirectory, "codegraph.db"));
+  assert.equal(codeGraphIndexReady(workspace, { env: { ...env, CODEGRAPH_DIR: "foo..bar" }, stat }), false);
+
+  const spacedDataDirectory = path.join(temporary, "workspace", "bad name");
+  indexDirectories.add(spacedDataDirectory);
+  indexFiles.add(path.join(spacedDataDirectory, "codegraph.db"));
+  assert.equal(codeGraphIndexReady(workspace, { env: { ...env, CODEGRAPH_DIR: "bad name" }, stat }), true);
+});
+
+test("external command probes honor Windows PATHEXT without executing candidates", () => {
+  const executable = "C:\\Tools\\agent-browser.EXE";
+  const stat = filePath => {
+    if (filePath !== executable) throw new Error("missing fixture path");
+    return { isFile: () => true };
+  };
+  const access = filePath => {
+    if (filePath !== executable) throw new Error("not executable");
+  };
+  assert.equal(resolveExternalCommand("agent-browser", {
+    env: { PATH: "C:\\Tools;relative", PATHEXT: ".exe;.cmd" },
+    platform: "win32",
+    stat,
+    access
+  }), executable);
+});
+
+test("browse-web and search-files append only ready advisory candidates", () => {
+  const index = buildSkillContentIndex(rootDir, loadCatalog(rootDir));
+  const browse = resolveSkillAddress(index, "browse-web");
+  const browseBase = appendRuntimeGuidance(index, browse, new Set());
+  const browseCandidate = appendRuntimeGuidance(index, browse, new Set(["agent-browser"]));
+  assert.equal(browseBase, browse);
+  assert.match(browseCandidate.body, /Runtime guidance: agent-browser/);
+  assert.match(browseCandidate.body, /built-in browser capability/);
+  assert.doesNotMatch(browseCandidate.body, /curl/i);
+
+  const search = resolveSkillAddress(index, "search-files");
+  const partial = appendRuntimeGuidance(index, search, new Set(["fd", "rg", "mq", "yq", "ast-grep"]));
+  const complete = appendRuntimeGuidance(index, search, new Set(["fd", "rg", "mq", "yq", "ast-grep", "codegraph"]));
+  assert.match(partial.body, /Runtime guidance: fd/);
+  assert.match(partial.body, /Runtime guidance: rg/);
+  assert.match(partial.body, /Runtime guidance: mq/);
+  assert.match(partial.body, /Runtime guidance: yq/);
+  assert.match(partial.body, /Runtime guidance: ast-grep/);
+  assert.doesNotMatch(partial.body, /Runtime guidance: codegraph/);
+  assert.match(complete.body, /Runtime guidance: codegraph/);
+});
+
 test("bootstrap validation rejects metadata duplicated into the body", () => {
   const item = contentIndexFixture();
   const skillFile = path.join(item.temporary, "skills", "fixture", "SKILL.md");
@@ -277,7 +491,7 @@ test("catalog exposes exactly the approved entry surface", () => {
   assert.equal(catalog.skills.skills["dispatch-plan"], undefined);
   assert.equal(all.capabilitySkills.includes("dispatch-plan"), false);
   assert.deepEqual(resolveSelection(catalog, { packs: ["core"] }).exposedSkills.sort(), entrySkills.filter(skill => [
-    "assess-tech-design", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff"
+    "assess-tech-design", "browse-web", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff", "search-files"
   ].includes(skill)));
   assert.equal(all.exposedSkills.includes("agent-deck"), false);
 });
@@ -345,8 +559,7 @@ test("skill help states the stable guidance policy once", () => {
   assert.doesNotMatch(result.stdout, /skill get[^\n]*\[--\]/);
   assert.match(result.stdout, /skill list \[--json\]/);
   assert.match(result.stdout, /agentgear skill get action:review_requested/);
-  assert.match(result.stdout, /Skill text is stable\. Remember and reuse it; reload only if you no longer remember it,/);
-  assert.match(result.stdout, /the user asks, or there is evidence it changed\./);
+  assert.match(result.stdout, /Remember and reuse skill text unless its bootstrap states a refresh boundary\./);
 });
 
 test("check-waypost-messages loads its Codex appendix only for Codex", () => {
@@ -364,6 +577,11 @@ test("skill get resolves independent addresses, global fallbacks, and atomic err
   const entry = command(["skill", "get", "handoff"]);
   assert.equal(entry.status, 0, entry.stderr);
   assert.equal(entry.stdout.trim(), resolveSkillAddress(index, "handoff").body.trim());
+
+  const entryWithoutCandidates = command(["skill", "get", "handoff"], { PATH: "" });
+  const entryWithUnrelatedPath = command(["skill", "get", "handoff"], { PATH: "/unavailable-runtime-tools" });
+  assert.equal(entryWithoutCandidates.stdout, entryWithUnrelatedPath.stdout);
+  assert.equal(entryWithoutCandidates.stdout, entry.stdout);
 
   const alias = command(["skill", "get", "action:execute_delegate_task"]);
   assert.equal(alias.status, 0, alias.stderr);
@@ -640,12 +858,12 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
     retrievable: true,
     exposure: "upstream"
   });
-  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 27);
+  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 29);
 
   const text = command(["list"]);
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Upstream retrievable skills: agent-deck/);
-  assert.match(text.stdout, /Skills \(27\)/);
+  assert.match(text.stdout, /Skills \(29\)/);
 });
 
 test("upstream skill get returns a usable base directory from a verified runtime and rejects selectors", () => {
@@ -1100,7 +1318,7 @@ test("authoritative pack install exposes entries and writes managed markers", ()
 test("pack closures, explicit skills, and authoritative reconciliation expose the exact entry union", () => {
   const catalog = loadCatalog(rootDir);
   const core = entrySkills.filter(skill => [
-    "assess-tech-design", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff"
+    "assess-tech-design", "browse-web", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff", "search-files"
   ].includes(skill));
   const workflow = entrySkills.filter(skill => !core.includes(skill));
   assert.deepEqual(resolveSelection(catalog, { packs: ["core"] }).exposedSkills.sort(), core);

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Browse Web"
+  short_description: "Read or navigate web pages"
+  default_prompt: "Use $browse-web to inspect or navigate the requested web page with the best available capability."

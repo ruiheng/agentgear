@@ -46,12 +46,15 @@ import {
 import {
   SkillContentError,
   appendAgentGuidance,
+  appendRuntimeGuidance,
   buildSkillContentIndex,
   formatSkillText,
   listSkillSelectors,
-  resolveSkillAddress
+  resolveSkillAddress,
+  runtimeCommandDefinitions
 } from "./lib/skill-content.mjs";
 import { resolveAgentProfiles } from "../providers/agent-profiles.mjs";
+import { readyExternalCommands } from "../providers/external-commands.mjs";
 import { retireLegacyAgyDiscovery } from "../providers/legacy-agy-skill-discovery.mjs";
 import { migrateLegacySkills } from "./lib/legacy-skill-migration.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
@@ -590,8 +593,7 @@ function skillUsage() {
     "  agentgear skill list",
     "  agentgear skill list review-code",
     "",
-    "Skill text is stable. Remember and reuse it; reload only if you no longer remember it,",
-    "the user asks, or there is evidence it changed."
+    "Remember and reuse skill text unless its bootstrap states a refresh boundary."
   ].join("\n");
 }
 
@@ -681,8 +683,15 @@ function skill(catalog, argumentsList) {
   if (operation !== "get") fail(`Unknown skill command: ${operation}`);
   const addresses = options.positional;
   const agentProfiles = resolveAgentProfiles({ override: options.agentProfile });
-  const selections = addresses.map(address =>
-    appendAgentGuidance(index, resolveSkillAddress(index, address), agentProfiles));
+  const resolvedSelections = addresses.map(address => resolveSkillAddress(index, address));
+  const readyCommands = readyExternalCommands(runtimeCommandDefinitions(index, resolvedSelections), {
+    workdir: process.cwd()
+  });
+  const selections = resolvedSelections.map(selection => appendRuntimeGuidance(
+    index,
+    appendAgentGuidance(index, selection, agentProfiles),
+    readyCommands
+  ));
   process.stdout.write(formatSkillText({ selections }));
 }
 

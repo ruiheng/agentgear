@@ -3,7 +3,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isCommandAvailable } from "../../providers/external-commands.mjs";
 import { upstreamSkillEntries, upstreamSkillEntry, upstreamSkillPlans } from "./catalog.mjs";
+
+export { isCommandAvailable } from "../../providers/external-commands.mjs";
 
 const UPSTREAM_DIGEST_PREFIX = "sha256-v1:";
 const UPSTREAM_DIGEST_HEADER = "agentgear-upstream-content-v1\0";
@@ -18,26 +21,6 @@ function pathInside(parent, candidate) {
     && relative !== ".."
     && !relative.startsWith(`..${path.sep}`)
     && !path.isAbsolute(relative);
-}
-
-export function isCommandAvailable(command, env = process.env) {
-  const extensions = process.platform === "win32" && !path.extname(command)
-    ? String(env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
-      .split(";")
-      .filter(Boolean)
-    : [""];
-  for (const directory of String(env.PATH || "").split(path.delimiter)) {
-    if (!directory) continue;
-    for (const extension of extensions) {
-      try {
-        fs.accessSync(path.join(directory, command + extension), fs.constants.X_OK);
-        return true;
-      } catch {
-        // Continue searching.
-      }
-    }
-  }
-  return false;
 }
 
 function runGit(argumentsList, env, { streamProgress = false } = {}) {

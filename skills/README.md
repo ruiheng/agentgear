@@ -49,6 +49,14 @@ Explicit `$skill` use still works. Keep receiver, protocol, and workflow skills
 implicit: they may need to run from an inbound action. Codex's generic validator
 currently rejects the Claude-only field; retain it as a cross-harness exception.
 
+## Environment-Adaptive Behaviors
+
+`browse-web` and `search-files` are normal implicit behavior skills. Their base
+selectors remain complete without external CLIs; runtime appendices may add
+advisory candidates declared in catalog `runtimeCommands`. Their bootstraps
+refresh at the start of each matching task turn. See
+`docs/ENVIRONMENT-ADAPTIVE-SKILL-GUIDANCE.md` for the composition contract.
+
 ## Roles
 
 - Agent 1, **Planner** (`delegate-task`, `delegate-code-task`, `execute-plan`, `planner-closeout`): planning agent, chooses an execution surface, prepares execution briefs, can execute a supervisor-assigned task list inside one workspace, and completes planner-side closeout

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentProfiles } from "../../providers/agent-profiles.mjs";
-import { upstreamSkillEntries } from "./catalog.mjs";
+import { runtimeCommands, upstreamSkillEntries } from "./catalog.mjs";
 
 const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const SELECTOR = /^[a-z0-9][a-z0-9._\-/]*$/;
@@ -237,6 +237,23 @@ function parseAgentAppendixFrontmatter(source, filePath, owner) {
   return { owner, agent, selector, body, filePath };
 }
 
+function parseRuntimeAppendixFrontmatter(source, filePath, owner) {
+  const { fields, body } = splitFrontmatter(source, filePath);
+  const allowed = new Set(["runtime-command", "append-to-selector"]);
+  for (const key of Object.keys(fields)) {
+    if (!allowed.has(key)) throw new SkillContentError(`Unsupported runtime appendix frontmatter field ${key}: ${filePath}`);
+  }
+  const command = fields["runtime-command"];
+  const selector = fields["append-to-selector"];
+  if (!command || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(command)) {
+    throw new SkillContentError(`Invalid runtime-command in ${filePath}`);
+  }
+  if (!selector || !SELECTOR.test(selector)) {
+    throw new SkillContentError(`Invalid append-to-selector in ${filePath}`);
+  }
+  return { owner, command, selector, body, filePath };
+}
+
 function walkMarkdown(root, relative = "") {
   const directory = path.join(root, relative);
   regularDirectory(directory, "Selector references directory");
@@ -306,10 +323,17 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
   const byAliasAddress = new Map();
   const byOwner = new Map();
   const agentAppendices = new Map();
+  const runtimeAppendices = new Map();
   const overviews = new Map();
   const referencedInvocations = [];
   const referenceErrors = [];
   const documentedScripts = [];
+  let commandDefinitions;
+  try {
+    commandDefinitions = runtimeCommands(catalog);
+  } catch (error) {
+    throw new SkillContentError(`Invalid runtime guidance catalog: ${error.message}`);
+  }
 
   for (const name of names) {
     const skillRoot = path.resolve(skillsRoot, name);
@@ -345,13 +369,29 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
       if (!source.replace(/\r\n/g, "\n").startsWith("---\n")) continue;
       const fields = splitFrontmatter(source, filePath).fields;
       const isSelector = Object.hasOwn(fields, "skill-selector");
-      const isAgentAppendix = Object.hasOwn(fields, "append-to-selector") || Object.hasOwn(fields, "agent");
-      if (!isSelector && !isAgentAppendix) continue;
+      const isRuntimeAppendix = Object.hasOwn(fields, "runtime-command");
+      const isAgentAppendix = Object.hasOwn(fields, "agent")
+        || (Object.hasOwn(fields, "append-to-selector") && !isRuntimeAppendix);
+      if (!isSelector && !isAgentAppendix && !isRuntimeAppendix) continue;
       if (Buffer.byteLength(source) > MAX_SLICE_BYTES) {
         throw new SkillContentError(`Prompt slice exceeds ${MAX_SLICE_BYTES} bytes: ${filePath}`);
       }
-      if (isSelector && isAgentAppendix) {
-        throw new SkillContentError(`A prompt file cannot be both a selector and an agent appendix: ${filePath}`);
+      if ((isSelector && isAgentAppendix) || (isSelector && isRuntimeAppendix) || (isAgentAppendix && isRuntimeAppendix)) {
+        throw new SkillContentError(`A prompt file cannot mix selector, agent appendix, and runtime appendix metadata: ${filePath}`);
+      }
+      if (isRuntimeAppendix) {
+        const appendix = parseRuntimeAppendixFrontmatter(source, filePath, name);
+        if (!commandDefinitions.has(appendix.command)) {
+          throw new SkillContentError(`Runtime appendix command ${appendix.command} is not declared: ${filePath}`);
+        }
+        const targetAddress = `${name}/${appendix.selector}`;
+        const byCommand = runtimeAppendices.get(targetAddress) ?? new Map();
+        if (byCommand.has(appendix.command)) {
+          throw new SkillContentError(`Duplicate runtime appendix for ${targetAddress} and ${appendix.command}`);
+        }
+        byCommand.set(appendix.command, appendix);
+        runtimeAppendices.set(targetAddress, byCommand);
+        continue;
       }
       if (isAgentAppendix) {
         const appendix = parseAgentAppendixFrontmatter(source, filePath, name);
@@ -395,6 +435,12 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
     }
     agentAppendices.set(targetAddress, new Map([...byAgent].sort(([left], [right]) => compareUtf8(left, right))));
   }
+  for (const [targetAddress, byCommand] of runtimeAppendices) {
+    if (!byCanonicalAddress.has(targetAddress)) {
+      throw new SkillContentError(`Runtime appendix targets an unknown selector: ${targetAddress}`);
+    }
+    runtimeAppendices.set(targetAddress, new Map([...byCommand].sort(([left], [right]) => compareUtf8(left, right))));
+  }
   for (const name of names) {
     const entryAddress = `${name}/start`;
     const entry = byCanonicalAddress.get(entryAddress) ?? byAliasAddress.get(entryAddress);
@@ -425,6 +471,11 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
       collectReferences(appendix.body, appendix.filePath, referencedInvocations, referenceErrors, documentedScripts);
     }
   }
+  for (const byCommand of runtimeAppendices.values()) {
+    for (const appendix of byCommand.values()) {
+      collectReferences(appendix.body, appendix.filePath, referencedInvocations, referenceErrors, documentedScripts);
+    }
+  }
 
   return {
     rootDir: path.resolve(rootDir),
@@ -435,6 +486,8 @@ export function buildSkillContentIndex(rootDir, catalog, { validateBootstraps = 
     byAliasAddress,
     byOwner,
     agentAppendices,
+    runtimeAppendices,
+    runtimeCommands: commandDefinitions,
     upstreamEntryAddresses,
     referencedInvocations,
     referenceErrors,
@@ -597,6 +650,37 @@ export function appendAgentGuidance(index, selection, agentProfiles = []) {
   };
 }
 
+export function runtimeCommandDefinitions(index, selections) {
+  const commands = new Map();
+  for (const selection of selections) {
+    const byCommand = index.runtimeAppendices.get(`${selection.owner}/${selection.canonicalSelector}`);
+    for (const name of byCommand?.keys() ?? []) {
+      commands.set(name, index.runtimeCommands.get(name));
+    }
+  }
+  return [...commands.values()];
+}
+
+export function appendRuntimeGuidance(index, selection, readyCommands = new Set()) {
+  const byCommand = index.runtimeAppendices.get(`${selection.owner}/${selection.canonicalSelector}`);
+  if (!byCommand) return selection;
+  const appendices = [...byCommand]
+    .filter(([command]) => readyCommands.has(command))
+    .map(([, appendix]) => appendix);
+  if (appendices.length === 0) return selection;
+  const bodies = [
+    withoutTerminalNewline(selection.body, "Base selector body"),
+    ...appendices.map(appendix => {
+      const body = withoutTerminalNewline(appendix.body, "Runtime appendix body");
+      return body.startsWith("\n") ? body.slice(1) : body;
+    })
+  ];
+  return {
+    ...selection,
+    body: bodies.join("\n\n") + "\n"
+  };
+}
+
 export function listSkillSelectors(index, skill) {
   resolveSkillOverview(index, skill);
   const records = [];
@@ -655,7 +739,8 @@ function validateMarkdownFences(filePath, source) {
 export function validateSkillContentIndex(index) {
   const errors = [...index.referenceErrors];
   const appendices = [...index.agentAppendices.values()].flatMap(byAgent => [...byAgent.values()]);
-  for (const record of [...index.overviews.values(), ...index.byCanonicalAddress.values(), ...appendices]) {
+  const runtimeAppendices = [...index.runtimeAppendices.values()].flatMap(byCommand => [...byCommand.values()]);
+  for (const record of [...index.overviews.values(), ...index.byCanonicalAddress.values(), ...appendices, ...runtimeAppendices]) {
     errors.push(...validateMarkdownFences(record.filePath, record.body));
   }
   for (const appendix of appendices) {
@@ -670,6 +755,20 @@ export function validateSkillContentIndex(index) {
     }
     for (const candidate of markdownTransportHeaderLines(appendix.body)) {
       errors.push(`${appendix.filePath}:${candidate.lineNumber}: agent appendix cannot declare a transport header.`);
+    }
+  }
+  for (const appendix of runtimeAppendices) {
+    const firstLine = appendix.body.split("\n").find(line => line.trim() !== "");
+    const expectedHeading = `## Runtime guidance: ${appendix.command}`;
+    const headingPattern = new RegExp(`^ {0,3}${escapeRegex(expectedHeading)}[\t ]*$`);
+    if (firstLine === undefined || !headingPattern.test(firstLine)) {
+      errors.push(`${appendix.filePath}: runtime appendix must start with ${JSON.stringify(expectedHeading)}.`);
+    }
+    for (const candidate of markdownActionTemplateLines(appendix.filePath, appendix.body)) {
+      errors.push(`${appendix.filePath}:${candidate.lineNumber}: runtime appendix cannot declare an Action header.`);
+    }
+    for (const candidate of markdownTransportHeaderLines(appendix.body)) {
+      errors.push(`${appendix.filePath}:${candidate.lineNumber}: runtime appendix cannot declare a transport header.`);
     }
   }
   for (const invocation of index.referencedInvocations) {

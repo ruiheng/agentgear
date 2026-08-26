@@ -7,10 +7,11 @@ This repository has three boundaries:
 3. `dist/` is generated installation material and is never edited by hand.
 
 `catalog/skills.json` owns pack membership, external command requirements,
-upstream dependencies, and the finite list of skill names retired during
-pre-release migrations. It is intentionally separate from `SKILL.md` metadata:
-frontmatter decides when an agent loads a skill; the catalog decides how a human
-installs and operates a collection.
+optional runtime-command declarations, upstream dependencies, and the
+finite list of skill names retired during pre-release migrations. It is
+intentionally separate from `SKILL.md` metadata: frontmatter decides when an
+agent loads a skill; the catalog decides how a human installs and operates a
+collection and which finite environment facts may affect selector composition.
 
 `config/tool-profiles.toml` maps workflow roles to ordered launch candidates.
 Each candidate has a full command line and may carry a user-maintained
@@ -41,6 +42,15 @@ dispatch.
 Runtime scripts belong to their owning skill and use Node.js, rather than a
 shell-specific runtime. Build, installer, and test scripts belong at the
 repository root so an installed skill remains self-contained.
+
+## Environment-adaptive skill guidance
+
+Canonical selectors may own advisory runtime appendices under their
+`skills/<name>/references/` tree. The catalog declares the finite command set,
+Markdown owns the agent-facing advice, and `providers/external-commands.mjs`
+observes readiness without executing candidates. Missing tools leave the base
+selector unchanged. The complete contract is documented in
+`docs/ENVIRONMENT-ADAPTIVE-SKILL-GUIDANCE.md`.
 
 ## Installation channels
 

@@ -130,7 +130,8 @@ That includes:
 - one rule should have one owner
 - repeated wording across protocol, action skill, message template, and README will drift
 - if a rule must be repeated, keep one source authoritative and keep the repeat minimal
-- Agentgear skill text is stable; tell agents to remember and reuse loaded guidance, and reload only when they no longer remember it, the user asks, or there is evidence it changed
+- Agentgear skill text is stable by default; tell agents to remember and reuse loaded guidance, and reload only when they no longer remember it, the user asks, or there is evidence it changed
+- an environment-adaptive skill may state its own narrower refresh boundary when current PATH/workspace evidence materially changes its advice; keep that exception local to the owning bootstrap
 
 Repeated near-duplicates are dangerous because the model may synthesize a third meaning.
 
@@ -168,6 +169,30 @@ Additional guidance for a known Codex behavior.
 - use the required `For <agent> only` heading so accidental loading is harmless
 - do not declare message headers, selector aliases, or workflow behavior in an appendix
 - runtime agent detection may omit an appendix and must never be required for correctness
+
+### 15. Keep environment guidance advisory
+
+Put candidate-specific guidance in a separate Markdown file below the owning
+skill's `references/` directory:
+
+```markdown
+---
+runtime-command: ast-grep
+append-to-selector: start
+---
+
+## Runtime guidance: ast-grep
+
+Candidate-specific advice.
+```
+
+- declare the command in catalog `runtimeCommands`
+- keep the target selector complete when every candidate appendix is absent
+- describe the tool as a useful candidate, not a mandatory choice; a built-in capability may be better
+- do not turn command availability into permission, trust, or authorization
+- use a readiness predicate only when the catalog/provider explicitly supports the required workspace state
+- never create external state such as a CodeGraph index merely to make a candidate ready
+- do not write fallback tool names into the base selector unless the behavior genuinely requires that named tool
 
 ## Common Failure Modes
 
