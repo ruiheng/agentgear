@@ -1066,13 +1066,13 @@ test("skill and migration option boundaries reject unrelated and unsafe input", 
     assert.equal(rejected.status, 1, argumentsList.join(" "));
     assert.match(rejected.stderr, /Unknown option: --agent-profile/);
   }
-  const linkProfile = childProcess.spawnSync(
+  const sourceInstallProfile = childProcess.spawnSync(
     process.execPath,
-    [path.join(rootDir, "bin", "agentgear-link.mjs"), "--agent-profile", "generic"],
+    [path.join(rootDir, "bin", "agentgear-source-install.mjs"), "--agent-profile", "generic"],
     { cwd: rootDir, env: process.env, encoding: "utf8" }
   );
-  assert.equal(linkProfile.status, 1);
-  assert.match(linkProfile.stderr, /Unknown option: --agent-profile/);
+  assert.equal(sourceInstallProfile.status, 1);
+  assert.match(sourceInstallProfile.stderr, /Unknown option: --agent-profile/);
   const migration = command(["migrate", "legacy-skills", "--dest", "relative"]);
   assert.equal(migration.status, 1);
   assert.match(migration.stderr, /absolute normalized path/);

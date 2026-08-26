@@ -1,5 +1,0 @@
-This marker identifies an Agentgear source checkout.
-
-agentgear-link requires it and this file is intentionally excluded from the npm
-package, so the developer-only command cannot turn an installed release into a
-development source.

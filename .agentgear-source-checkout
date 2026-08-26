@@ -1,0 +1,4 @@
+This marker identifies an Agentgear source checkout.
+
+agentgear-source-install requires it and this file is intentionally excluded
+from the npm package, so an installed release cannot act as a source checkout.

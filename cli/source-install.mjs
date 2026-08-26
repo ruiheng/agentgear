@@ -10,7 +10,7 @@ import { parseOptions } from "./lib/options.mjs";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
-const DEVELOPMENT_MARKER = ".agentgear-dev-checkout";
+const SOURCE_CHECKOUT_MARKER = ".agentgear-source-checkout";
 
 function print(message = "") {
   process.stdout.write(String(message) + "\n");
@@ -18,10 +18,10 @@ function print(message = "") {
 
 function usage(catalog) {
   return [
-    "Usage: agentgear-link [options]",
+    "Usage: agentgear-source-install [options]",
     "",
-    "Snapshot this development checkout into Agentgear's shared runtime.",
-    "Rerun the same command from this checkout after local edits.",
+    "Install this source checkout into Agentgear's shared runtime.",
+    "Rerun the same command from this checkout after source changes.",
     "",
     "Options:",
     "  --pack NAME                 Install one or more packs (default: all).",
@@ -43,19 +43,19 @@ function usage(catalog) {
   ].join("\n");
 }
 
-function requireDevelopmentCheckout() {
+function requireSourceCheckout() {
   if (isReleaseSnapshot(rootDir)) {
     throw new Error(
-      "agentgear-link must be run from a development checkout, not a staged runtime. "
-      + "Run: node /path/to/agentgear/bin/agentgear-link.mjs ..."
+      "agentgear-source-install must be run from a source checkout, not a staged runtime. "
+      + "Run: node /path/to/agentgear/bin/agentgear-source-install.mjs ..."
     );
   }
-  const markerPath = path.join(rootDir, DEVELOPMENT_MARKER);
+  const markerPath = path.join(rootDir, SOURCE_CHECKOUT_MARKER);
   const markerInfo = fs.lstatSync(markerPath, { throwIfNoEntry: false });
   if (markerInfo?.isFile() && !markerInfo.isSymbolicLink()) return;
   throw new Error(
-    "agentgear-link must be run from a development checkout. "
-    + "Clone Agentgear, then run: node /path/to/agentgear/bin/agentgear-link.mjs ..."
+    "agentgear-source-install must be run from a source checkout. "
+    + "Clone Agentgear, then run: node /path/to/agentgear/bin/agentgear-source-install.mjs ..."
   );
 }
 
@@ -67,14 +67,14 @@ export function main(argumentsList = process.argv.slice(2)) {
     return;
   }
   if (options.purge) throw new Error("--purge is only valid with agentgear uninstall");
-  if (options.json) throw new Error("--json is not supported by agentgear-link");
+  if (options.json) throw new Error("--json is not supported by agentgear-source-install");
   if (options.positional.length > 0) throw new Error("Unknown argument: " + options.positional[0]);
-  requireDevelopmentCheckout();
+  requireSourceCheckout();
   installSelection({
     catalog,
     options,
     sourceRoot: rootDir,
-    development: true,
+    sourceInstall: true,
     print
   });
 }
@@ -86,7 +86,7 @@ if (invokedFile === thisFile) {
   try {
     main();
   } catch (error) {
-    process.stderr.write("agentgear-link: " + error.message + "\n");
+    process.stderr.write("agentgear-source-install: " + error.message + "\n");
     process.exitCode = 1;
   }
 }

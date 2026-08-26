@@ -8,6 +8,8 @@ import { buildSkillContentIndex, validateSkillContentIndex } from "./skill-conte
 const RUNTIME_MARKER = ".agentgear-runtime.json";
 const MARKER_VERSION = 1;
 const STATE_VERSION = 2;
+export const SOURCE_CHANNEL = "source";
+export const SOURCE_CHANNEL_STATE_TOKEN = "development";
 const FINGERPRINT_PREFIX = "sha256-v1:";
 const FINGERPRINT_HEADER = "agentgear-fingerprint-v1\0";
 const FINGERPRINT_PATTERN = /^sha256-v1:[0-9a-f]{64}$/;
@@ -690,7 +692,13 @@ export function validateStateGrammar(state, env = process.env) {
   if (state.schemaVersion !== STATE_VERSION) {
     return invalid(`unsupported schemaVersion ${JSON.stringify(state.schemaVersion)}; only ${STATE_VERSION} is valid`);
   }
-  if (!(state.channel === null || state.channel === "release" || state.channel === "development")) {
+  // Schema-v2 keeps the historical token so preceding checkout revisions can
+  // read newly written state. `source` is accepted only to repair state
+  // produced by the short-lived rename transition.
+  if (!(state.channel === null
+    || state.channel === "release"
+    || state.channel === SOURCE_CHANNEL
+    || state.channel === SOURCE_CHANNEL_STATE_TOKEN)) {
     return invalid(`invalid channel ${JSON.stringify(state.channel)}`);
   }
   if (!Array.isArray(state.releases)) return invalid("releases must be an array");
@@ -813,7 +821,7 @@ function hasLinkedSkillRecords(state) {
   return false;
 }
 
-// Coherence gate for install, update, and agentgear-link. Runs after grammar
+// Coherence gate for install, update, and agentgear-source-install. Runs after grammar
 // validation and before the channel gate, staging, or any mutation.
 export function checkStateCoherence(state, env = process.env) {
   const paths = computePaths(env);
@@ -867,9 +875,12 @@ export function checkStateCoherence(state, env = process.env) {
 
 export function checkChannelGate(state, requestedChannel) {
   if (state === null || state.channel === null) return;
-  if (state.channel !== requestedChannel) {
+  const currentChannel = state.channel === SOURCE_CHANNEL_STATE_TOKEN
+    ? SOURCE_CHANNEL
+    : state.channel;
+  if (currentChannel !== requestedChannel) {
     throw new Error(
-      `Refusing to switch channel from ${JSON.stringify(state.channel)} to `
+      `Refusing to switch channel from ${JSON.stringify(currentChannel)} to `
       + `${JSON.stringify(requestedChannel)}; run agentgear uninstall --purge before changing channels`
     );
   }
@@ -904,7 +915,7 @@ export function checkCurrentForPublication(state, env = process.env, pendingRele
     return {
       ok: false,
       reason: `Managed runtime link is dangling because its inventoried release is absent: ${target}; `
-        + "install, update, and agentgear-link cannot recover it (only full purge can)"
+        + "install, update, and agentgear-source-install cannot recover it (only full purge can)"
     };
   }
   return { ok: false, reason: `Refusing to replace unmanaged runtime path: ${paths.currentPath}` };
@@ -1032,13 +1043,13 @@ function replaceCurrentLink(currentPath, target) {
   }
 }
 
-export function probeDirectoryLinks(runtime, targets, development, env = process.env) {
+export function probeDirectoryLinks(runtime, targets, sourceInstall, env = process.env) {
   const paths = computePaths(env);
-  // Development shared links need directory links at every selected
+  // Source-install shared links need directory links at every selected
   // destination parent (the target root that will hold each skill link);
   // public release skills are copies, so only the data root's
   // current-publication capability decides the release mode.
-  const parents = development
+  const parents = sourceInstall
     ? [...new Set([paths.dataRoot, ...targets.map(target => target.root)])]
     : [paths.dataRoot];
   for (const parent of parents) fs.mkdirSync(parent, { recursive: true });
@@ -1072,8 +1083,8 @@ function stateHasSharedRecords(state, env) {
   return false;
 }
 
-export function chooseDeploymentMode({ runtime, targets, development, state, env = process.env, print }) {
-  const shared = probeDirectoryLinks(runtime, targets, development, env);
+export function chooseDeploymentMode({ runtime, targets, sourceInstall, state, env = process.env, print }) {
+  const shared = probeDirectoryLinks(runtime, targets, sourceInstall, env);
   if (shared) return "shared";
   if (stateHasSharedRecords(state, env)) {
     throw new Error(
@@ -1243,7 +1254,7 @@ export function validateSharedRuntimeConsumers({
   state,
   env = process.env,
   mode = "fallback",
-  development = false,
+  sourceInstall = false,
   installLauncher = false,
   retireCommandDestinations = [],
   retireSkillDestinations = [],
@@ -1270,9 +1281,9 @@ export function validateSharedRuntimeConsumers({
     }
   }
 
-  // Planned shared skills apply only to development shared-mode installs.
-  // Release-copy selections and developer copy fallback are not shared skills.
-  if (development && mode === "shared") {
+  // Planned shared skills apply only to shared source installations.
+  // Release-copy selections and source-install copy fallback are not shared skills.
+  if (sourceInstall && mode === "shared") {
     for (const skill of plannedSkills) {
       if (typeof skill !== "string" || skill.length === 0) continue;
       const consumer = `planned skill: ${skill}`;
@@ -1538,9 +1549,12 @@ export function readInstallState(env = process.env) {
 }
 
 export function saveInstallState(state, env = process.env) {
-  const grammar = validateStateGrammar(state, env);
+  const persistedState = state?.channel === SOURCE_CHANNEL
+    ? { ...state, channel: SOURCE_CHANNEL_STATE_TOKEN }
+    : state;
+  const grammar = validateStateGrammar(persistedState, env);
   if (!grammar.valid) {
     throw new Error(`Refusing to save invalid installation state: ${grammar.reason}`);
   }
-  writeJsonAtomic(getStateFile(env), state);
+  writeJsonAtomic(getStateFile(env), persistedState);
 }

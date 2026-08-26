@@ -5,9 +5,9 @@ Status: proposed design, round 6
 ## Outcome
 
 Keep one stable shared runtime at `$XDG_DATA_HOME/agentgear/current`. Every
-install or developer refresh stages an immutable snapshot under `releases/`;
+install or source refresh stages an immutable snapshot under `releases/`;
 `current` changes only after validation and all selected destination writes
-succeed. Developer skill links target `current`, never a checkout.
+succeed. Source-installed skill links target `current`, never a checkout.
 
 Replace the current ownership heuristics with one rule: an external skill,
 launcher, helper, or wrapper is installer-owned only when its exact state
@@ -17,8 +17,8 @@ physical release, `current`, or another XDG alias is never ownership evidence.
 This is a contraction of the current worktree design. It keeps the stable
 runtime and normal rollback behavior while deleting legacy-checkout migration,
 cross-alias inference, release scanning for command ownership, and per-target
-mixed developer fallback. One state channel prevents public release and
-developer commands from silently republishing each other's `current`. A
+mixed source-install fallback. One state channel prevents public release and
+source-install commands from silently republishing each other's `current`. A
 schema-v2 release inventory makes immutable-release deletion state-exact:
 marker-shaped directories that are not recorded are never purge targets.
 
@@ -26,9 +26,9 @@ marker-shaped directories that are not recorded are never purge targets.
 
 - Preserve the stable shared `current` path selected by the user.
 - Keep the public `agentgear` CLI separate from checkout-only
-  `agentgear-link`.
+  `agentgear-source-install`.
 - Require a clean purge/reinstall before one XDG data root changes between
-  release and development channels.
+  release and source channels.
 - Make ownership and dangling-command recovery exact and auditable.
 - Make immutable-release retention and purge ownership exact and auditable.
 - Support Windows without link privilege through a bounded copy/wrapper mode.
@@ -40,7 +40,7 @@ marker-shaped directories that are not recorded are never purge targets.
 
 - Migrating direct-checkout links or earlier unpublished state shapes.
 - Transitioning an existing shared installation to copy fallback in place.
-- Hosting release and development channels together in one XDG data root.
+- Hosting release and source channels together in one XDG data root.
 - Adopting paths after state loss, even when they look like Agentgear paths.
 - Inferring that two XDG paths are aliases of the same physical directory.
 - Recovering automatically after the whole managed XDG data subtree is gone.
@@ -90,7 +90,7 @@ directory and the target ID is either in valid state's `releases` inventory
 or is the current transaction's pending staged release. If the target exists,
 its marker must match its directory basename. If `current` is dangling because
 an inventoried target release is absent, `install`, `update`, and
-`agentgear-link` fail without staging or publication; only full purge may
+`agentgear-source-install` fail without staging or publication; only full purge may
 remove that exact dangling link while treating the recorded absent release as
 already gone. Anything else is ambiguous and fails. `--force` never overrides
 ownership of the internal `current` path.
@@ -99,14 +99,20 @@ ownership of the internal `current` path.
 
 New state uses `schemaVersion: 2`. Every present schema-v1 state is an
 incompatible legacy shape and is rejected before any other interpretation or
-mutation. The retired `agyDiscovery` target extension is the only compatible
-legacy exception and has a one-time migration. A present state file is valid
-only when all of these rules hold:
+mutation. Schema-v2 retains `"development"` as the wire token for the logical
+source channel so preceding checkout revisions remain able to read newly
+written state. The retired `agyDiscovery` target extension and the transitional
+`"source"` channel token are the only compatible legacy exceptions. Any
+subsequent state write normalizes the channel token; the provider-owned target
+extension is normalized by its next successful owning operation. A present
+state file is valid only when all of these rules hold:
 
 - The top-level value is a plain object with exactly `schemaVersion`,
   `channel`, `releases`, `targets`, and `commands`; `schemaVersion` is the
-  integer `2`, `channel` is `null`, `"release"`, or `"development"`,
-  `releases` is an array, and the final two values are plain objects.
+  integer `2`, `channel` is `null`, `"release"`, or `"development"`, where
+  `"development"` is the stable wire token for the source channel;
+  transitional `"source"` is accepted for repair only. `releases` is an array,
+  and the final two values are plain objects.
 - `releases` contains every successfully retained immutable release owned by
   this state and contains only release IDs. Each ID is a non-empty string that
   round-trips as one lexical direct-child basename below the exact `releases`
@@ -188,7 +194,7 @@ immutable-release retention and deletion.
 
 Validation has strict precedence. If a present state file is malformed,
 schema-v1, or another legacy unpublished shape, every mutating command
-(`install`, `update`, `agentgear-link`, `uninstall`, and purge) stops before
+(`install`, `update`, `agentgear-source-install`, `uninstall`, and purge) stops before
 filesystem mutation. `--force` is intentionally powerless at this gate.
 Read-only status reports the invalid state path and reason.
 
@@ -203,7 +209,7 @@ records rooted at a different lexical `current`, a physical-release command
 target whose release ID is not inventoried, state loss beside an existing
 managed `current` or marker-shaped release, and non-empty
 runtime-referencing state beside an entirely missing data root. For install,
-update, and `agentgear-link`, every inventoried release must be an exact
+update, and `agentgear-source-install`, every inventoried release must be an exact
 direct-child directory with its matching marker; a missing or mismatched
 member is ambiguous and fails. A marker-shaped direct child not named by the
 inventory also fails those operations as possible interrupted transaction
@@ -215,8 +221,9 @@ install records.
 ## Same-XDG Channel Policy
 
 The public `install`/`update` path requests channel `release`; checkout-only
-`agentgear-link` requests channel `development`. Before staging, compare that
-requested channel with valid state:
+`agentgear-source-install` requests channel `source`. Before staging, compare
+that logical channel with valid state. Successful source installs serialize it
+as `"development"` for schema-v2 rollback compatibility:
 
 - `channel=null` or absent fresh state may adopt the requested channel after a
   successful transaction.
@@ -396,10 +403,10 @@ persistent transaction protocol is added.
 ## Shared-Runtime Completeness Check
 
 Build `sharedSkills` from exact active linked-skill records plus the selected
-skills that this `agentgear-link` invocation will install in shared mode.
-Release-copy selections and developer copy fallback are not planned shared
-skills, but any pre-existing active shared skills are always included before a
-same-channel `current` refresh.
+skills that this `agentgear-source-install` invocation will install in shared mode.
+Release-copy selections and source-install copy fallback are not planned
+shared skills, but any pre-existing active shared skills are always included
+before a same-channel `current` refresh.
 
 For every skill in `sharedSkills`:
 
@@ -429,12 +436,12 @@ remains an additional quality gate, not a substitute.
 
 ## Shared Mode and Windows Fallback
 
-For `agentgear-link`, shared mode is all-or-nothing for the selected skills.
-Before installation, probe creation of the `current` directory link and a
-temporary directory link in every selected destination parent.
+For `agentgear-source-install`, shared mode is all-or-nothing for the selected
+skills. Before installation, probe creation of the `current` directory link
+and a temporary directory link in every selected destination parent.
 
-- If all directory-link probes succeed, every selected developer skill points
-  to its exact path below `current`.
+- If all directory-link probes succeed, every selected source-installed skill
+  points to its exact path below `current`.
 - POSIX command paths may use file links and fall back to canonical wrappers
   targeting `current` when file links are unavailable. Windows command paths
   always use the canonical primary-wrapper plus `.cmd` pair targeting
@@ -455,7 +462,7 @@ temporary directory link in every selected destination parent.
 Public `install`/`update` continues to copy selected skills. It publishes
 `current` for the launcher/helpers when directory links are supported, and
 uses physical-release wrappers when they are not. It is never exposed as a
-developer link command. On Windows its commands are wrappers in both cases:
+source-install command. On Windows its commands are wrappers in both cases:
 they target `current` in shared mode and the physical release in fallback.
 
 ## Windows Command Lifecycle
@@ -491,11 +498,11 @@ another state field or verifier for it.
 - Missing `current` with valid state and every inventoried release present with
   its exact marker: supported by publication after staging succeeds.
 - A dangling `current` whose inventoried target release is absent is not
-  recoverable by `install`, `update`, or `agentgear-link`; those operations
+  recoverable by `install`, `update`, or `agentgear-source-install`; those operations
   fail conservatively. Full purge may remove the exact recorded dangling link
   and treats the absent inventory member as already gone.
 - A missing or mismatched inventoried release blocks install, update, and
-  `agentgear-link`; full purge applies its stricter preflight and retention
+  `agentgear-source-install`; full purge applies its stricter preflight and retention
   rules instead of scanning for substitutes.
 - State loss, schema-v1 or malformed state, or deletion of the entire managed
   data root: unsupported; fail without adopting artifacts.
@@ -511,16 +518,16 @@ another state field or verifier for it.
 - Any state/artifact disagreement: reject the ambiguous path. Purge preserves
   an unverifiable command and reports it rather than deleting it.
 
-## Public/Developer CLI Separation
+## Public/Source CLI Separation
 
-- `agentgear` keeps only public release operations; no `link`, `sync`, or
-  `--link` path returns.
-- `bin/agentgear-link.mjs` remains a checkout entry guarded by
-  `.agentgear-dev-checkout`.
-- Remove the developer entry and `cli/link.mjs` from the npm `files` payload;
-  remove the checkout convenience `scripts.link` entry as well. The package
-  exposes only the `agentgear` executable. Add a pack-content test so this
-  boundary cannot regress.
+- `agentgear` keeps only public release operations; it has no `source-install`
+  subcommand or `--source-install` option.
+- `bin/agentgear-source-install.mjs` remains a checkout entry guarded by
+  `.agentgear-source-checkout`.
+- Keep the source entry and `cli/source-install.mjs` out of the npm `files`
+  payload, and do not add a checkout convenience script. The package exposes
+  only the `agentgear` executable. Add a pack-content test so this boundary
+  cannot regress.
 
 ## Implementation Surface
 
@@ -540,7 +547,7 @@ another state field or verifier for it.
 - `cli/lib/installer.mjs`
   - remove legacy-root handling;
   - enforce the channel gate, perform coherence/collision checks, choose one
-    developer deployment mode, and use stage -> mode -> completeness ->
+    source-install deployment mode, and use stage -> mode -> completeness ->
     replace -> publish -> inventory/state ordering;
   - discard a pending release only after target and `current` rollback both
     succeed; otherwise retain it unrecorded and report manual recovery.
@@ -561,16 +568,18 @@ manifest, or new runtime file.
 
 ## Focused Test Matrix
 
-1. Developer links use exact `current` paths; release installs copy skills;
-   the public package exposes no link command.
-2. State grammar writes only schemaVersion 2 and rejects every schema-v1,
-   path-escaping skills, unsafe/duplicate/unsorted release IDs, unknown
-   commands, invalid channels, extra fields, and malformed fingerprints, while
-   accepting the exact historical `agyDiscovery` record for migration.
+1. Source-installed links use exact `current` paths; release installs copy
+   skills; the public package exposes no source-install command.
+2. State grammar writes only schemaVersion 2, keeps source installs readable by
+   preceding revisions through the `"development"` wire token, repairs the
+   transitional `"source"` token, and rejects every schema-v1, path-escaping
+   skill, unsafe/duplicate/unsorted release ID, unknown command, invalid
+   channel, extra field, and malformed fingerprint while accepting the exact
+   historical `agyDiscovery` record for migration.
 3. Exact recorded commands dangling only because `current` is absent recover
    when every inventoried release remains intact. A `current` link dangling
    because its inventoried release is absent blocks `install`, `update`, and
-   `agentgear-link`, while exact full purge removes the link and treats the
+   `agentgear-source-install`, while exact full purge removes the link and treats the
    absent member as gone.
 4. Stored fingerprints verify an older wrapper template; Windows uses wrapper
    mode only and treats modified, missing, or unmanaged `.cmd` companions as
@@ -580,14 +589,14 @@ manifest, or new runtime file.
 6. Fresh no-link installation uses copy/wrapper fallback, while any existing
    shared record blocks shared-to-fallback even with all selections or
    `--no-launcher`; purge then fresh fallback succeeds.
-7. Same-channel refreshes succeed. Release-to-development and
-   development-to-release both fail before staging with `--force`,
+7. Same-channel refreshes succeed. Release-to-source and
+   source-to-release both fail before staging with `--force`,
    `--no-launcher`, or missing `current`; full purge permits the new channel.
 8. Active and first-publication planned shared skills reject a missing
    documented command or relative static ESM dependency without changing
    `current` or state.
 9. A command found only through recursively referenced same-skill Markdown is
-   enforced; deleting `resolve-tool-command.js` rejects `agentgear-link`.
+   enforced; deleting `resolve-tool-command.js` rejects `agentgear-source-install`.
 10. Fault-injected target, Windows command-group, state-write, and `current`
     publication failures keep prior state and inventory unchanged. When target
     and `current` rollback both succeed, the pending release is deleted; when
@@ -612,7 +621,7 @@ this design removes.
 A process killed after release rename but before state commit, or a failed
 target/`current` rollback, can leave an unrecorded marked directory. Because
 there is no journal or lock, automatic recovery remains unsupported; later
-install, update, and `agentgear-link` paths reject it, while purge preserves
+install, update, and `agentgear-source-install` paths reject it, while purge preserves
 it for explicit operator cleanup instead of deriving ownership from its
 marker.
 

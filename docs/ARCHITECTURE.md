@@ -50,20 +50,21 @@ it remains stable even if a checkout changes or disappears.
 
 There are exactly two channels, and they never silently switch. The public
 `agentgear install` and `update` commands request the release channel;
-checkout-only `node ./bin/agentgear-link.mjs` requests the development channel.
+checkout-only `node ./bin/agentgear-source-install.mjs` requests the source
+channel.
 The first successful install records its channel in schema-v2 installation
 state. A different channel fails before any staging or mutation, even with
 `--force`; only a full purge resets the channel for a fresh install through the
-other one. The npm package ships no link command: the developer entry point
-lives only in the source checkout, is excluded from published files and
+other one. The npm package ships no source-install command: the source entry
+point lives only in the source checkout, is excluded from published files and
 scripts, and rejects execution from a staged runtime.
 
-When directory links or Windows junctions are available, developer target
+When directory links or Windows junctions are available, source-installed
 skills point to the stable `current` runtime path rather than the checkout.
-Rerunning `agentgear-link` from the checkout stages its latest contents and
-publishes that path only after target validation and installation succeed, so
-all shared links switch together. Local checkout edits therefore require
-another `agentgear-link` invocation to take effect.
+Rerunning `agentgear-source-install` from the checkout stages its latest
+contents and publishes that path only after target validation and installation
+succeed, so all shared links switch together. Source changes therefore require
+another `agentgear-source-install` invocation to take effect.
 
 Ownership is exact: a skill, launcher, helper, or wrapper is installer-owned
 only when its state record and its on-disk artifact agree. Linked records
@@ -76,8 +77,9 @@ evidence, and `--force` never broadens that rule.
 Recovery is conservative. A `current` link removed while its release is intact
 is republished after the next staged install, which also recreates recorded
 dangling command links. A `current` link dangling because its inventoried
-release was deleted is not recoverable by install, update, or `agentgear-link`;
-only full purge removes that exact dangling link. State loss, schema-v1 or
+release was deleted is not recoverable by install, update, or
+`agentgear-source-install`; only full purge removes that exact dangling link.
+State loss, schema-v1 or
 malformed state, XDG alias changes, or deletion of the whole managed data
 subtree fail without adopting artifacts; the documented clean reset is manual
 and explicit.
@@ -88,8 +90,9 @@ staged release; rerunning it explicitly refreshes those copies. Copy fallback
 is refused while any shared record remains in valid state: leaving existing
 consumers on `current` while moving new artifacts to a copied snapshot would be
 incoherent. A full purge is required before switching between shared and copy
-modes. If a future provider adapter needs generated output, its developer path
-must be produced by `agentgear-link`, not hand-edited in `dist/`.
+modes. If a future provider adapter needs generated output, its source-install
+path must be produced by `agentgear-source-install`, not hand-edited in
+`dist/`.
 
 `agentgear uninstall --purge` explicitly cleans up installer-owned artifacts.
 Release-deletion candidates come only from the state inventory: each recorded

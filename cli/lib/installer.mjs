@@ -34,6 +34,8 @@ import {
   resolvedLinkTarget,
   rollbackRuntimePublication,
   saveInstallState,
+  SOURCE_CHANNEL,
+  SOURCE_CHANNEL_STATE_TOKEN,
   stageRuntime,
   targetState,
   updateTargetState,
@@ -243,7 +245,7 @@ export function installSelection({
   catalog,
   options,
   sourceRoot,
-  development = false,
+  sourceInstall = false,
   env = process.env,
   print = () => {},
   provisionUpstreamSkill = defaultProvisionUpstreamSkill
@@ -257,7 +259,8 @@ export function installSelection({
   if (!grammar.valid) {
     fail(`Invalid installation state ${computePaths(env).stateFile}: ${grammar.reason}`);
   }
-  const requestedChannel = development ? "development" : "release";
+  const requestedChannel = sourceInstall ? SOURCE_CHANNEL : "release";
+  const persistedChannel = sourceInstall ? SOURCE_CHANNEL_STATE_TOKEN : requestedChannel;
   checkChannelGate(state, requestedChannel);
   checkStateCoherence(state, env);
   const upstreamPlans = selectedUpstreamSkillPlans(catalog, selection, state, env);
@@ -314,10 +317,10 @@ export function installSelection({
       });
     }
     print("Checking deployment mode...");
-    const mode = chooseDeploymentMode({ runtime, targets, development, state, env, print });
-    const shared = development && mode === "shared";
+    const mode = chooseDeploymentMode({ runtime, targets, sourceInstall, state, env, print });
+    const shared = sourceInstall && mode === "shared";
     // Embed provenance in the staged source only after the deployment result
-    // is known. This avoids a development copy fallback inheriting a `link`
+    // is known. This avoids a source-install copy fallback inheriting a `link`
     // marker, and avoids writing through a `current` link before publication.
     for (const skill of installedSkills) {
       const stagedSource = path.join(runtime.root, "skills", skill);
@@ -342,7 +345,7 @@ export function installSelection({
       state,
       env,
       mode,
-      development,
+      sourceInstall,
       installLauncher,
       retireCommandDestinations: retiredCommands.map(entry => entry.destination),
       retireSkillDestinations: retiredSkills.map(entry => entry.destination),
@@ -353,7 +356,7 @@ export function installSelection({
     if (currentState === null) {
       currentState = {
         schemaVersion: 2,
-        channel: requestedChannel,
+        channel: persistedChannel,
         releases: [],
         targets: {},
         commands: {}
@@ -452,7 +455,9 @@ export function installSelection({
 
     retireLegacyAgyDiscovery({ state: currentState, transaction, env, print });
     addReleaseToInventory(currentState, runtime.id);
-    if (currentState.channel === null) currentState.channel = requestedChannel;
+    if (currentState.channel === null || currentState.channel === SOURCE_CHANNEL) {
+      currentState.channel = persistedChannel;
+    }
     if (mode === "shared") {
       print("Publishing shared runtime...");
       publication = publishRuntime(runtime, currentState, env);
@@ -462,8 +467,8 @@ export function installSelection({
     transaction.commit();
     committed = true;
 
-    const channel = development
-      ? (shared ? "shared development link" : "development copy fallback")
+    const channel = sourceInstall
+      ? (shared ? "shared source install" : "source-install copy fallback")
       : "release snapshot";
     print("Installed " + installedSkills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
     if (selection.packs.length > 0) {

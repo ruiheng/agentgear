@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { childProcessOutcome, main } from "../cli/agentgear.mjs";
-import { main as linkMain } from "../cli/link.mjs";
+import { main as sourceInstallMain } from "../cli/source-install.mjs";
 import { loadCatalog } from "../cli/lib/catalog.mjs";
 import { installSelection, permissionMigrationScopes, resolveTargetRoots, selected } from "../cli/lib/installer.mjs";
 import { parseOptions } from "../cli/lib/options.mjs";
@@ -84,22 +84,22 @@ function invoke(commandMain, argumentsList, env = {}) {
 }
 
 function run(argumentsList, env = {}) {
-  const isLink = argumentsList[0] === "link";
-  return invoke(isLink ? linkMain : main, isLink ? argumentsList.slice(1) : argumentsList, env);
+  const isSourceInstall = argumentsList[0] === "source-install";
+  return invoke(isSourceInstall ? sourceInstallMain : main, isSourceInstall ? argumentsList.slice(1) : argumentsList, env);
 }
 
 async function checkoutRunner(checkout, environment) {
   const { main: checkoutMain } = await import(
     `${pathToFileURL(path.join(checkout, "cli", "agentgear.mjs")).href}?test=${Date.now()}`
   );
-  const { main: checkoutLinkMain } = await import(
-    `${pathToFileURL(path.join(checkout, "cli", "link.mjs")).href}?test=${Date.now()}`
+  const { main: checkoutSourceInstallMain } = await import(
+    `${pathToFileURL(path.join(checkout, "cli", "source-install.mjs")).href}?test=${Date.now()}`
   );
   return argumentsList => {
-    const isLink = argumentsList[0] === "link";
+    const isSourceInstall = argumentsList[0] === "source-install";
     return invoke(
-      isLink ? checkoutLinkMain : checkoutMain,
-      isLink ? argumentsList.slice(1) : argumentsList,
+      isSourceInstall ? checkoutSourceInstallMain : checkoutMain,
+      isSourceInstall ? argumentsList.slice(1) : argumentsList,
       environment
     );
   };
@@ -142,10 +142,10 @@ function spawnAgentgear(argumentsList, fixture, environment) {
   );
 }
 
-function spawnAgentgearLink(argumentsList, fixture, environment) {
+function spawnAgentgearSourceInstall(argumentsList, fixture, environment) {
   return childProcess.spawnSync(
     process.execPath,
-    [path.join(rootDir, "bin", "agentgear-link.mjs"), ...argumentsList],
+    [path.join(rootDir, "bin", "agentgear-source-install.mjs"), ...argumentsList],
     { cwd: rootDir, encoding: "utf8", env: { ...process.env, ...environment } }
   );
 }
@@ -256,7 +256,7 @@ test("an unsafe package version cannot escape the releases directory", async () 
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
 
     for (const argumentsList of [
-      ["link", "--skill", "handoff", "--target", "general"],
+      ["source-install", "--skill", "handoff", "--target", "general"],
       ["install", "--skill", "handoff", "--target", "general"]
     ]) {
       assert.throws(
@@ -294,7 +294,7 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
         const runCheckout = await checkoutRunner(checkout, fixture.environment);
 
         assert.throws(
-          () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
+          () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
           errorPattern
         );
         assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
@@ -333,7 +333,7 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
         const runCheckout = await checkoutRunner(checkout, fixture.environment);
 
         assert.throws(
-          () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
+          () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
           errorPattern
         );
         assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
@@ -356,7 +356,7 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
       fs.symlinkSync(path.join(fixture.temporary, "missing-module.mjs"), targetPath, "file");
       const runCheckout = await checkoutRunner(checkout, fixture.environment);
       assert.throws(
-        () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
+        () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
         /bin[\\/]agentgear\.mjs is missing or is not a file/
       );
     } finally {
@@ -472,7 +472,7 @@ test("default installation reaches every default target with the approved entry 
 test("legacy Agy target metadata migrates instead of invalidating installation state", () => {
   const fixture = environmentFixture();
   try {
-    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
     const geminiRoot = path.join(fixture.home, ".gemini", "skills");
     const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
     const state = readState(fixture);
@@ -489,7 +489,7 @@ test("legacy Agy target metadata migrates instead of invalidating installation s
       entries: [{ path: "~/.gemini/skills", include_only: ["^handoff$"] }]
     }, null, 2)}\n`);
 
-    const result = spawnAgentgearLink(
+    const result = spawnAgentgearSourceInstall(
       ["--skill", "handoff", "--target", "gemini"],
       fixture,
       fixture.environment
@@ -508,7 +508,7 @@ test("legacy Agy target metadata migrates instead of invalidating installation s
 test("user-modified legacy Agy config is preserved without blocking installation", () => {
   const fixture = environmentFixture();
   try {
-    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
     const geminiRoot = path.join(fixture.home, ".gemini", "skills");
     const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
     const state = readState(fixture);
@@ -529,7 +529,7 @@ test("user-modified legacy Agy config is preserved without blocking installation
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, `${JSON.stringify(changedConfig, null, 2)}\n`);
 
-    const result = spawnAgentgearLink(
+    const result = spawnAgentgearSourceInstall(
       ["--skill", "handoff", "--target", "gemini"],
       fixture,
       fixture.environment
@@ -553,7 +553,7 @@ test("user-modified legacy Agy config is preserved without blocking installation
 test("user-modified legacy Agy config does not block uninstall", () => {
   const fixture = environmentFixture();
   try {
-    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
     const geminiRoot = path.join(fixture.home, ".gemini", "skills");
     const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
     const state = readState(fixture);
@@ -593,7 +593,7 @@ test("unreadable legacy Agy config is preserved without blocking installation", 
   const fixture = environmentFixture();
   const originalReadFile = fs.readFileSync;
   try {
-    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
     const geminiRoot = path.join(fixture.home, ".gemini", "skills");
     const configPath = path.join(fixture.home, ".gemini", "config", "skills.json");
     const state = readState(fixture);
@@ -618,7 +618,7 @@ test("unreadable legacy Agy config is preserved without blocking installation", 
       return originalReadFile(filePath, ...argumentsList);
     };
 
-    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
 
     fs.readFileSync = originalReadFile;
     assert.equal(fs.existsSync(configPath), true);
@@ -655,7 +655,7 @@ test("legacy Agy target identity folds Windows path casing", () => {
 test("legacy Agy compatibility accepts only the exact historical ownership shape", () => {
   const fixture = environmentFixture();
   try {
-    run(["link", "--skill", "handoff", "--target", "gemini"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "gemini"], fixture.environment);
     const geminiRoot = path.join(fixture.home, ".gemini", "skills");
     const state = readState(fixture);
     state.targets[geminiRoot].agyDiscovery = {
@@ -668,7 +668,7 @@ test("legacy Agy compatibility accepts only the exact historical ownership shape
     };
     craftState(fixture, state);
 
-    const result = spawnAgentgearLink(
+    const result = spawnAgentgearSourceInstall(
       ["--skill", "handoff", "--target", "gemini"],
       fixture,
       fixture.environment
@@ -787,10 +787,10 @@ test("custom-destination install does not retire a skill in another target", () 
   }
 });
 
-test("agentgear-link help states every option default", () => {
+test("agentgear-source-install help states every option default", () => {
   const fixture = environmentFixture();
   try {
-    const result = spawnAgentgearLink(["--help"], fixture, fixture.environment);
+    const result = spawnAgentgearSourceInstall(["--help"], fixture, fixture.environment);
     assert.equal(result.status, 0, result.stderr);
     for (const expectation of [
       /--pack NAME\s+Install one or more packs \(default: all\)/,
@@ -1536,7 +1536,7 @@ test("purge and later install report retired approvals after installation state 
   }
 });
 
-test("developer link transactionally retires obsolete linked skill names", t => {
+test("source install transactionally retires obsolete linked skill names", t => {
   if (process.platform === "win32") {
     t.skip("legacy linked-skill migration fixture is POSIX-specific");
     return;
@@ -1547,13 +1547,13 @@ test("developer link transactionally retires obsolete linked skill names", t => 
   const oldDestination = path.join(targetRoot, oldSkill);
   const oldSource = path.join(fixture.dataRoot, "current", "skills", oldSkill);
   try {
-    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
     fs.symlinkSync(oldSource, oldDestination, "dir");
     const state = readState(fixture);
     state.targets[targetRoot].skills[oldSkill] = { mode: "link", source: oldSource };
     craftState(fixture, state);
 
-    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
 
     assert.equal(pathExists(oldDestination), false);
     assert.equal(readState(fixture).targets[targetRoot].skills[oldSkill], undefined);
@@ -1886,10 +1886,10 @@ test("upstream provisioning rejects modified cached content", () => {
   }
 });
 
-test("developer links target the exact stable current paths", t => {
+test("source-installed links target the exact stable current paths", t => {
   const fixture = environmentFixture();
   try {
-    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
     const targetSkill = path.join(fixture.home, ".agents", "skills", "handoff");
     if (!fs.lstatSync(targetSkill).isSymbolicLink()) {
       t.skip("directory links are unavailable on this filesystem");
@@ -1910,7 +1910,7 @@ test("developer links target the exact stable current paths", t => {
   }
 });
 
-test("rerunning link refreshes shared developer links; purge then release install freezes that revision", async () => {
+test("rerunning source-install refreshes shared source-installed links; purge then release install freezes that revision", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -1922,13 +1922,13 @@ test("rerunning link refreshes shared developer links; purge then release instal
     const targetSkill = path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md");
     const sharedSkill = path.join(fixture.dataRoot, "current", "skills", "handoff");
 
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
     assert.equal(fs.readlinkSync(path.dirname(targetSkill)), sharedSkill);
     const editableSource = path.join(checkout, "skills", "handoff", "SKILL.md");
     fs.appendFileSync(editableSource, "\n<!-- live-checkout-marker -->\n");
     assert.doesNotMatch(fs.readFileSync(targetSkill, "utf8"), /live-checkout-marker/);
 
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
     assert.equal(fs.readlinkSync(path.dirname(targetSkill)), sharedSkill);
     assert.match(fs.readFileSync(targetSkill, "utf8"), /live-checkout-marker/);
 
@@ -1945,10 +1945,10 @@ test("rerunning link refreshes shared developer links; purge then release instal
   }
 });
 
-test("release and development channels cannot silently switch", () => {
+test("release and source channels cannot silently switch", () => {
   const fixture = environmentFixture();
   try {
-    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
     for (const argumentsList of [
       ["update", "--skill", "handoff", "--target", "general"],
       ["update", "--force", "--skill", "handoff", "--target", "general"],
@@ -1957,27 +1957,50 @@ test("release and development channels cannot silently switch", () => {
     ]) {
       assert.throws(
         () => run(argumentsList, fixture.environment),
-        /Refusing to switch channel from "development" to "release"/
+        /Refusing to switch channel from "source" to "release"/
       );
     }
     fs.rmSync(path.join(fixture.dataRoot, "current"), { force: true });
     assert.throws(
       () => run(["update", "--skill", "handoff", "--target", "general"], fixture.environment),
-      /Refusing to switch channel from "development" to "release"/
+      /Refusing to switch channel from "source" to "release"/
     );
 
     run(["uninstall", "--purge"], fixture.environment);
     run(["install", "--skill", "handoff", "--target", "general"], fixture.environment);
     assert.throws(
-      () => run(["link", "--skill", "handoff", "--target", "general"], fixture.environment),
-      /Refusing to switch channel from "release" to "development"/
+      () => run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment),
+      /Refusing to switch channel from "release" to "source"/
     );
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
 });
 
-test("link restores a removed current link and its recorded launcher link", async t => {
+test("source-install keeps rollback-readable state and repairs the transitional source token", () => {
+  const fixture = environmentFixture();
+  try {
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
+    const state = readState(fixture);
+    assert.equal(state.channel, "development");
+
+    state.channel = "source";
+    craftState(fixture, state);
+
+    run(["uninstall", "--skill", "handoff", "--target", "general"], fixture.environment);
+    assert.equal(readState(fixture).channel, "development");
+
+    const transitionalState = readState(fixture);
+    transitionalState.channel = "source";
+    craftState(fixture, transitionalState);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
+    assert.equal(readState(fixture).channel, "development");
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("source-install restores a removed current link and its recorded launcher link", async t => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -1986,7 +2009,7 @@ test("link restores a removed current link and its recorded launcher link", asyn
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "multi-agent-protocol", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const commands = [[path.join(fixture.localBin, "agentgear"), "launcher"]];
@@ -2010,7 +2033,7 @@ test("link restores a removed current link and its recorded launcher link", asyn
       assert.equal(fs.existsSync(command), false);
     }
 
-    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "multi-agent-protocol", "--target", "general"]);
 
     assert.equal(fs.existsSync(current), true);
     assert.notEqual(fs.realpathSync(current), oldRelease);
@@ -2024,7 +2047,7 @@ test("link restores a removed current link and its recorded launcher link", asyn
   }
 });
 
-test("a dangling current blocks install, update, and link; full purge removes it", async () => {
+test("a dangling current blocks install, update, and source-install; full purge removes it", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -2052,16 +2075,16 @@ test("a dangling current blocks install, update, and link; full purge removes it
     assert.equal(pathExists(current), false);
     assert.equal(pathExists(fixture.stateFile), false);
 
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
-    const developmentCurrent = path.join(fixture.dataRoot, "current");
-    const developmentRelease = fs.realpathSync(developmentCurrent);
-    fs.rmSync(developmentRelease, { recursive: true, force: true });
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
+    const sourceCurrent = path.join(fixture.dataRoot, "current");
+    const sourceRelease = fs.realpathSync(sourceCurrent);
+    fs.rmSync(sourceRelease, { recursive: true, force: true });
     assert.throws(
-      () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
+      () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
       /Inventoried release is missing or mismatched/
     );
     runCheckout(["uninstall", "--purge"]);
-    assert.equal(pathExists(developmentCurrent), false);
+    assert.equal(pathExists(sourceCurrent), false);
     assert.equal(pathExists(fixture.stateFile), false);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
@@ -2320,7 +2343,7 @@ test("state loss beside managed runtime data blocks all publication commands", (
     for (const argumentsList of [
       ["install", "--skill", "handoff", "--target", "general"],
       ["update", "--skill", "handoff", "--target", "general"],
-      ["link", "--skill", "handoff", "--target", "general"]
+      ["source-install", "--skill", "handoff", "--target", "general"]
     ]) {
       assert.throws(
         () => run(argumentsList, fixture.environment),
@@ -2495,7 +2518,7 @@ test("mutating commands reject malformed, legacy, and escaping state before any 
   const mutatingCommands = [
     ["install", "--skill", "handoff", "--target", "general"],
     ["update", "--skill", "handoff", "--target", "general"],
-    ["link", "--skill", "handoff", "--target", "general"],
+    ["source-install", "--skill", "handoff", "--target", "general"],
     ["uninstall", "--skill", "handoff", "--target", "general"],
     ["uninstall", "--purge"]
   ];
@@ -2550,7 +2573,7 @@ test("fresh no-link installation uses copy fallback with physical-release wrappe
       error.code = "EPERM";
       throw error;
     };
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
     fs.symlinkSync = originalSymlink;
 
     const skill = path.join(fixture.home, ".agents", "skills", "handoff");
@@ -2586,7 +2609,7 @@ test("fresh no-link installation uses copy fallback with physical-release wrappe
         error.code = "EPERM";
         throw error;
       };
-      runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+      runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
     } finally {
       fs.symlinkSync = originalSymlink;
     }
@@ -2612,7 +2635,7 @@ test("shared records block shared-to-fallback even with --no-launcher; purge the
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
     const current = path.join(fixture.dataRoot, "current");
     if (!fs.lstatSync(path.join(fixture.home, ".agents", "skills", "handoff")).isSymbolicLink()) {
       t.skip("directory links are unavailable on this filesystem");
@@ -2630,9 +2653,9 @@ test("shared records block shared-to-fallback even with --no-launcher; purge the
       return originalSymlink(target, destination, type);
     };
     for (const argumentsList of [
-      ["link", "--skill", "review-code", "--target", "general"],
-      ["link", "--no-launcher", "--skill", "review-code", "--target", "general"],
-      ["link", "--pack", "all", "--target", "general,claude"]
+      ["source-install", "--skill", "review-code", "--target", "general"],
+      ["source-install", "--no-launcher", "--skill", "review-code", "--target", "general"],
+      ["source-install", "--pack", "all", "--target", "general,claude"]
     ]) {
       assert.throws(
         () => runCheckout(argumentsList),
@@ -2654,7 +2677,7 @@ test("shared records block shared-to-fallback even with --no-launcher; purge the
       }
       return originalSymlink(target, destination, type);
     };
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
     fs.symlinkSync = originalSymlink;
     assert.equal(fs.lstatSync(path.join(fixture.home, ".agents", "skills", "handoff")).isSymbolicLink(), false);
     assert.equal(pathExists(current), false);
@@ -2706,7 +2729,7 @@ test("release updates do not fall back when a copied-skill target rejects links"
   }
 });
 
-test("development link falls back when only a target parent rejects links", async () => {
+test("source install falls back when only a target parent rejects links", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   const originalSymlink = fs.symlinkSync;
@@ -2729,7 +2752,7 @@ test("development link falls back when only a target parent rejects links", asyn
       }
       return originalSymlink(target, destination, type);
     };
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
     fs.symlinkSync = originalSymlink;
 
     const skill = path.join(fixture.home, ".agents", "skills", "handoff");
@@ -2753,7 +2776,7 @@ test("stored fingerprints verify a wrapper from an older template; tampered wrap
       error.code = "EPERM";
       throw error;
     };
-    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
     fs.symlinkSync = originalSymlink;
 
     const launcher = path.join(fixture.localBin, "agentgear");
@@ -2779,7 +2802,7 @@ test("stored fingerprints verify a wrapper from an older template; tampered wrap
       error.code = "EPERM";
       throw error;
     };
-    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
     fs.symlinkSync = originalSymlink;
     const refreshed = readState(fixture);
     assert.notEqual(refreshed.commands[launcher].fingerprint, foreign.fingerprint);
@@ -2792,7 +2815,7 @@ test("stored fingerprints verify a wrapper from an older template; tampered wrap
       throw error;
     };
     assert.throws(
-      () => run(["link", "--skill", "handoff", "--target", "general"], fixture.environment),
+      () => run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment),
       /Refusing to replace unmanaged launcher/
     );
     fs.symlinkSync = originalSymlink;
@@ -2811,7 +2834,7 @@ test("purge preserves an unverifiable command and reports it", () => {
       error.code = "EPERM";
       throw error;
     };
-    run(["link", "--skill", "handoff", "--target", "general"], fixture.environment);
+    run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment);
     fs.symlinkSync = originalSymlink;
 
     const launcher = path.join(fixture.localBin, "agentgear");
@@ -2829,7 +2852,7 @@ test("purge preserves an unverifiable command and reports it", () => {
   }
 });
 
-test("link validates documented scripts required by active shared skills", async () => {
+test("source-install validates documented scripts required by active shared skills", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -2838,14 +2861,14 @@ test("link validates documented scripts required by active shared skills", async
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "execute-plan", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "execute-plan", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const previousRuntime = fs.realpathSync(current);
     fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "prepare-workspaces.mjs"));
 
     assert.throws(
-      () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
+      () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
       /missing or unsafe: .*prepare-workspaces\.mjs/
     );
 
@@ -2859,7 +2882,7 @@ test("link validates documented scripts required by active shared skills", async
   }
 });
 
-test("link validates transitive dependencies of an active launcher", async () => {
+test("source-install validates transitive dependencies of an active launcher", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -2868,7 +2891,7 @@ test("link validates transitive dependencies of an active launcher", async () =>
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const launcher = path.join(fixture.localBin, "agentgear");
@@ -2877,7 +2900,7 @@ test("link validates transitive dependencies of an active launcher", async () =>
     fs.rmSync(path.join(checkout, "cli", "lib", "runtime.mjs"));
 
     assert.throws(
-      () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
+      () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
       /cli[\\/]lib[\\/]runtime\.mjs is missing or is not a file/
     );
 
@@ -2888,7 +2911,7 @@ test("link validates transitive dependencies of an active launcher", async () =>
   }
 });
 
-test("link validates every recorded shared link, including skills outside its selection", async () => {
+test("source-install validates every recorded shared link, including skills outside its selection", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -2897,7 +2920,7 @@ test("link validates every recorded shared link, including skills outside its se
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const handoff = path.join(fixture.home, ".agents", "skills", "handoff", "SKILL.md");
@@ -2906,7 +2929,7 @@ test("link validates every recorded shared link, including skills outside its se
     fs.rmSync(path.join(checkout, "skills", "handoff"), { recursive: true, force: true });
 
     assert.throws(
-      () => runCheckout(["link", "--pack", "workflow", "--target", "general"]),
+      () => runCheckout(["source-install", "--pack", "workflow", "--target", "general"]),
       /requires skills[\\/]handoff[\\/]SKILL\.md/
     );
 
@@ -2918,7 +2941,7 @@ test("link validates every recorded shared link, including skills outside its se
   }
 });
 
-test("link validates commands in documents referenced by active skills", async t => {
+test("source-install validates commands in documents referenced by active skills", async t => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -2927,7 +2950,7 @@ test("link validates commands in documents referenced by active skills", async t
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "multi-agent-protocol", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const activeSkill = path.join(fixture.home, ".agents", "skills", "multi-agent-protocol");
@@ -2939,7 +2962,7 @@ test("link validates commands in documents referenced by active skills", async t
     fs.rmSync(path.join(checkout, "skills", "multi-agent-protocol", "scripts", "resolve-tool-command.js"));
 
     assert.throws(
-      () => runCheckout(["link", "--skill", "handoff", "--target", "general"]),
+      () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
       /resolve-tool-command\.js is missing or is not a file/
     );
 
@@ -2966,7 +2989,7 @@ test("--no-launcher still validates active launcher entrypoints", async () => {
         filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
       });
       const runCheckout = await checkoutRunner(checkout, fixture.environment);
-      runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+      runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
 
       const current = path.join(fixture.dataRoot, "current");
       const launcher = path.join(fixture.localBin, "agentgear");
@@ -2975,7 +2998,7 @@ test("--no-launcher still validates active launcher entrypoints", async () => {
       fs.rmSync(path.join(checkout, missingPath));
 
       assert.throws(
-        () => runCheckout(["link", "--skill", "handoff", "--target", "general", "--no-launcher"]),
+        () => runCheckout(["source-install", "--skill", "handoff", "--target", "general", "--no-launcher"]),
         errorPattern
       );
 
@@ -2989,7 +3012,7 @@ test("--no-launcher still validates active launcher entrypoints", async () => {
   }
 });
 
-test("link ignores a deleted project target retained in installation state", async () => {
+test("source-install ignores a deleted project target retained in installation state", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   const project = path.join(fixture.temporary, "project");
@@ -3002,7 +3025,7 @@ test("link ignores a deleted project target retained in installation state", asy
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
     fs.mkdirSync(project, { recursive: true });
     runCheckout([
-      "link", "--skill", "handoff", "--target", "general",
+      "source-install", "--skill", "handoff", "--target", "general",
       "--scope", "project", "--project", project
     ]);
 
@@ -3012,7 +3035,7 @@ test("link ignores a deleted project target retained in installation state", asy
     fs.rmSync(project, { recursive: true, force: true });
     fs.rmSync(path.join(checkout, "skills", "handoff"), { recursive: true, force: true });
 
-    runCheckout(["link", "--pack", "workflow", "--target", "general"]);
+    runCheckout(["source-install", "--pack", "workflow", "--target", "general"]);
 
     assert.notEqual(fs.realpathSync(current), previousRuntime);
     assert.equal(pathExists(projectTarget), false);
@@ -3023,7 +3046,7 @@ test("link ignores a deleted project target retained in installation state", asy
   }
 });
 
-test("authoritative link reconciliation rejects state-recorded skill links pinned to an old physical release", async () => {
+test("authoritative source-install reconciliation rejects state-recorded skill links pinned to an old physical release", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -3032,7 +3055,7 @@ test("authoritative link reconciliation rejects state-recorded skill links pinne
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const target = path.join(fixture.home, ".agents", "skills", "handoff");
@@ -3043,7 +3066,7 @@ test("authoritative link reconciliation rejects state-recorded skill links pinne
     fs.rmSync(path.join(checkout, "skills", "handoff"), { recursive: true, force: true });
 
     assert.throws(
-      () => runCheckout(["link", "--pack", "workflow", "--target", "general"]),
+      () => runCheckout(["source-install", "--pack", "workflow", "--target", "general"]),
       /Refusing to withdraw locally changed skill/
     );
 
@@ -3207,7 +3230,7 @@ test("ESM fallback wrappers stay on current when publication fails", async () =>
       }
       return originalSymlink(target, destination, type);
     };
-    runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "multi-agent-protocol", "--target", "general"]);
     fs.symlinkSync = originalSymlink;
 
     const current = path.join(fixture.dataRoot, "current");
@@ -3233,7 +3256,7 @@ test("ESM fallback wrappers stay on current when publication fails", async () =>
       return originalRename(source, destination);
     };
     assert.throws(
-      () => runCheckout(["link", "--skill", "multi-agent-protocol", "--target", "general"]),
+      () => runCheckout(["source-install", "--skill", "multi-agent-protocol", "--target", "general"]),
       /simulated publish failure/
     );
     fs.renameSync = originalRename;
@@ -3340,7 +3363,7 @@ test("runtime stages use distinct release IDs in one clock tick", () => {
   }
 });
 
-test("agentgear-link rejects staged and packaged sources; agentgear has no link command", async () => {
+test("agentgear-source-install rejects staged and packaged sources; agentgear has no source-install subcommand", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   try {
@@ -3349,21 +3372,21 @@ test("agentgear-link rejects staged and packaged sources; agentgear has no link 
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
     const runCheckout = await checkoutRunner(checkout, fixture.environment);
-    runCheckout(["link", "--skill", "handoff", "--target", "general"]);
+    runCheckout(["source-install", "--skill", "handoff", "--target", "general"]);
 
     const current = path.join(fixture.dataRoot, "current");
     const previousRuntime = fs.realpathSync(current);
-    const { main: runtimeLinkMain } = await import(
-      `${pathToFileURL(path.join(current, "cli", "link.mjs")).href}?test=${Date.now()}`
+    const { main: runtimeSourceInstallMain } = await import(
+      `${pathToFileURL(path.join(current, "cli", "source-install.mjs")).href}?test=${Date.now()}`
     );
-    const runRuntimeLink = argumentsList => {
+    const runRuntimeSourceInstall = argumentsList => {
       const original = {};
       for (const [key, value] of Object.entries(fixture.environment)) {
         original[key] = process.env[key];
         process.env[key] = value;
       }
       try {
-        runtimeLinkMain(argumentsList);
+        runtimeSourceInstallMain(argumentsList);
       } finally {
         for (const [key, value] of Object.entries(original)) {
           if (value === undefined) delete process.env[key];
@@ -3373,8 +3396,8 @@ test("agentgear-link rejects staged and packaged sources; agentgear has no link 
     };
 
     assert.throws(
-      () => runRuntimeLink(["--skill", "handoff", "--target", "general"]),
-      /agentgear-link must be run from a development checkout/
+      () => runRuntimeSourceInstall(["--skill", "handoff", "--target", "general"]),
+      /agentgear-source-install must be run from a source checkout/
     );
     assert.equal(fs.realpathSync(current), previousRuntime);
 
@@ -3383,33 +3406,33 @@ test("agentgear-link rejects staged and packaged sources; agentgear has no link 
       recursive: true,
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
-    fs.rmSync(path.join(packagedSource, ".agentgear-dev-checkout"));
-    const { main: packagedLinkMain } = await import(
-      `${pathToFileURL(path.join(packagedSource, "cli", "link.mjs")).href}?test=${Date.now()}`
+    fs.rmSync(path.join(packagedSource, ".agentgear-source-checkout"));
+    const { main: packagedSourceInstallMain } = await import(
+      `${pathToFileURL(path.join(packagedSource, "cli", "source-install.mjs")).href}?test=${Date.now()}`
     );
     assert.throws(
-      () => invoke(packagedLinkMain, ["--skill", "handoff", "--target", "general"], fixture.environment),
-      /agentgear-link must be run from a development checkout/
+      () => invoke(packagedSourceInstallMain, ["--skill", "handoff", "--target", "general"], fixture.environment),
+      /agentgear-source-install must be run from a source checkout/
     );
     assert.throws(
-      () => invoke(main, ["link", "--skill", "handoff", "--target", "general"], fixture.environment),
-      /Unknown command: link/
+      () => invoke(main, ["source-install", "--skill", "handoff", "--target", "general"], fixture.environment),
+      /Unknown command: source-install/
     );
     assert.throws(
-      () => invoke(main, ["install", "--link", "--skill", "handoff", "--target", "general"], fixture.environment),
-      /Unknown option: --link/
+      () => invoke(main, ["install", "--source-install", "--skill", "handoff", "--target", "general"], fixture.environment),
+      /Unknown option: --source-install/
     );
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
 });
 
-test("the published package excludes the developer link command", () => {
+test("the published package excludes the source-install entry point", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
   assert.deepEqual(Object.keys(packageJson.bin), ["agentgear"]);
-  assert.equal(packageJson.files.includes("bin/agentgear-link.mjs"), false);
-  assert.equal(packageJson.files.includes("cli/link.mjs"), false);
-  assert.equal(packageJson.scripts.link, undefined);
+  assert.equal(packageJson.files.includes("bin/agentgear-source-install.mjs"), false);
+  assert.equal(packageJson.files.includes("cli/source-install.mjs"), false);
+  assert.equal(packageJson.scripts["source-install"], undefined);
 
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-npm-cache-"));
   const pack = childProcess.spawnSync("npm", ["pack", "--dry-run", "--json", "--cache", cache], {
@@ -3421,15 +3444,15 @@ test("the published package excludes the developer link command", () => {
     const files = JSON.parse(pack.stdout)
       .flatMap(entry => entry.files ?? [])
       .map(file => file.path);
-    assert.equal(files.includes("bin/agentgear-link.mjs"), false);
-    assert.equal(files.includes("cli/link.mjs"), false);
+    assert.equal(files.includes("bin/agentgear-source-install.mjs"), false);
+    assert.equal(files.includes("cli/source-install.mjs"), false);
     assert.equal(files.includes("bin/agentgear.mjs"), true);
   } finally {
     fs.rmSync(cache, { recursive: true, force: true });
   }
 });
 
-test("link refuses an unrecorded dangling command at the stable current path", t => {
+test("source-install refuses an unrecorded dangling command at the stable current path", t => {
   const fixture = environmentFixture();
   const launcher = path.join(fixture.localBin, "agentgear");
   const expectedTarget = path.join(fixture.dataRoot, "current", "bin", "agentgear.mjs");
@@ -3443,7 +3466,7 @@ test("link refuses an unrecorded dangling command at the stable current path", t
     }
 
     assert.throws(
-      () => run(["link", "--skill", "handoff", "--target", "general"], fixture.environment),
+      () => run(["source-install", "--skill", "handoff", "--target", "general"], fixture.environment),
       /Refusing to replace unmanaged launcher/
     );
     assert.equal(fs.lstatSync(launcher).isSymbolicLink(), true);
