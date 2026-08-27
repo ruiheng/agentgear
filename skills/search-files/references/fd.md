@@ -5,4 +5,4 @@ append-to-selector: start
 
 ## Runtime guidance: fd
 
-`fd` is available on `PATH`. Use it when the question calls for finding files or directories by name, path, type, or extension. Apply hidden/ignored-file options deliberately when the requested corpus includes them.
+Use `fd` to find files or directories by name, path, type, or extension. Include hidden or ignored paths only when relevant.

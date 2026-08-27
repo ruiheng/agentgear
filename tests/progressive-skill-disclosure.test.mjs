@@ -273,6 +273,27 @@ test("runtime appendices compose independent advisory candidates", () => {
   }
 });
 
+test("runtime appendices do not require placeholder base text", () => {
+  const item = contentIndexFixture();
+  item.catalog.skills.runtimeCommands = { "test-tool": {} };
+  try {
+    fs.writeFileSync(path.join(item.temporary, "skills", "fixture", "references", "slice.md"), [
+      "---",
+      "skill-selector: start",
+      "selector-summary: Fixture slice.",
+      "---",
+      ""
+    ].join("\n"));
+    writeRuntimeAppendix(item);
+    const index = buildSkillContentIndex(item.temporary, item.catalog);
+    const result = appendRuntimeGuidance(index, resolveSkillAddress(index, "fixture"), new Set(["test-tool"]));
+
+    assert.equal(result.body, "## Runtime guidance: test-tool\n\nCandidate guidance.\n");
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
 test("runtime appendices validate declarations, targets, guards, and workflow isolation", () => {
   const cases = [
     {
@@ -415,15 +436,21 @@ test("external command probes honor Windows PATHEXT without executing candidates
   }), executable);
 });
 
-test("browse-web and search-files append only ready advisory candidates", () => {
+test("browser skills and search-files append only ready advisory candidates", () => {
   const index = buildSkillContentIndex(rootDir, loadCatalog(rootDir));
   const browse = resolveSkillAddress(index, "browse-web");
   const browseBase = appendRuntimeGuidance(index, browse, new Set());
   const browseCandidate = appendRuntimeGuidance(index, browse, new Set(["agent-browser"]));
   assert.equal(browseBase, browse);
   assert.match(browseCandidate.body, /Runtime guidance: agent-browser/);
-  assert.match(browseCandidate.body, /built-in browser capability/);
   assert.doesNotMatch(browseCandidate.body, /curl/i);
+
+  const browserTest = resolveSkillAddress(index, "browser-test");
+  const browserTestBase = appendRuntimeGuidance(index, browserTest, new Set());
+  const browserTestCandidate = appendRuntimeGuidance(index, browserTest, new Set(["agent-browser"]));
+  assert.doesNotMatch(browserTestBase.body, /outside the sandbox/);
+  assert.match(browserTestCandidate.body, /Runtime guidance: agent-browser/);
+  assert.match(browserTestCandidate.body, /outside the sandbox/);
 
   const search = resolveSkillAddress(index, "search-files");
   const partial = appendRuntimeGuidance(index, search, new Set(["fd", "rg", "mq", "yq", "ast-grep"]));

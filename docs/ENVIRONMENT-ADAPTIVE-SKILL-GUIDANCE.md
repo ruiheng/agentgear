@@ -6,12 +6,13 @@ Agentgear supports a narrow runtime-guidance layer for canonical skill selectors
 
 Runtime guidance is always advisory. It identifies known candidates; it does not override a better harness-native or built-in capability, grant permission, establish trust, install anything, or require the agent to use a detected command.
 
-The first two behavior skills are:
+The first three behavior skills are:
 
 - `browse-web`: append `agent-browser` guidance when that command is available. If it is absent, append no CLI recommendation. In particular, do not add a `curl` fallback; the agent remains free to use an appropriate built-in or independently available capability.
+- `browser-test`: append the `agent-browser` sandbox constraint when that command is available. Its complete base selector still reports an unavailable command as a blocker.
 - `search-files`: help locate information across a large local file collection. Append available `fd`, `rg`, `mq`, `yq`, and `ast-grep` guidance independently; they cover paths, text, structured documents, YAML, and source syntax respectively. Append `codegraph` guidance only when its CLI is available and the current workspace already has a CodeGraph index; that advice applies only to source-code corpora. Never create an index as part of guidance detection.
 
-These skills are normal implicit entries in the `core` pack. Existing selectors without runtime appendices retain byte-identical output.
+`browse-web` and `search-files` are normal implicit entries in the `core` pack; `browser-test` remains prompt-only in the `browser` pack. Existing selectors without runtime appendices retain byte-identical output.
 
 ## Ownership boundaries
 

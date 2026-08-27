@@ -659,7 +659,7 @@ export function appendAgentGuidance(index, selection, agentProfiles = []) {
       const body = withoutTerminalNewline(appendix.body, "Agent appendix body");
       return body.startsWith("\n") ? body.slice(1) : body;
     })
-  ];
+  ].filter(Boolean);
   const body = bodies.join("\n\n") + "\n";
   return {
     ...selection,
@@ -692,7 +692,7 @@ export function appendRuntimeGuidance(index, selection, readyCommands = new Set(
       const body = withoutTerminalNewline(appendix.body, "Runtime appendix body");
       return body.startsWith("\n") ? body.slice(1) : body;
     })
-  ];
+  ].filter(Boolean);
   return {
     ...selection,
     body: bodies.join("\n\n") + "\n"
