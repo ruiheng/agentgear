@@ -16,6 +16,7 @@ commit; keep the session legible for user steering.
 
 The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`, workflow policy, and complete Branch Plan. Required review also requires the reviewer id. If any required field is missing, report a blocker instead of inferring it.
 
+- Before acting, verify that the task's intended deliverable requires a repository change. If not, stop and report this to the planner.
 - Attach the recorded task branch before editing or committing; create it from the recorded integration branch only when absent. Never commit detached HEAD.
 - Coder git writes and the delivery commit are pre-authorized for this delegated task.
 - If a material scope change or uncertainty appears, ask the user immediately and wait before applying or committing it. A user instruction that resolves it is the decision.
