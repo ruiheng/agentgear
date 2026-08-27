@@ -2,8 +2,17 @@ import childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadCatalog, resolveSelection, validateCatalog } from "../cli/lib/catalog.mjs";
-import { buildSkillContentIndex, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import {
+  loadCatalog,
+  MAX_SKILL_NAME_LENGTH,
+  resolveSelection,
+  validateCatalog
+} from "../cli/lib/catalog.mjs";
+import {
+  buildSkillContentIndex,
+  decodeSimpleFrontmatterScalar,
+  validateSkillContentIndex
+} from "../cli/lib/skill-content.mjs";
 import { validateLegacySkillNames } from "../cli/lib/legacy-skill-migration.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,9 +49,12 @@ function validateSkill(skillDir) {
     .split(/\r?\n/)
     .map(line => line.match(/^([^:#]+):\s*(.*)$/))
     .filter(Boolean)
-    .map(match => [match[1].trim(), match[2].trim().replace(/^["']|["']$/g, "")]));
+    .map(match => [match[1].trim(), decodeSimpleFrontmatterScalar(match[2])]));
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
     errors.push("Invalid skill directory name: " + name);
+  }
+  if (name.length > MAX_SKILL_NAME_LENGTH) {
+    errors.push(`Skill name exceeds ${MAX_SKILL_NAME_LENGTH} characters: ${name}`);
   }
   if (fields.name !== name) {
     errors.push("Frontmatter name must match directory: " + skillFile);

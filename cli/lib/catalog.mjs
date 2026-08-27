@@ -14,6 +14,9 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+export const MAX_SKILL_NAME_LENGTH = 64;
+export const SKILL_PREFIX_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 function upstreamSkillName(upstream) {
   return path.posix.basename(upstream.skillPath);
 }
@@ -44,7 +47,52 @@ function isSafeRelativeSkillPath(value) {
 
 function isSafeSkillName(value) {
   return typeof value === "string"
+    && value.length <= MAX_SKILL_NAME_LENGTH
     && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+}
+
+const RUNTIME_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
+const RUNTIME_READINESS = new Set(["codegraph-index"]);
+
+export function runtimeCommandValidationErrors(catalog) {
+  const errors = [];
+  const source = skillCatalog(catalog)?.runtimeCommands;
+  if (source === undefined) return errors;
+  if (!isPlainObject(source)) return ["runtimeCommands must be an object"];
+  for (const [name, definition] of Object.entries(source)) {
+    if (!RUNTIME_COMMAND.test(name)) {
+      errors.push(`invalid runtime command name: ${JSON.stringify(name)}`);
+      continue;
+    }
+    if (!isPlainObject(definition)) {
+      errors.push(`runtime command ${name} must be an object`);
+      continue;
+    }
+    const unknown = Object.keys(definition).filter(key => key !== "readiness");
+    if (unknown.length > 0) {
+      errors.push(`runtime command ${name} has unsupported field: ${unknown.join(", ")}`);
+    }
+    if (definition.readiness !== undefined && !RUNTIME_READINESS.has(definition.readiness)) {
+      errors.push(`runtime command ${name} has unsupported readiness: ${definition.readiness}`);
+    }
+    if (definition.readiness === "codegraph-index" && name !== "codegraph") {
+      errors.push(`runtime readiness codegraph-index requires command codegraph, not ${name}`);
+    }
+    if (name === "codegraph" && definition.readiness !== "codegraph-index") {
+      errors.push("runtime command codegraph requires readiness codegraph-index");
+    }
+  }
+  return errors;
+}
+
+export function runtimeCommands(catalog) {
+  const errors = runtimeCommandValidationErrors(catalog);
+  if (errors.length > 0) throw new Error(errors.join("\n"));
+  const source = skillCatalog(catalog)?.runtimeCommands ?? {};
+  return new Map(Object.entries(source).map(([name, definition]) => [name, {
+    name,
+    ...definition
+  }]));
 }
 
 export function loadCatalog(rootDir) {
@@ -153,6 +201,8 @@ export function validateCatalog(rootDir, catalog) {
   const presetRoot = path.join(rootDir, "catalog", "permission-presets");
   const declaredPresetFiles = new Set();
   const exposedUpstreams = new Map();
+
+  errors.push(...runtimeCommandValidationErrors(catalog));
 
   for (const [name, preset] of Object.entries(catalog.skills.permissionPresets ?? {})) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {

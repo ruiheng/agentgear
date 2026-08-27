@@ -1,0 +1,4 @@
+interface:
+  display_name: "Search Files"
+  short_description: "Find information across large file collections"
+  default_prompt: "Use $search-files to locate the requested information across the relevant local files."

@@ -14,6 +14,7 @@ export function parseOptions(argumentsList, { allowAgentProfile = false } = {}) 
     project: process.cwd(),
     projectSpecified: false,
     destination: undefined,
+    prefix: undefined,
     force: false,
     purge: false,
     noLauncher: false,
@@ -57,6 +58,10 @@ export function parseOptions(argumentsList, { allowAgentProfile = false } = {}) 
       case "--dest":
         options.supplied.add("dest");
         options.destination = next();
+        break;
+      case "--prefix":
+        options.supplied.add("prefix");
+        options.prefix = next();
         break;
       case "--force":
         options.supplied.add("force");

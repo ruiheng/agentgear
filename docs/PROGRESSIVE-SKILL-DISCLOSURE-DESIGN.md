@@ -11,15 +11,15 @@ The design preserves these ownership boundaries:
 - Waypost remains the durable message transport and does not acquire Agentgear workflow documentation or routing behavior.
 - The agent interprets and executes retrieved text. The CLI only indexes and returns documents; it does not execute a workflow, advance state, parse Waypost message bodies, or decide outcomes.
 
-Success means a normal installation exposes exactly the accepted fifteen public entry skills, route-waypost-action handles a received `Action: <value>` field independently of message retrieval, an inbound Action selects the first executable owning slice with one lookup unless a real discriminator is required, and any slice can be listed and fetched again through agentgear skill without knowing an installation path.
+Success means a normal installation exposes exactly the accepted 17 public entry skills, route-waypost-action handles a received `Action: <value>` field independently of message retrieval, an inbound Action selects the first executable owning slice with one lookup unless a real discriminator is required, and any slice can be listed and fetched again through agentgear skill without knowing an installation path.
 
 ## Accepted requester decisions
 
 The following product choices are authoritative for this design:
 
-- The default installed and discoverable entry set is exactly fifteen skills: assess-tech-design, code-health-review, commit-staged, delegate-code-task, delegate-task, explain-for-me, explore-defects, fix-strategy, handoff, intent-framing, refactor-review, roundtable, route-waypost-action, simplify-review, and tech-design-workflow. Plan dispatch is the internal `multi-agent-protocol/internal/dispatch-plan` selector, not a canonical skill or public entry.
+- The default installed and discoverable entry set is exactly 17 skills: assess-tech-design, browse-web, code-health-review, commit-staged, delegate-code-task, delegate-task, explain-for-me, explore-defects, fix-strategy, handoff, intent-framing, refactor-review, roundtable, route-waypost-action, search-files, simplify-review, and tech-design-workflow. Plan dispatch is the internal `multi-agent-protocol/internal/dispatch-plan` selector, not a canonical skill or public entry.
 - The entry set remains declarative in catalog metadata so later adjustment is a catalog edit rather than an installer rewrite.
-- Agentgear-managed skill links that are outside the effective pack and explicit-skill selection are removed by authoritative pack/default install, link, or update reconciliation.
+- Agentgear-managed skill links that are outside the effective pack and explicit-skill selection are removed by authoritative pack/default install, source-install, or update reconciliation.
 - Installation provenance and a legacy-state migration are not added merely to preserve an ambiguous historical explicit prompt-only selection. The sole current user accepts that a later authoritative pack invocation can remove it unless it is repeated with --skill.
 - Deletion never extends to an unmanaged path or a path that no longer matches Agentgear's ownership record.
 - Legacy discovery entries left outside valid installation state are handled only by the explicit one-time migration command `agentgear migrate legacy-skills --apply`. Inside that command alone, exact membership in its fixed legacy-name whitelist is sufficient cleanup authority; no ordinary command inherits name-only ownership.
@@ -43,10 +43,12 @@ Commit 03c5528 usefully demonstrates that large technical-design skills can be s
 
 ### Canonical content layout
 
-Every maintained skill directory remains present under skills/<name>/, with its existing scripts, agents metadata, assets, and other owned material. Agent-facing content is divided into two forms:
+Every maintained skill directory remains present under skills/<name>/, with its existing scripts, agents metadata, assets, and other owned material. Agent-facing content is divided into four forms:
 
 1. SKILL.md is a concise bootstrap for direct or compatibility installation. It identifies the first selector and tells the agent to remember and reuse the stable guidance returned by agentgear skill get. Reload occurs only when the agent no longer remembers the guidance, the user asks, or there is evidence it changed. Every SKILL.md, including a prompt-only skill installed explicitly, remains independently valid.
 2. Markdown files below skills/<name>/references/ hold the detailed prompt slices. Existing reference directories are reused; no parallel prompt source tree is introduced.
+3. An optional agent appendix adds best-effort guidance for one recognized harness profile without changing the target selector's identity or correctness.
+4. An optional runtime appendix adds advisory guidance for one catalog-declared command that is ready in the current PATH/workspace. The selector remains complete without it, and a better built-in capability may take precedence.
 
 A prompt slice opts into the runtime index with restricted frontmatter:
 
@@ -104,13 +106,15 @@ Frontmatter is never included in a returned prompt body. Each body otherwise rem
 
 An owning skill may add best-effort agent guidance without changing the selector address or its base body. A Markdown file below that skill's `references/` directory declares exactly `agent` and `append-to-selector` in frontmatter. When the runtime recognizes the native command environment for that agent, it appends the file's body to the addressed base selector with one empty line between them. Detection failure returns the complete base selector unchanged. An appendix begins with a protective `## For <Agent> only` heading, cannot declare selector aliases or message headers, and must never be required for workflow correctness. The `--agent-profile` option exists only as a deterministic test and diagnostic override; normal prompt instructions do not pass it.
 
+An owning selector may also declare runtime appendices with `runtime-command` and `append-to-selector` frontmatter. The catalog defines the finite command registry and supported readiness predicates. Every ready authored candidate is independent and advisory; optional-tool absence returns the complete base selector, and unrelated selectors remain byte-identical. `codegraph` additionally requires an existing workspace index; detection never creates one. The complete contract is specified in `docs/ENVIRONMENT-ADAPTIVE-SKILL-GUIDANCE.md`.
+
 skill list is the separate deterministic discovery operation. Without a skill name, text mode writes every canonical and upstream-retrievable skill name, one per line; JSON mode returns their catalog records. With a skill name, text mode writes every canonical address and alias owned by that skill, one per line in bytewise order. Local addresses are qualified so every listed value can be passed directly to skill get; global aliases such as `action:<token>` remain bare. Selector listing accepts no query, returns an empty success for a skill with no selectors, and performs no fuzzy matching. Its JSON mode returns ordered records with requested skill, address in the selector field, canonical owner, canonical selector, aliases, and summary.
 
 Unknown or ambiguous addresses exit status 2 with a concise diagnostic, up to three deterministic similarity-ranked candidates, and a directly executable discovery or selector-listing command. Candidates are diagnostic only: resolution remains exact, and unknown Action aliases are never silently corrected. Corrupt or duplicate runtime metadata exits status 1. Neither operation accepts a filesystem path, glob, URL, Waypost body, workflow state, or execution arguments.
 
 The selector index is built in memory for each command invocation by scanning skills/*/references/**/*.md below the runtime root containing the CLI. Traversal is contained, symlink-free, and deterministic. There is no generated index and no persistent cache. Source checkouts, staged physical releases, shared current launchers, and copy-fallback wrappers therefore use the same content model.
 
-The command remains generic. It knows skills, selectors, aliases, bodies, and optional agent appendices. It does not parse message bodies, branch on roles or workflow modes, expand dependencies, call Waypost, create sessions, or interpret an action. It returns only the explicitly requested addresses, with best-effort agent guidance appended when the native environment is recognized.
+The command remains generic. It knows skills, selectors, aliases, bodies, optional agent appendices, and declarative runtime appendices. It does not parse message bodies, branch on roles or workflow modes, expand dependencies, call Waypost, create sessions, execute candidate commands, or interpret an action. It returns only the explicitly requested addresses, with best-effort agent guidance and ready advisory runtime candidates appended when applicable.
 
 ### Complete action contract and direct routing
 
@@ -189,6 +193,7 @@ Allowed values are:
 The exact accepted entry set is:
 
 - assess-tech-design
+- browse-web
 - code-health-review
 - commit-staged
 - delegate-code-task
@@ -197,9 +202,11 @@ The exact accepted entry set is:
 - explore-defects
 - fix-strategy
 - handoff
+- intent-framing
 - refactor-review
 - roundtable
 - route-waypost-action
+- search-files
 - simplify-review
 - tech-design-workflow
 
@@ -207,7 +214,7 @@ The remaining current canonical skills are prompt-only: browser-test, browser-te
 
 The choice preserves the directly useful advisory reviews while keeping request helpers, persistent worker handlers, and receiver-selected workflow stages out of default discovery. It exists only in per-skill exposure metadata; there is no second entry-name array in implementation code. The list above is the accepted product contract and its test expectation.
 
-The pinned upstream Agent Deck skill is not a public entry and is never copied or linked into a harness discovery target by default or pack selection. Its current approximately 61 KiB SKILL.md would violate both the exact fifteen-name product decision and the minimal-disclosure goal.
+The pinned upstream Agent Deck skill is not a public entry and is never copied or linked into a harness discovery target by default or pack selection. Its current approximately 61 KiB SKILL.md would violate both the exact 17-name product decision and the minimal-disclosure goal.
 
 The upstream payload may still be provisioned while staging a new immutable managed runtime when selected session-host requirements need it. Internal staging does not create a target skill record and does not make the upstream skill discoverable. Existing Agentgear-managed target records for agent-deck are outside the new desired exposure set and are withdrawn by the same authoritative reconciliation and ownership guards as other obsolete managed links.
 
@@ -228,17 +235,17 @@ For agent-deck:
 - Because first materialization may require the network, it uses the existing upstream-fetch trust and permission boundary. A verified materialization is durable and offline-retrievable.
 - If the final content-addressed path or manifest exists but fails validation, do not overwrite or delete it automatically. Fail with the exact path and remediation guidance.
 
-The retrieved-skills root is Agentgear-owned persisted data, not prompt cache or installation state. It has a self-authenticating ownership contract independent of schema-v2 installation state: each purge candidate must be exactly `<data-root>/retrieved-skills/<catalog-upstream-name>/<64-lowercase-hex-digest>`, be a real directory reached without symlinks, and contain the Agentgear retrieval manifest whose upstream name, repository, ref, commit, contentDigest, payload-relative SKILL.md, and complete payload digest match the current catalog upstream declaration and the digest-named directory. Directory names, a SKILL.md file, or marker-shaped data alone never establish ordinary purge ownership. Discovery scans only direct upstream-name and digest children under this fixed root, rejects symlinks and deeper or unexpected shapes, and never follows a manifest-supplied path outside the candidate. A materialization from an older pin that the current catalog cannot verify is preserved and reported; ordinary purge does not acquire a historical pin catalog or use name-only authority to remove it.
+The retrieved-skills root is Agentgear-owned persisted data, not prompt cache or installation state. It has a self-authenticating ownership contract independent of versioned installation state: each purge candidate must be exactly `<data-root>/retrieved-skills/<catalog-upstream-name>/<64-lowercase-hex-digest>`, be a real directory reached without symlinks, and contain the Agentgear retrieval manifest whose upstream name, repository, ref, commit, contentDigest, payload-relative SKILL.md, and complete payload digest match the current catalog upstream declaration and the digest-named directory. Directory names, a SKILL.md file, or marker-shaped data alone never establish ordinary purge ownership. Discovery scans only direct upstream-name and digest children under this fixed root, rejects symlinks and deeper or unexpected shapes, and never follows a manifest-supplied path outside the candidate. A materialization from an older pin that the current catalog cannot verify is preserved and reported; ordinary purge does not acquire a historical pin catalog or use name-only authority to remove it.
 
 `agentgear uninstall --purge` applies these exact modes:
 
-- A full purge is an invocation without `--target`, `--dest`, or project-scoped target selection. It preflights every schema-v2 target/runtime candidate when state exists and every discovered retrieved-skill candidate whether state exists or not. A retrieval-only installation with no state is therefore not an early no-op: unchanged verified materializations are removed, empty retrieved-skills directories are pruned, and success is reported. If neither state-owned artifacts nor retrieved candidates exist, the existing no-state no-op message remains appropriate. If state is null but managed runtime markers or `current` exist, preserve the existing coherence failure and do not use retrieved-skill cleanup to legitimize or remove that ambiguous runtime data.
+- A full purge is an invocation without `--target`, `--dest`, or project-scoped target selection. It preflights every supported-state target/runtime candidate when state exists and every discovered retrieved-skill candidate whether state exists or not. A retrieval-only installation with no state is therefore not an early no-op: unchanged verified materializations are removed, empty retrieved-skills directories are pruned, and success is reported. If neither state-owned artifacts nor retrieved candidates exist, the existing no-state no-op message remains appropriate. If state is null but managed runtime markers or `current` exist, preserve the existing coherence failure and do not use retrieved-skill cleanup to legitimize or remove that ambiguous runtime data.
 - A target-limited purge removes only the selected target records and their verified owned links or copies. It never removes or preflights global retrieved-skills data, even when the selected target is the last managed target and normal runtime teardown consequently occurs. The materialization remains available because retrieval ownership is global rather than target-scoped; removing it requires a later full purge.
 - For a full purge, a verified unchanged materialization is added to the removal plan. A candidate with a missing, corrupt, historically unknown, or ownership-mismatched manifest, a mismatched payload digest, a symlink, or unexpected contents is preserved and reported with its exact path as `preserved unverifiable retrieved skill`; it is never overwritten or deleted by `--force`.
 
-Purge uses two independent ownership domains. Existing target/runtime ambiguity keeps its current fail-before-mutation behavior so external target links and the shared runtime are not partially deleted. Retrieved-skill ambiguity does not block unrelated verified target/runtime deletion: changed or corrupt materializations are preserved and reported while other owned artifacts are removed. After all planned removals, any preserved retrieved candidate makes the full command finish with status 1 and `Purge incomplete: retrieved skill materialization requires manual cleanup`; otherwise it finishes with status 0. Removal of verified retrieved materializations occurs only after target/runtime preflight succeeds and the existing target/runtime mutation and state save or state removal have completed. Each retrieved candidate uses a same-parent quarantine rename before recursive deletion. If that deletion fails, restore the quarantine entry to its original path when possible, report the exact residual path, and exit 1. This ordering keeps schema-v2 state consistent with completed target/runtime removals and gives retrieved resources per-candidate rollback; the design adds no persistent transaction log or promise of cross-domain rollback after target/runtime teardown has succeeded.
+Purge uses two independent ownership domains. Existing target/runtime ambiguity keeps its current fail-before-mutation behavior so external target links and the shared runtime are not partially deleted. Retrieved-skill ambiguity does not block unrelated verified target/runtime deletion: changed or corrupt materializations are preserved and reported while other owned artifacts are removed. After all planned removals, any preserved retrieved candidate makes the full command finish with status 1 and `Purge incomplete: retrieved skill materialization requires manual cleanup`; otherwise it finishes with status 0. Removal of verified retrieved materializations occurs only after target/runtime preflight succeeds and the existing target/runtime mutation and state save or state removal have completed. Each retrieved candidate uses a same-parent quarantine rename before recursive deletion. If that deletion fails, restore the quarantine entry to its original path when possible, report the exact residual path, and exit 1. This ordering keeps versioned state consistent with completed target/runtime removals and gives retrieved resources per-candidate rollback; the design adds no persistent transaction log or promise of cross-domain rollback after target/runtime teardown has succeeded.
 
-Ordinary install, update, link, pack uninstall, skill uninstall, and target-limited purge do not remove retrieved materializations, so explicit retrieval remains usable until a successful full purge.
+Ordinary install, update, source-install, pack uninstall, skill uninstall, and target-limited purge do not remove retrieved materializations, so explicit retrieval remains usable until a successful full purge.
 
 This command satisfies explicit access without making host availability silently change the installed public surface. If a later product need requires installing agent-deck into harness discovery, that is a separate interface and decision.
 
@@ -258,12 +265,12 @@ selectedInstallableSkills() returns exposedSkills only. Runtime staging still in
 
 Selection behavior is exact:
 
-- With no --pack or --skill, all is selected as today, and exactly the fifteen accepted canonical entries are exposed.
+- With no --pack or --skill, all is selected as today, and exactly the 17 accepted canonical entries are exposed.
 - --pack NAME exposes entry members of that pack closure.
 - --skill NAME explicitly exposes that named skill even when it is prompt-only.
 - --pack NAME --skill NAME exposes the pack entries plus the explicit skill.
 - An explicit-skill-only install remains additive.
-- A default or explicit-pack install, link, or update is authoritative for the selected targets and reconciles them to selectedInstallableSkills.
+- A default or explicit-pack install, source-install, or update is authoritative for the selected targets and reconciles them to selectedInstallableSkills.
 
 Pack descriptions change so all means all maintained capabilities, not every skill directory exposed to a harness. Workflow and browser readiness requires Waypost 0.6.0 or newer and one alternative session host; upstream documentation is no longer a target-installation readiness requirement. `agentgear list --json` reports each skill's exposure; selector discovery belongs to `agentgear skill list` rather than treating aliases as skills.
 
@@ -279,13 +286,15 @@ Catalog schemaVersion remains 1 because exposure is an internal additive field c
 - For Agent Deck, doctor validates documentation without network access. It searches the current verified catalog digest first in `<data-root>/retrieved-skills/agent-deck/<digest-hex>/payload`, then in the current or retained immutable runtimes whose embedded catalog pin matches. It prints exactly one informational state: `ok      optional documentation agent-deck (verified local resource)`, `available optional documentation agent-deck (run: agentgear skill get agent-deck)`, or `warning optional documentation agent-deck (unverifiable local resource: <path>)`. `available` means no verified local copy is present and never triggers a fetch. `warning` reports corruption but does not make an otherwise ready host fail; explicit `skill get` and full purge retain their stricter validation behavior.
 - Doctor never prints `missing` or `provision` for `<target>/agent-deck/SKILL.md`, never recommends installing or linking agent-deck into a harness, and never counts optional documentation toward readiness. With Agent Deck on PATH and no local payload, workflow doctor succeeds and reports the explicit retrieval command. With only Thurbox available, workflow doctor succeeds without requiring Agent Deck documentation.
 
-The catalog continues to declare the pinned upstream under the Agent Deck session host so staging and explicit retrieval can share one trust anchor. Documentation status is derived from that host declaration rather than adding a second pack requirement or a sixteenth skill exposure.
+The catalog continues to declare the pinned upstream under the Agent Deck session host so staging and explicit retrieval can share one trust anchor. Documentation status is derived from that host declaration rather than adding a second pack requirement or another skill exposure.
 
 ### Hard-cut installation reconciliation
 
-Installation state remains schema version 2. No provenance field or automatic state migration is added.
+This reconciliation adds no provenance field or state migration of its own;
+the installation-state versioning contract is defined in
+`docs/RUNTIME-OWNERSHIP.md`.
 
-For install, link, or update on selected targets:
+For install, source-install, or update on selected targets:
 
 - If the invocation selects any pack, including the implicit default all, compute desired managed skill names as selectedInstallableSkills.
 - Compare every recorded Agentgear-managed skill on each selected target with that desired set.
@@ -295,7 +304,7 @@ For install, link, or update on selected targets:
 Withdrawal preflight uses existing ownership records:
 
 - If the destination is absent, remove the stale state record.
-- If a linked destination exactly resolves to the source recorded in schema-v2 state, remove the link transactionally and remove its record. The record may point at the managed current runtime path whose target changes during publication; ownership is the exact recorded link target, not a content comparison.
+- If a linked destination exactly resolves to the source recorded in supported state, remove the link transactionally and remove its record. The record may point at the managed current runtime path whose target changes during publication; ownership is the exact recorded link target, not a content comparison.
 - If a copied destination still matches its recorded fingerprint, it may be removed transactionally under the same managed-path rule, although the current user normally uses links.
 - If a destination exists but no longer matches its record, do not remove it and do not silently declare reconciliation successful. Fail preflight with the exact path and leave filesystem and state unchanged. --force does not broaden withdrawal to an unowned path.
 - Never inspect or delete an unmanaged directory merely because its name matches a catalog skill.
@@ -325,9 +334,9 @@ Add one exceptional public subcommand:
 agentgear migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]
 ~~~
 
-This command exists only for the sole current user to clean pre-state or state-lost Agentgear discovery entries once on each machine, before installing the new release. It is deliberately not part of install, link, update, uninstall, purge, or retrieval. It accepts no `--pack`, `--skill`, `--force`, or arbitrary skill-name argument. Without `--apply` it is a read-only dry run. Its dedicated help and the first output line say `EXCEPTIONAL ONE-TIME MIGRATION: name whitelist is deletion authority`; the top-level command list labels `migrate legacy-skills` as an exceptional one-time cleanup and does not suggest it as routine maintenance.
+This command exists only for the sole current user to clean pre-state or state-lost Agentgear discovery entries once on each machine, before installing the new release. It is deliberately not part of install, source-install, update, uninstall, purge, or retrieval. It accepts no `--pack`, `--skill`, `--force`, or arbitrary skill-name argument. Without `--apply` it is a read-only dry run. Its dedicated help and the first output line say `EXCEPTIONAL ONE-TIME MIGRATION: name whitelist is deletion authority`; the top-level command list labels `migrate legacy-skills` as an exceptional one-time cleanup and does not suggest it as routine maintenance.
 
-Before resolving roots, the command reads and validates the normal installation state. It proceeds only when the state file is absent. A valid non-null schema-v2 state exits 1 without scanning or mutation and says `Legacy skill migration refused: recorded Agentgear installation exists; use install/update/uninstall ownership reconciliation.` A malformed, unsupported, or unreadable state also exits 1 without scanning or mutation and reports the existing state path and validation error. The migration never edits or removes state, the launcher, commands, managed runtimes, retrieved-skills, or permission files. This precondition prevents name-only cleanup from deleting a current entry while leaving its ownership record behind; state-lost runtime ambiguity remains a separate manual recovery concern.
+Before resolving roots, the command reads and validates the normal installation state. It proceeds only when the state file is absent. A valid non-null schema-v2 or schema-v3 state exits 1 without scanning or mutation and says `Legacy skill migration refused: recorded Agentgear installation exists; use install/update/uninstall ownership reconciliation.` A malformed, unsupported, or unreadable state also exits 1 without scanning or mutation and reports the existing state path and validation error. The migration never edits or removes state, the launcher, commands, managed runtimes, retrieved-skills, or permission files. This precondition prevents name-only cleanup from deleting a current entry while leaving its ownership record behind; state-lost runtime ambiguity remains a separate manual recovery concern.
 
 The whitelist is a release-owned constant in `cli/lib/legacy-skill-migration.mjs`, exported for validation and tests and not derived from the mutable active catalog at runtime. It contains exactly these 36 bytewise-sorted names Agentgear may have placed in harness discovery before this release:
 
@@ -370,14 +379,14 @@ tech-design-review-workflow
 tech-design-workflow
 ~~~
 
-This is the 27 current canonical names, the formerly exposed upstream `agent-deck`, and the eight current `catalog/skills.json` retired names. Validation requires every entry to match the safe skill-name grammar, remain bytewise sorted and unique, and equal a checked-in test fixture. Adding a name is a security-sensitive code change; catalog additions do not silently widen this command.
+This is the 27 canonical names that existed before `browse-web` and `search-files`, the formerly exposed upstream `agent-deck`, and the eight current `catalog/skills.json` retired names. The two newer skills were never installed by a preceding release and are deliberately absent. Validation requires every entry to match the safe skill-name grammar, remain bytewise sorted and unique, and equal a checked-in test fixture. Adding a name is a security-sensitive code change; catalog additions do not silently widen this command.
 
 Target resolution is bounded and explicit:
 
 - With no target options, inspect only the catalog's three global harness roots: `~/.agents/skills`, `~/.claude/skills`, and `~/.kiro/skills`. Unlike install defaults, the migration includes Kiro because this is machine cleanup of every supported historical global target. Default roots are resolved from the current environment and catalog; the whitelist remains code-fixed.
 - `--target` selects only catalog-declared target names through the existing resolver. `--scope project --project DIR` resolves only those catalog-declared project-relative roots below the resolved project directory.
 - `--dest DIR` is allowed only with the general target semantics, exactly one explicit destination, and an absolute normalized root. It cannot be combined with `--target` or project scope.
-- Duplicate roots after normalization are inspected once. The command never reads schema-v2 target records to discover additional roots, never scans a home or project recursively, and never follows target-root symlinks. A missing target root is an empty success for that root.
+- Duplicate roots after normalization are inspected once. The command never reads installation-state target records to discover additional roots, never scans a home or project recursively, and never follows target-root symlinks. A missing target root is an empty success for that root.
 
 For each selected real-directory root, read only its immediate children. A candidate is eligible only when its basename exactly equals one whitelist member, `path.dirname(path.resolve(root, basename))` equals the resolved root, and `lstat` of the candidate itself succeeds. Dot entries, nested paths, separators, case variants, Unicode lookalikes, and non-whitelisted names are outside authority. The command does not inspect a candidate's contents to infer ownership. A whitelisted immediate child may be a symlink, regular file, or directory; the migration removes the child entry itself without following it. The selected target root must be a real directory and not a symlink; an unsafe or unreadable root is an error and nothing is deleted anywhere in that invocation. On Windows, junctions and other reparse-point children are treated as link entries and unlinked without traversal; roots that are reparse points are rejected.
 
@@ -385,7 +394,7 @@ Execution is preflight-then-apply across the full selected scope. Dry-run prints
 
 A successful apply prints one `removed legacy skill: <absolute path>` line per candidate followed by `Legacy skill migration complete: <N> removed.` It exits 0 when candidates were removed or when none exist. Running it again is therefore idempotent and prints `Legacy skill migration complete: 0 removed.` No marker, state record, provenance, adopted ownership, or historical digest data is created; once-per-machine is an operator procedure, not persistent workflow state. JSON output is out of scope for this one-time command. Any parse error, unsafe root, enumeration error, containment failure, rename failure, backup-removal failure, or rollback failure exits 1; dry-run and successful apply exit 0.
 
-This name-only authority ends at the migration module boundary. Ordinary reconciliation and uninstall still require schema-v2 records and exact destination verification; purge still requires its runtime, target, or current retrieved-manifest ownership proofs; `agentgear skill get` still verifies catalog pins and content digests. Shared deletion helpers must accept an explicit migration-authority token or remain private to the migration module so future callers cannot accidentally reuse whitelist-only deletion.
+This name-only authority ends at the migration module boundary. Ordinary reconciliation and uninstall still require supported state records and exact destination verification; purge still requires its runtime, target, or current retrieved-manifest ownership proofs; `agentgear skill get` still verifies catalog pins and content digests. Shared deletion helpers must accept an explicit migration-authority token or remain private to the migration module so future callers cannot accidentally reuse whitelist-only deletion.
 
 ### Build and distribution
 
@@ -414,7 +423,7 @@ scripts/validate.mjs and catalog validation enforce:
 - every exact action emitted in indexed selector templates or skill-owned JavaScript is registered, and executable templates contain no dynamic or placeholder Action values;
 - every exact agentgear skill get <skill> <selector...> reference resolves;
 - every catalog pack resolves, every pack member appears in capabilitySkills, and target exposure derives only from exposure metadata;
-- target build layouts contain exactly the fifteen entry skills while universal contains every canonical skill;
+- target build layouts contain exactly the 17 entry skills while universal contains every canonical skill;
 - no default or pack target layout contains agent-deck, while agentgear skill get agent-deck resolves only the pinned verified upstream payload;
 - runtime scripts remain JavaScript/Node.js and remain inside their owning skill.
 
@@ -469,7 +478,7 @@ Later-round design review may use an ordinary diff between immutable design arti
 3. It retrieves `agentgear skill get action:<value>` and follows the returned instructions.
 4. The alias resolves directly to the owning executable selector, or to one tiny discriminator selector for the six branching actions listed above.
 5. The agent retrieves any additional addresses named by that stage, optionally batching cross-skill needs in one ordered invocation, executes them, and settles the claim.
-6. The agent reuses remembered guidance. It repeats the exact alias or selector lookup only when it no longer remembers that guidance, the user asks, or there is evidence it changed.
+6. The agent reuses remembered stable guidance. It repeats the exact alias or selector lookup only when it no longer remembers that guidance, the user asks, or there is evidence it changed. The environment-adaptive `browse-web` and `search-files` bootstraps are local exceptions and refresh their advisory candidates at the start of each matching task turn.
 
 ### Direct workflow start
 
@@ -502,6 +511,7 @@ Later-round design review may use an ordinary diff between immutable design arti
 - A failed authoritative update rolls back owned withdrawals, new writes, runtime publication, and installation state.
 - A recorded path that no longer matches its ownership record blocks ordinary withdrawal and is preserved. Only the separately invoked legacy migration may remove an exact whitelisted immediate child by name.
 - Duplicate selector or alias metadata fails validation, build, and runtime lookup. Scan order is never semantic.
+- Invalid runtime-command declarations or appendices fail validation, build, and runtime lookup. Missing optional commands, denied probes, or a missing CodeGraph index simply omit the affected advisory appendix.
 - A missing or dependency-broken script named only by a prompt-only selector fails staged-runtime validation.
 - agentgear skill get agent-deck never returns unverified upstream content; an unavailable network with no valid materialization or staged copy fails without changing targets, published runtimes, or installation state. A successful first retrieval may create only the verified retrieved-skills materialization.
 - A corrupt or locally changed retrieved-skill materialization blocks reuse, is preserved by full purge, and makes that purge exit 1 after unrelated verified owned artifacts are removed; target-limited purge does not inspect it.
@@ -512,7 +522,7 @@ Codex, Claude Code, Gemini CLI, OpenCode, Antigravity, and Kiro continue to disc
 
 Claude ordinary repeated Skill calls are not presented as faulty or repeatedly reinjecting full skill bodies. Compaction recovery may reload active material, and smaller bootstraps reduce that recovery payload without changing Claude-specific semantics.
 
-All current catalog skill names are canonical, listable through agentgear list, and explicitly installable with --skill. Their detailed instructions are independently addressable, with action aliases globally available as bare unique addresses. Internal protocol selectors such as `multi-agent-protocol/internal/dispatch-plan` are addressable only through their owning canonical skill and are not independently installable. The upstream agent-deck name is listed as an upstream retrievable skill and uses skill get rather than --skill installation. The fifteen accepted canonical entries remain installed by default.
+All current catalog skill names are canonical, listable through agentgear list, and explicitly installable with --skill. Their detailed instructions are independently addressable, with action aliases globally available as bare unique addresses. Internal protocol selectors such as `multi-agent-protocol/internal/dispatch-plan` are addressable only through their owning canonical skill and are not independently installable. The upstream agent-deck name is listed as an upstream retrievable skill and uses skill get rather than --skill installation. The 17 accepted canonical entries remain installed by default.
 
 The existing workflow-level `message_rejected` action remains registered independently of the received-Action router. Agentgear-owned message envelopes drop body `From`/`To` routing fields in favor of Waypost delivery metadata; the action-alias set makes routing explicit and rejects unsupported retired tokens.
 
@@ -520,7 +530,7 @@ Third-party tools may read dist/universal/skills as canonical source input, but 
 
 Users who need the host documentation explicitly run agentgear skill get agent-deck; doing so returns its content without adding another discoverable skill.
 
-Installation state stays schema version 2. Canonical selector lookup creates no files and stores no cache. Upstream no-selector retrieval may create only the verified retrieved-skills materialization. Authoritative pack reconciliation may remove an older explicitly installed prompt-only managed skill; this is deliberate requester-approved compatibility behavior.
+Canonical selector lookup does not change installation state, creates no files, and stores no cache. Upstream no-selector retrieval may create only the verified retrieved-skills materialization. Authoritative pack reconciliation may remove an older explicitly installed prompt-only managed skill; this is deliberate requester-approved compatibility behavior.
 
 ## Tests and acceptance gates
 
@@ -529,17 +539,17 @@ Add or update tests for:
 1. selector frontmatter parsing, contained traversal, symlink rejection, deterministic selector listing, exact canonical and alias lookup, frontmatter removal, trailing-newline normalization, text output, and status 1 versus status 2 failures;
 2. agentgear skill get/list from a source checkout, staged physical release, shared current launcher, and copy-fallback wrapper, including skill-name entry lookup, one-address plain output, repeated and cross-skill caller order, exact `agentgear skill: <address>` labels, two-space body indentation, one empty line between blocks, and atomic unknown/ambiguous-address failure with empty stdout;
 3. agentgear skill get agent-deck from an existing verified materialization, a verified immutable-runtime copy, and a fresh pinned fetch, including the complete multi-file tree, required Base directory for this skill preamble, atomic concurrent creation, offline reuse, digest/manifest corruption, unknown sub-address status 2, no mutation of published runtimes, no target write, and no installation-state exposure record;
-4. catalog exposure validation, global alias uniqueness, list --json reporting, and the exact fifteen-entry set with no implicit upstream host skill;
+4. catalog exposure validation, global alias uniqueness, list --json reporting, and the exact 17-entry set with no implicit upstream host skill;
 5. the complete current action-alias set, with every exact message-template Action covered and every alias target present; include all current design, review, browser, plan, delegation, advisory, group, and result actions rather than representative samples;
 6. received Action routing: discovery identifies an `Action: <value>` field, the router retrieves `action:<value>`, and the prompt contains no duplicate parser or token-validation contract;
 7. direct one-lookup routing for one-to-one actions and small discriminator routing only for browser_check_report, design_spec_review_requested, group_message_available, rework_required, work_accepted, and abort_iteration;
-8. implicit/default all installation exposing exactly the fifteen accepted canonical entry names on every target, and each explicit pack exposing exactly the entry subset in its resolved closure: core exposes its six entries, workflow exposes its nine entries, browser exposes the same nine through workflow inclusion, and explicit pack unions plus --skill expose the corresponding union; agent-deck is never implicit in any case;
+8. implicit/default all installation exposing exactly the 17 accepted canonical entry names on every target, and each explicit pack exposing exactly the entry subset in its resolved closure: core exposes its eight entries, workflow exposes its nine entries, browser exposes the same nine through workflow inclusion, and explicit pack unions plus --skill expose the corresponding union; agent-deck is never implicit in any case;
 9. explicit installation of a prompt-only canonical skill, mixed pack-plus-skill retention for that invocation, explicit-skill-only additive behavior, and later authoritative pack withdrawal;
 10. schema-v2 pre-change full-pack fixtures proving install/update reconciliation and uninstall --pack workflow/browser/all remove recorded, ownership-matching legacy prompt-only and historical agent-deck links;
 11. ownership safety for missing destinations, matching links, matching copies, mismatched links, unmanaged directories, and --force not widening withdrawal;
 12. transactional rollback after an owned withdrawal when a later target write, launcher publication, or state save fails;
-13. build output, which represents the implicit all selection, containing all canonical skills under dist/universal as source material and exactly the fifteen accepted entries under every target layout, with no upstream agent-deck directory and a generated universal warning that rejects copy-as-install usage;
-14. retrieved-skills lifecycle: exact content-addressed layout and manifest, immutable validated reuse, no harness discovery path overlap, retrieval-only/state-null full purge, full purge with installed targets, target-limited purge retaining global materializations, current-catalog ownership proof, preservation of older or unknown pins, unchanged owned removal, changed/corrupt preservation with status 1 but no block on unrelated owned deletion, symlinked parent and unexpected-shape rejection, quarantine rollback on removal failure, and no effect from ordinary install, update, link, or non-purge uninstall;
+13. build output, which represents the implicit all selection, containing all canonical skills under dist/universal as source material and exactly the 17 accepted entries under every target layout, with no upstream agent-deck directory and a generated universal warning that rejects copy-as-install usage;
+14. retrieved-skills lifecycle: exact content-addressed layout and manifest, immutable validated reuse, no harness discovery path overlap, retrieval-only/state-null full purge, full purge with installed targets, target-limited purge retaining global materializations, current-catalog ownership proof, preservation of older or unknown pins, unchanged owned removal, changed/corrupt preservation with status 1 but no block on unrelated owned deletion, symlinked parent and unexpected-shape rejection, quarantine rollback on removal failure, and no effect from ordinary install, update, source-install, or non-purge uninstall;
 15. entry and slice byte limits, referenced skill/selector pairs, and safe fully qualified alias grammar;
 16. staged runtime validation of scripts referenced from entry and prompt-only slices, including failing missing-script and missing-relative-dependency fixtures;
 17. Claude, Codex, and Gemini permission output containing agentgear skill get, retaining required script grants, and dropping the removed incremental-review grant;
@@ -566,7 +576,7 @@ Implementation order:
 
 Release notes and installer output state that default or pack operations authoritatively withdraw recorded Agentgear-managed skill directories not selected by the current configuration, including ownership-matching historical automatically exposed agent-deck links; that state-lost historical discovery entries require the separately documented one-time migration command; that explicit-skill-only canonical operations remain additive; that dist/universal/skills is source material rather than an installation; and that existing sessions should restart.
 
-Rollback is a normal install or link of the preceding pinned release. Schema-v2 state remains readable. The preceding installer stages its own snapshot and can expose its historical full selection again. A mismatched or unmanaged path remains untouched in either direction. No Waypost data, workflow history, or user repository data is migrated or deleted.
+Rollback is a normal install or source-install of the preceding pinned revision. Schema-v2 state remains readable. The preceding installer stages its own snapshot and can expose its historical full selection again. A mismatched or unmanaged path remains untouched in either direction. No Waypost data, workflow history, or user repository data is migrated or deleted.
 
 ## Alternatives rejected
 
@@ -578,7 +588,7 @@ Installing a generated monolithic router skill is rejected because it recreates 
 
 Mapping every action through a receiver-owned routing selector is rejected because it adds a needless second skill get. Only actions with a real message discriminator use a small routing selector.
 
-Automatically exposing the pinned upstream agent-deck skill is rejected because it creates a sixteenth default entry, adds roughly 61 KiB of prompt text, and makes host availability silently change the public skill surface. Internal verified staging is sufficient for existing runtime reuse needs.
+Automatically exposing the pinned upstream agent-deck skill is rejected because it creates an eighteenth default entry, adds roughly 61 KiB of prompt text, and makes host availability silently change the public skill surface. Internal verified staging is sufficient for existing runtime reuse needs.
 
 Removing all access to the upstream skill is also rejected. Explicit agentgear skill get agent-deck preserves on-demand documentation access without installing it or making every harness session discover it.
 

@@ -7,10 +7,11 @@ This repository has three boundaries:
 3. `dist/` is generated installation material and is never edited by hand.
 
 `catalog/skills.json` owns pack membership, external command requirements,
-upstream dependencies, and the finite list of skill names retired during
-pre-release migrations. It is intentionally separate from `SKILL.md` metadata:
-frontmatter decides when an agent loads a skill; the catalog decides how a human
-installs and operates a collection.
+optional runtime-command declarations, upstream dependencies, and the
+finite list of skill names retired during pre-release migrations. It is
+intentionally separate from `SKILL.md` metadata: frontmatter decides when an
+agent loads a skill; the catalog decides how a human installs and operates a
+collection and which finite environment facts may affect selector composition.
 
 `config/tool-profiles.toml` maps workflow roles to ordered launch candidates.
 Each candidate has a full command line and may carry a user-maintained
@@ -42,6 +43,15 @@ Runtime scripts belong to their owning skill and use Node.js, rather than a
 shell-specific runtime. Build, installer, and test scripts belong at the
 repository root so an installed skill remains self-contained.
 
+## Environment-adaptive skill guidance
+
+Canonical selectors may own advisory runtime appendices under their
+`skills/<name>/references/` tree. The catalog declares the finite command set,
+Markdown owns the agent-facing advice, and `providers/external-commands.mjs`
+observes readiness without executing candidates. Missing tools leave the base
+selector unchanged. The complete contract is documented in
+`docs/ENVIRONMENT-ADAPTIVE-SKILL-GUIDANCE.md`.
+
 ## Installation channels
 
 Every installation stages an immutable package snapshot in the user's XDG data
@@ -50,20 +60,30 @@ it remains stable even if a checkout changes or disappears.
 
 There are exactly two channels, and they never silently switch. The public
 `agentgear install` and `update` commands request the release channel;
-checkout-only `node ./bin/agentgear-link.mjs` requests the development channel.
-The first successful install records its channel in schema-v2 installation
-state. A different channel fails before any staging or mutation, even with
+checkout-only `node ./bin/agentgear-source-install.mjs` requests the source
+channel.
+The first successful install records its channel in installation state.
+Unprefixed state stays on the rollback-readable schema-v2 wire format; an
+installation-wide prefix requires schema v3. A different channel fails before
+any staging or mutation, even with
 `--force`; only a full purge resets the channel for a fresh install through the
-other one. The npm package ships no link command: the developer entry point
-lives only in the source checkout, is excluded from published files and
+other one. The npm package ships no source-install command: the source entry
+point lives only in the source checkout, is excluded from published files and
 scripts, and rejects execution from a staged runtime.
 
-When directory links or Windows junctions are available, developer target
+When directory links or Windows junctions are available, source-installed
 skills point to the stable `current` runtime path rather than the checkout.
-Rerunning `agentgear-link` from the checkout stages its latest contents and
-publishes that path only after target validation and installation succeed, so
-all shared links switch together. Local checkout edits therefore require
-another `agentgear-link` invocation to take effect.
+The installation records at most one discovery-name prefix shared by every
+target. Canonical runtime
+skills and `agentgear skill get`/`run` addresses remain unprefixed; generated
+discovery projections rewrite the installed directory, SKILL.md name, and
+Codex self-invocation prompt. Generated names are capped at 64 characters, and
+the recorded prefix is
+revalidated against the current catalog before a runtime can be published.
+Rerunning `agentgear-source-install` from the checkout stages its latest
+contents and publishes that path only after target validation and installation
+succeed, so all shared links switch together. Source changes therefore require
+another `agentgear-source-install` invocation to take effect.
 
 Ownership is exact: a skill, launcher, helper, or wrapper is installer-owned
 only when its state record and its on-disk artifact agree. Linked records
@@ -76,8 +96,9 @@ evidence, and `--force` never broadens that rule.
 Recovery is conservative. A `current` link removed while its release is intact
 is republished after the next staged install, which also recreates recorded
 dangling command links. A `current` link dangling because its inventoried
-release was deleted is not recoverable by install, update, or `agentgear-link`;
-only full purge removes that exact dangling link. State loss, schema-v1 or
+release was deleted is not recoverable by install, update, or
+`agentgear-source-install`; only full purge removes that exact dangling link.
+State loss, schema-v1 or
 malformed state, XDG alias changes, or deletion of the whole managed data
 subtree fail without adopting artifacts; the documented clean reset is manual
 and explicit.
@@ -88,8 +109,9 @@ staged release; rerunning it explicitly refreshes those copies. Copy fallback
 is refused while any shared record remains in valid state: leaving existing
 consumers on `current` while moving new artifacts to a copied snapshot would be
 incoherent. A full purge is required before switching between shared and copy
-modes. If a future provider adapter needs generated output, its developer path
-must be produced by `agentgear-link`, not hand-edited in `dist/`.
+modes. If a future provider adapter needs generated output, its source-install
+path must be produced by `agentgear-source-install`, not hand-edited in
+`dist/`.
 
 `agentgear uninstall --purge` explicitly cleans up installer-owned artifacts.
 Release-deletion candidates come only from the state inventory: each recorded

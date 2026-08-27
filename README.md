@@ -16,6 +16,14 @@ With neither `--pack` nor `--skill`, Agentgear installs the `all` pack. Use
 `--pack core` or another named pack to narrow that selection; `--skill NAME`
 without `--pack` installs only the named skills.
 
+Pass `--prefix NAME` to namespace every installed discovery entry. For example,
+`--skill handoff --prefix acme` installs `acme-handoff` while its bootstrap
+continues to retrieve canonical content with `agentgear skill get handoff`.
+Prefixes use lowercase kebab-case and cannot equal, or end at a `-` boundary
+within, any active, upstream, or retired skill name. One prefix applies to the
+whole Agentgear installation and is reused by later installs, updates, and
+uninstalls. Every generated skill name is limited to 64 characters.
+
 The default targets are `general,gemini,agy,claude`. `general` installs to
 `~/.agents/skills` and `.agents/skills` for Codex and other hosts that discover
 the common Agent Skills layout. `gemini` installs to `~/.gemini/skills` for
@@ -31,38 +39,38 @@ data directory, then publishes it only after the target checks and installation
 steps succeed. A failed update keeps the previously published shared runtime
 active. Later edits in any local checkout do not affect that release.
 
-## Developers: shared runtime links
+## Install from a source checkout
 
 ~~~bash
 git clone git@github.com:ruiheng/agentgear.git
 cd agentgear
-node ./bin/agentgear-link.mjs
+node ./bin/agentgear-source-install.mjs
 ~~~
 
-`agentgear-link` is a developer-only command: run it from a source checkout,
-not from an installed `agentgear` launcher or a staged runtime. It is not
-published as a public npm executable. It snapshots the checkout into
-Agentgear's shared XDG runtime and prefers to point each installed skill and
-the `agentgear` launcher at its stable `current` path. After editing the
-checkout, rerun the same command to refresh that runtime:
+`agentgear-source-install` is a source-checkout-only command: run it from a
+source checkout, not from an installed `agentgear` launcher or a staged
+runtime. It is not published as a public npm executable. It snapshots the
+checkout into Agentgear's shared XDG runtime and prefers to point each
+installed skill and the `agentgear` launcher at its stable `current` path.
+After changing the source, rerun the same command to refresh that runtime:
 
 ~~~bash
-node ./bin/agentgear-link.mjs
+node ./bin/agentgear-source-install.mjs
 ~~~
 
 When directory links or Windows junctions are unavailable, a fresh
 installation falls back to copied skills and small Node command wrappers
-targeting the physical staged release; rerunning `agentgear-link` refreshes
-those copies explicitly. It refuses that fallback while any shared record
-remains in valid state, so one installation cannot be split across old and new
-runtimes. When links are available, every installed skill link sees the new
-snapshot without being repointed individually. The published `agentgear` CLI
-deliberately has no `link` subcommand.
+targeting the physical staged release; rerunning `agentgear-source-install`
+refreshes those copies explicitly. It refuses that fallback while any shared
+record remains in valid state, so one installation cannot be split across old
+and new runtimes. When links are available, every installed skill link sees
+the new snapshot without being repointed individually. The published
+`agentgear` CLI deliberately has no `source-install` subcommand.
 
-Release and development are separate channels that never silently switch:
-`agentgear install`/`update` and `agentgear-link` each reject a runtime
-recorded by the other channel, even with `--force`. To move from developer
-links to independent release copies, purge first and then install:
+Release and source are separate channels that never silently switch:
+`agentgear install`/`update` and `agentgear-source-install` each reject a runtime
+recorded by the other channel, even with `--force`. To move from a source
+installation to independent release copies, purge first and then install:
 
 ~~~bash
 agentgear uninstall --purge
@@ -70,8 +78,8 @@ npx --yes @ruiheng/agentgear@latest install
 ~~~
 
 Agentgear records ownership of its launcher. If the stable `current` link is
-removed accidentally, rerun `agentgear-link` from the checkout to restore it
-and the recorded launcher link. It still refuses an
+removed accidentally, rerun `agentgear-source-install` from the checkout to
+restore it and the recorded launcher link. It still refuses an
 unrecorded command link, even when that link happens to target the same path,
 and it cannot recover a `current` link dangling because its inventoried release
 was deleted (full purge can remove that link).
@@ -94,12 +102,13 @@ node ./bin/agentgear.mjs doctor --pack workflow
 node ./bin/agentgear.mjs install --pack workflow --scope project
 ~~~
 
-Use `agentgear-link` from a development checkout, and rerun it after local
-edits. The target normally links to Agentgear's shared runtime, with automatic
-copy fallback on filesystems that reject links; the normal `agentgear install`
-and `update` commands always copy skills to the target directory and record
-only installer-managed destinations. The two channels are exclusive: switching
-from one to the other requires `agentgear uninstall --purge` first.
+Use `agentgear-source-install` from a source checkout, and rerun it after
+source changes. The target normally links to Agentgear's shared runtime, with
+automatic copy fallback on filesystems that reject links; the normal
+`agentgear install` and `update` commands always copy skills to the target
+directory and record only installer-managed destinations. The two channels
+are exclusive: switching from one to the other requires
+`agentgear uninstall --purge` first.
 
 The workflow pack needs one supported persistent-session host:
 
@@ -160,8 +169,8 @@ agentgear uninstall --skill handoff --target general
 
 The installer refuses to remove locally modified copied skills; `--force`
 never authorizes deleting an artifact that does not agree with its state
-record. Removing a development target removes only the Agentgear-managed link
-or copy, never the checkout it came from.
+record. Removing a source-installed target removes only the Agentgear-managed
+link or copy, never the checkout it came from.
 
 To remove every installer-managed skill, launcher, recorded release snapshot,
 and install-state file, run a full purge:
@@ -279,11 +288,11 @@ cannot safely discover arbitrary historical project scopes, so the migration is
 not complete until each of those scopes has been updated and existing agent
 sessions have been restarted.
 
-The development-only command is `node ./bin/agentgear-link.mjs` from a source
-checkout. It accepts the same pack, skill, target, scope, destination,
-`--force`, and `--no-launcher` selection options as `agentgear install`; it is
-intentionally not an `agentgear` subcommand and is not published in the npm
-package.
+The source-checkout-only command is
+`node ./bin/agentgear-source-install.mjs`. It accepts the same pack, skill,
+target, scope, destination, `--prefix`, `--force`, and `--no-launcher`
+selection options as `agentgear install`; it is intentionally not an
+`agentgear` subcommand and is not published in the npm package.
 
 `--no-launcher` still installs the selected skills. It leaves the global
 `agentgear` command unchanged, so use it only when that command is already

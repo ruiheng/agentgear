@@ -5,7 +5,13 @@ import {
   findMissingWaypostCliFailApprovals,
   findRetiredPermissionApprovals
 } from "../../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
-import { resolveSelection } from "./catalog.mjs";
+import {
+  MAX_SKILL_NAME_LENGTH,
+  resolveSelection,
+  SKILL_PREFIX_PATTERN,
+  upstreamSkillEntries
+} from "./catalog.mjs";
+import { decodeSimpleFrontmatterScalar } from "./skill-content.mjs";
 import {
   provisionUpstreamSkill as defaultProvisionUpstreamSkill,
   selectedUpstreamSkillPlans
@@ -28,12 +34,17 @@ import {
   exists,
   expandHome,
   installRuntimeCommand,
+  installedSkillDestination,
+  installedSkillName,
+  installedSkillRuntimeRelativePath,
   publishRuntime,
   readInstallState,
   retiredCommandEntries,
   resolvedLinkTarget,
   rollbackRuntimePublication,
   saveInstallState,
+  SOURCE_CHANNEL,
+  SOURCE_CHANNEL_STATE_TOKEN,
   stageRuntime,
   targetState,
   updateTargetState,
@@ -49,6 +60,62 @@ const PERMISSION_MIGRATION_COMMANDS = new Set(["adwf-send-and-wake"]);
 
 function fail(message) {
   throw new Error(message);
+}
+
+function validateInstalledSkillName(skill, prefix) {
+  const installedAs = installedSkillName(skill, prefix);
+  if (installedAs.length > MAX_SKILL_NAME_LENGTH) {
+    fail(
+      `Installed skill name ${JSON.stringify(installedAs)} exceeds `
+      + `${MAX_SKILL_NAME_LENGTH} characters`
+    );
+  }
+  return installedAs;
+}
+
+function validateSkillPrefix(catalog, prefix) {
+  if (!SKILL_PREFIX_PATTERN.test(prefix)) {
+    fail(`Invalid skill prefix ${JSON.stringify(prefix)}; use lowercase kebab-case`);
+  }
+  const knownSkills = [
+    ...Object.keys(catalog.skills.skills ?? {}),
+    ...upstreamSkillEntries(catalog).map(entry => entry.name),
+    ...(catalog.skills.retiredSkills ?? [])
+  ];
+  const conflict = knownSkills
+    .sort()
+    .find(skill => skill === prefix || skill.startsWith(`${prefix}-`));
+  if (conflict) {
+    fail(`Skill prefix ${JSON.stringify(prefix)} conflicts with known skill ${JSON.stringify(conflict)}`);
+  }
+  return prefix;
+}
+
+function validateRecordedSkillPrefix(catalog, state) {
+  if (state?.skillPrefix === null || state === null) return;
+  try {
+    validateSkillPrefix(catalog, state.skillPrefix);
+    const installedSkills = new Set(Object.values(state.targets)
+      .flatMap(record => Object.keys(record.skills)));
+    for (const skill of installedSkills) validateInstalledSkillName(skill, state.skillPrefix);
+  } catch (error) {
+    fail(`Invalid recorded skill prefix: ${error.message}`);
+  }
+}
+
+function installationSkillPrefix(catalog, state, options) {
+  const recorded = state?.skillPrefix ?? null;
+  const prefix = options.prefix === undefined ? recorded : options.prefix;
+  if (prefix !== null) validateSkillPrefix(catalog, prefix);
+  const hasInstalledSkills = Object.values(state?.targets ?? {})
+    .some(record => Object.keys(record.skills).length > 0);
+  if (hasInstalledSkills && prefix !== recorded) {
+    fail(
+      `Cannot change recorded skill prefix from ${JSON.stringify(recorded)} to ${JSON.stringify(prefix)}; `
+      + "uninstall all managed skills before reinstalling with a different prefix"
+    );
+  }
+  return prefix;
 }
 
 export function retiredPermissionMigrationScopes(options, env = process.env) {
@@ -177,21 +244,22 @@ function ensureSourceSkills(sourceRoot, selection) {
   }
 }
 
-function targetInstallPlan(state, targets, skillsByTarget, options) {
+function targetInstallPlan(state, targets, skillsByTarget, options, skillPrefix) {
   const errors = [];
   const plan = [];
   for (const target of targets) {
     const recorded = state === null ? { skills: {} } : targetState(state, target.root);
     for (const skill of skillsByTarget.get(target.root)) {
-      const destination = path.join(target.root, skill);
+      const installedAs = validateInstalledSkillName(skill, skillPrefix);
+      const destination = path.join(target.root, installedAs);
       const record = recorded.skills[skill];
       const destinationExists = exists(destination);
       if (destinationExists && !record && !options.force) {
         errors.push("Unmanaged skill already exists: " + destination);
-      } else if (destinationExists && record && !destinationMatchesRecord(destination, record, skill) && !options.force) {
+      } else if (destinationExists && record && !destinationMatchesRecord(destination, record, skill, installedAs) && !options.force) {
         errors.push("Installer-managed skill changed locally: " + destination + " (use --force to replace it)");
       }
-      plan.push({ target, skill, destination, record, destinationExists });
+      plan.push({ target, skill, installedAs, destination, record, destinationExists });
     }
   }
   if (errors.length > 0) fail(errors.join("\n"));
@@ -205,7 +273,8 @@ function retiredSkillPlan(catalog, state, targetRoots = null) {
     if (targetRoots && !targetRoots.has(targetRoot)) continue;
     for (const [skill, record] of Object.entries(targetRecord.skills ?? {})) {
       if (!retired.has(skill)) continue;
-      const destination = path.join(targetRoot, skill);
+      const installedAs = installedSkillName(skill, state.skillPrefix);
+      const destination = path.join(targetRoot, installedAs);
       const destinationExists = exists(destination);
       plan.push({
         targetRoot,
@@ -213,7 +282,7 @@ function retiredSkillPlan(catalog, state, targetRoots = null) {
         record,
         destination,
         destinationExists,
-        owned: destinationExists && destinationMatchesRecord(destination, record, skill)
+        owned: destinationExists && destinationMatchesRecord(destination, record, skill, installedAs)
       });
     }
   }
@@ -228,9 +297,10 @@ function withdrawnSkillPlan(state, targets, skillsByTarget, authoritative) {
     const record = targetState(state, target.root);
     for (const [skill, item] of Object.entries(record.skills)) {
       if (desired.has(skill)) continue;
-      const destination = path.join(target.root, skill);
+      const installedAs = installedSkillName(skill, state.skillPrefix);
+      const destination = path.join(target.root, installedAs);
       const destinationExists = exists(destination);
-      if (destinationExists && !destinationMatchesRecord(destination, item, skill)) {
+      if (destinationExists && !destinationMatchesRecord(destination, item, skill, installedAs)) {
         fail(`Refusing to withdraw locally changed skill: ${destination}`);
       }
       plan.push({ targetRoot: target.root, skill, destination, destinationExists });
@@ -239,17 +309,129 @@ function withdrawnSkillPlan(state, targets, skillsByTarget, authoritative) {
   return plan;
 }
 
+function rewriteInstalledSkillFrontmatter(skillFile, canonicalSkill, installedAs) {
+  const source = fs.readFileSync(skillFile, "utf8");
+  const frontmatter = /^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n)/.exec(source);
+  if (!frontmatter) fail(`Invalid canonical skill frontmatter: ${skillFile}`);
+  const lines = frontmatter[2].split(/\r?\n/);
+  const nameIndex = lines.findIndex(line => line.startsWith("name:"));
+  const declaredName = nameIndex === -1
+    ? null
+    : decodeSimpleFrontmatterScalar(lines[nameIndex].slice("name:".length));
+  if (declaredName !== canonicalSkill) {
+    fail(`Canonical skill name does not match its directory: ${skillFile}`);
+  }
+  lines[nameIndex] = `name: ${installedAs}`;
+  const newline = frontmatter[1].endsWith("\r\n") ? "\r\n" : "\n";
+  const replacement = `${frontmatter[1]}${lines.join(newline)}${frontmatter[3]}`;
+  fs.writeFileSync(skillFile, replacement + source.slice(frontmatter[0].length));
+}
+
+function assertRealPathUnderRoot(root, candidate, leafType) {
+  const resolvedRoot = path.resolve(root);
+  const relative = path.relative(resolvedRoot, path.resolve(candidate));
+  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    fail(`Unsafe projected skill path: ${candidate}`);
+  }
+  let current = resolvedRoot;
+  const parts = relative.split(path.sep);
+  for (let index = 0; index < parts.length; index += 1) {
+    current = path.join(current, parts[index]);
+    const info = fs.lstatSync(current, { throwIfNoEntry: false });
+    if (!info || info.isSymbolicLink()) fail(`Projected skill path is missing or unsafe: ${candidate}`);
+    const leaf = index === parts.length - 1;
+    if (leaf) {
+      if (leafType === "file" ? !info.isFile() : !info.isDirectory()) {
+        fail(`Projected skill path has the wrong type: ${candidate}`);
+      }
+    } else if (!info.isDirectory()) {
+      fail(`Projected skill path has an unsafe ancestor: ${candidate}`);
+    }
+  }
+}
+
+function rewriteInstalledSkillPrompt(promptFile, canonicalSkill, installedAs) {
+  const source = fs.readFileSync(promptFile, "utf8");
+  const escaped = canonicalSkill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const selfInvocation = new RegExp(`\\$${escaped}(?![A-Za-z0-9_-])`, "g");
+  const rewritten = source.replace(selfInvocation, () => `$${installedAs}`);
+  if (rewritten !== source) fs.writeFileSync(promptFile, rewritten);
+}
+
+function skillProjectionPlans(state, plan, removedSkills, plannedLinks) {
+  const projections = new Map();
+  const add = (skill, needsLinkMarker) => {
+    const projection = projections.get(skill) ?? { skill, needsLinkMarker: false };
+    projection.needsLinkMarker ||= needsLinkMarker;
+    projections.set(skill, projection);
+  };
+  for (const item of plan) add(item.skill, plannedLinks);
+
+  const removed = new Set(removedSkills.map(item => item.destination));
+  for (const [targetRoot, targetRecord] of Object.entries(state?.targets ?? {})) {
+    for (const [skill, record] of Object.entries(targetRecord.skills ?? {})) {
+      if (record.mode !== "link") continue;
+      if (removed.has(installedSkillDestination(targetRoot, skill, state.skillPrefix))) continue;
+      add(skill, true);
+    }
+  }
+  return [...projections.values()];
+}
+
+function materializeSkillProjections({ runtime, projections, skillPrefix, env }) {
+  const paths = computePaths(env);
+  fs.rmSync(path.join(runtime.root, "discovery-skills"), { recursive: true, force: true });
+  for (const { skill, needsLinkMarker } of projections) {
+    const canonicalSource = path.join(runtime.root, "skills", skill);
+    const canonicalInfo = fs.lstatSync(canonicalSource, { throwIfNoEntry: false });
+    if (!canonicalInfo) continue;
+    assertRealPathUnderRoot(runtime.root, canonicalSource, "directory");
+    assertRealPathUnderRoot(runtime.root, path.join(canonicalSource, "SKILL.md"), "file");
+
+    const runtimeRelative = installedSkillRuntimeRelativePath(skill, skillPrefix);
+    const stagedSource = path.join(runtime.root, runtimeRelative);
+    const installedAs = installedSkillName(skill, skillPrefix);
+    if (skillPrefix) {
+      const promptDirectory = path.join(canonicalSource, "agents");
+      const promptDirectoryInfo = fs.lstatSync(promptDirectory, { throwIfNoEntry: false });
+      const promptFile = path.join(promptDirectory, "openai.yaml");
+      const hasPrompt = Boolean(promptDirectoryInfo)
+        && Boolean(fs.lstatSync(promptFile, { throwIfNoEntry: false }));
+      if (promptDirectoryInfo) assertRealPathUnderRoot(runtime.root, promptDirectory, "directory");
+      if (hasPrompt) assertRealPathUnderRoot(runtime.root, promptFile, "file");
+
+      fs.mkdirSync(path.dirname(stagedSource), { recursive: true });
+      fs.cpSync(canonicalSource, stagedSource, { recursive: true, preserveTimestamps: true });
+      assertRealPathUnderRoot(runtime.root, stagedSource, "directory");
+      assertRealPathUnderRoot(runtime.root, path.join(stagedSource, "SKILL.md"), "file");
+      rewriteInstalledSkillFrontmatter(path.join(stagedSource, "SKILL.md"), skill, installedAs);
+      if (hasPrompt) {
+        const stagedPrompt = path.join(stagedSource, "agents", "openai.yaml");
+        assertRealPathUnderRoot(runtime.root, stagedPrompt, "file");
+        rewriteInstalledSkillPrompt(stagedPrompt, skill, installedAs);
+      }
+    }
+    if (needsLinkMarker) {
+      writeInstalledSkillMarker(stagedSource, skill, {
+        installedAs,
+        mode: "link",
+        source: path.join(paths.currentPath, runtimeRelative)
+      });
+    }
+  }
+}
+
 export function installSelection({
   catalog,
   options,
   sourceRoot,
-  development = false,
+  sourceInstall = false,
   env = process.env,
   print = () => {},
   provisionUpstreamSkill = defaultProvisionUpstreamSkill
 }) {
   const selection = selected(catalog, options);
-  const targets = resolveTargetRoots(catalog, options, env);
+  const resolvedTargets = resolveTargetRoots(catalog, options, env);
   print("Checking installation state...");
   ensureSourceSkills(sourceRoot, selection);
   const state = readInstallState(env);
@@ -257,7 +439,11 @@ export function installSelection({
   if (!grammar.valid) {
     fail(`Invalid installation state ${computePaths(env).stateFile}: ${grammar.reason}`);
   }
-  const requestedChannel = development ? "development" : "release";
+  validateRecordedSkillPrefix(catalog, state);
+  const skillPrefix = installationSkillPrefix(catalog, state, options);
+  const targets = resolvedTargets;
+  const requestedChannel = sourceInstall ? SOURCE_CHANNEL : "release";
+  const persistedChannel = sourceInstall ? SOURCE_CHANNEL_STATE_TOKEN : requestedChannel;
   checkChannelGate(state, requestedChannel);
   checkStateCoherence(state, env);
   const upstreamPlans = selectedUpstreamSkillPlans(catalog, selection, state, env);
@@ -277,6 +463,7 @@ export function installSelection({
     skillsByTarget,
     selection.packs.length > 0
   );
+  const removedSkills = [...retiredSkills, ...withdrawnSkills];
   const retiredCommands = retiredCommandEntries(env)
     .filter(entry => state?.commands?.[entry.destination]);
   const detectedPermissionScopes = permissionMigrationScopes(options, env);
@@ -287,7 +474,7 @@ export function installSelection({
       fail(`Refusing to retire locally changed command: ${entry.destination}`);
     }
   }
-  const plan = targetInstallPlan(state, targets, skillsByTarget, options);
+  const plan = targetInstallPlan(state, targets, skillsByTarget, options, skillPrefix);
   checkCommandCollisions(state, env, installLauncher, options.force);
 
   let currentState = state;
@@ -314,53 +501,46 @@ export function installSelection({
       });
     }
     print("Checking deployment mode...");
-    const mode = chooseDeploymentMode({ runtime, targets, development, state, env, print });
-    const shared = development && mode === "shared";
-    // Embed provenance in the staged source only after the deployment result
-    // is known. This avoids a development copy fallback inheriting a `link`
-    // marker, and avoids writing through a `current` link before publication.
-    for (const skill of installedSkills) {
-      const stagedSource = path.join(runtime.root, "skills", skill);
-      if (shared) {
-        writeInstalledSkillMarker(stagedSource, skill, {
-          mode: "link",
-          source: path.join(paths.currentPath, "skills", skill)
-        });
-      } else {
-        // The marker is excluded from the content fingerprint, letting it
-        // carry the final exact copy fingerprint without self-reference.
-        const record = { mode: "copy", fingerprint: directoryFingerprint(stagedSource) };
-        writeInstalledSkillMarker(stagedSource, skill, {
-          mode: record.mode,
-          source: record.fingerprint
-        });
-      }
-    }
+    const mode = chooseDeploymentMode({ runtime, targets, sourceInstall, state, env, print });
+    const shared = sourceInstall && mode === "shared";
+    // Discovery projections keep canonical runtime content and script
+    // addresses unchanged while exposing a distinct harness-facing name.
+    // Runtime markers describe only link consumers; copy provenance is local
+    // to each final destination and is written after deployment below.
+    const projections = skillProjectionPlans(
+      state,
+      plan,
+      removedSkills,
+      shared
+    );
+    materializeSkillProjections({ runtime, projections, skillPrefix, env });
     print("Validating staged runtime...");
     const consumerErrors = validateSharedRuntimeConsumers({
       runtime,
       state,
       env,
       mode,
-      development,
+      sourceInstall,
       installLauncher,
       retireCommandDestinations: retiredCommands.map(entry => entry.destination),
-      retireSkillDestinations: retiredSkills.map(entry => entry.destination),
-      plannedSkills: installedSkills
+      removedSkillDestinations: removedSkills.map(entry => entry.destination),
+      plannedSkills: plan.map(item => item.skill),
+      skillPrefix
     });
     if (consumerErrors.length > 0) fail(consumerErrors.join("\n"));
 
     if (currentState === null) {
       currentState = {
-        schemaVersion: 2,
-        channel: requestedChannel,
+        schemaVersion: 3,
+        skillPrefix,
+        channel: persistedChannel,
         releases: [],
         targets: {},
         commands: {}
       };
     }
+    currentState.skillPrefix = skillPrefix;
     transaction = createInstallTransaction();
-    const skillSourceRoot = shared ? computePaths(env).currentPath : runtime.root;
     let copiedSkillTargets = 0;
     print(
       `Installing ${installedSkills.length} skill(s) to `
@@ -394,16 +574,16 @@ export function installSelection({
     for (const target of targets) {
       const record = targetState(currentState, target.root);
       for (const item of plan.filter(candidate => candidate.target.name === target.name)) {
-        const source = path.join(skillSourceRoot, "skills", item.skill);
+        const runtimeRelative = installedSkillRuntimeRelativePath(item.skill, skillPrefix);
+        const source = path.join(shared ? computePaths(env).currentPath : runtime.root, runtimeRelative);
         const keepsLink = shared
           && item.record?.mode === "link"
           && item.destinationExists
           && resolvedLinkTarget(item.destination) === source;
-        let deploymentRecord;
         if (!keepsLink) {
           const deployment = transaction.replace([item.destination], () => copyOrLinkSkill({
             source,
-            copySource: path.join(runtime.root, "skills", item.skill),
+            copySource: path.join(runtime.root, runtimeRelative),
             destination: item.destination,
             link: shared ? "strict" : false,
             print
@@ -411,16 +591,17 @@ export function installSelection({
           if (deployment.mode === "link") {
             record.skills[item.skill] = { mode: "link", source };
           } else {
-            record.skills[item.skill] = { mode: "copy", fingerprint: directoryFingerprint(item.destination) };
+            const fingerprint = directoryFingerprint(item.destination);
+            record.skills[item.skill] = { mode: "copy", fingerprint };
+            writeInstalledSkillMarker(item.destination, item.skill, {
+              installedAs: item.installedAs,
+              mode: "copy",
+              source: fingerprint
+            });
             if (shared) copiedSkillTargets += 1;
-          }
-          deploymentRecord = record.skills[item.skill];
-          if (deploymentRecord.mode === "copy") {
-            deploymentRecord.fingerprint = directoryFingerprint(item.destination);
           }
         } else {
           record.skills[item.skill] = { mode: "link", source };
-          deploymentRecord = record.skills[item.skill];
         }
       }
       updateTargetState(currentState, target.root, record);
@@ -452,7 +633,9 @@ export function installSelection({
 
     retireLegacyAgyDiscovery({ state: currentState, transaction, env, print });
     addReleaseToInventory(currentState, runtime.id);
-    if (currentState.channel === null) currentState.channel = requestedChannel;
+    if (currentState.channel === null || currentState.channel === SOURCE_CHANNEL) {
+      currentState.channel = persistedChannel;
+    }
     if (mode === "shared") {
       print("Publishing shared runtime...");
       publication = publishRuntime(runtime, currentState, env);
@@ -462,8 +645,8 @@ export function installSelection({
     transaction.commit();
     committed = true;
 
-    const channel = development
-      ? (shared ? "shared development link" : "development copy fallback")
+    const channel = sourceInstall
+      ? (shared ? "shared source install" : "source-install copy fallback")
       : "release snapshot";
     print("Installed " + installedSkills.length + " skill(s) to " + targets.map(target => target.name).join(", ") + " (" + channel + ").");
     if (selection.packs.length > 0) {

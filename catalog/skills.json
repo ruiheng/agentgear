@@ -22,6 +22,15 @@
       "description": "Persistent sessions managed by Thurbox."
     }
   },
+  "runtimeCommands": {
+    "agent-browser": {},
+    "ast-grep": {},
+    "codegraph": {"readiness": "codegraph-index"},
+    "fd": {},
+    "mq": {},
+    "rg": {},
+    "yq": {}
+  },
   "permissionPresets": {
     "go": {
       "file": "catalog/permission-presets/go.json"
@@ -75,7 +84,9 @@
       "description": "Standalone skills with no multi-agent workflow dependency.",
       "skills": [
         "commit-staged",
+        "browse-web",
         "explain-for-me",
+        "search-files",
         "explore-defects",
         "fix-strategy",
         "handoff",
@@ -128,6 +139,7 @@
   },
   "skills": {
     "assess-tech-design": {"tags": ["design", "standalone"], "exposure": "entry"},
+    "browse-web": {"tags": ["browser", "standalone"], "exposure": "entry"},
     "browser-test": {"tags": ["browser", "workflow"], "exposure": "prompt-only"},
     "browser-test-request": {"tags": ["browser", "workflow"], "exposure": "prompt-only"},
     "code-health-review": {"tags": ["review", "workflow"], "exposure": "entry"},
@@ -152,6 +164,7 @@
     "roundtable": {"tags": ["discussion", "workflow"], "exposure": "entry"},
     "roundtable-participant": {"tags": ["discussion", "workflow"], "exposure": "prompt-only"},
     "route-waypost-action": {"tags": ["workflow", "receiver", "routing"], "exposure": "entry"},
+    "search-files": {"tags": ["search", "standalone"], "exposure": "entry"},
     "simplify-review": {"tags": ["review", "workflow"], "exposure": "entry"},
     "review-tech-design": {"tags": ["design", "workflow"], "exposure": "prompt-only"}
   }
