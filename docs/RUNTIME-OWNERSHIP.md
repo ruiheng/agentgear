@@ -19,7 +19,7 @@ runtime and normal rollback behavior while deleting legacy-checkout migration,
 cross-alias inference, release scanning for command ownership, and per-target
 mixed source-install fallback. One state channel prevents public release and
 source-install commands from silently republishing each other's `current`. A
-schema-v2 release inventory makes immutable-release deletion state-exact:
+versioned release inventory makes immutable-release deletion state-exact:
 marker-shaped directories that are not recorded are never purge targets.
 
 ## Goals
@@ -97,19 +97,25 @@ ownership of the internal `current` path.
 
 ## Compact State Contract
 
-New state uses `schemaVersion: 2`. Every present schema-v1 state is an
-incompatible legacy shape and is rejected before any other interpretation or
-mutation. Schema-v2 retains `"development"` as the wire token for the logical
-source channel so preceding checkout revisions remain able to read newly
-written state. The retired `agyDiscovery` target extension and the transitional
+The current in-memory state grammar uses `schemaVersion: 3`. A valid schema-v2
+wire state is normalized losslessly by assigning top-level `skillPrefix=null`.
+When the installation remains unprefixed, saves remove that null field and
+persist schema v2 so the preceding release can still read the state. Any
+installation-wide prefix requires schema v3 and is an explicit rollback-compatibility
+boundary. Schema-v1 remains incompatible and is rejected before mutation. Both
+supported wire versions retain `"development"` as the logical source-channel
+token. The retired `agyDiscovery` target extension and the transitional
 `"source"` channel token are the only compatible legacy exceptions. Any
 subsequent state write normalizes the channel token; the provider-owned target
 extension is normalized by its next successful owning operation. A present
 state file is valid only when all of these rules hold:
 
 - The top-level value is a plain object with exactly `schemaVersion`,
-  `channel`, `releases`, `targets`, and `commands`; `schemaVersion` is the
-  integer `2`, `channel` is `null`, `"release"`, or `"development"`, where
+  `skillPrefix`, `channel`, `releases`, `targets`, and `commands`; raw schema v2 is accepted
+  only with v2 target records and is normalized before the remaining checks.
+  Current normalized state uses the integer `3`; `skillPrefix` is null or
+  lowercase kebab-case. `channel` is `null`,
+  `"release"`, or `"development"`, where
   `"development"` is the stable wire token for the source channel;
   transitional `"source"` is accepted for repair only. `releases` is an array,
   and the final two values are plain objects.
@@ -124,15 +130,17 @@ state file is valid only when all of these rules hold:
   channel and first release in the same state write. The value persists even
   when `current` is temporarily missing.
 - Every target key is an absolute path already equal to its lexical normalized
-  form. Its value has exactly one `skills` field which is a plain object, or
-  also has an exact historical `agyDiscovery` ownership record on the global
-  Gemini target. Other target metadata is invalid.
+  form. Its value has a `skills` plain object and may also have an exact
+  historical `agyDiscovery` ownership record on the global Gemini target.
+  Other target metadata is invalid. The one top-level prefix applies to every
+  target; per-target prefixes are unsupported.
 - A skill key matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`, so joining it to the
   target root always produces one direct child.
 - A linked-skill record has exactly `{mode, source}` with `mode="link"` and a
-  normalized absolute source whose suffix is
-  `agentgear/current/skills/<same-skill>`. The coherence gate later requires
-  its full root to equal this invocation's exact `current`.
+  normalized absolute source below `agentgear/current`. An unprefixed installation
+  uses `skills/<canonical-skill>`; a prefixed installation uses
+  `discovery-skills/<prefix>/<canonical-skill>`. The coherence gate later
+  requires its full root to equal this invocation's exact `current`.
 - A copied-skill record has exactly `{mode, fingerprint}` with `mode="copy"`
   and a canonical fingerprint described below.
 - Command keys are limited to the one computed launcher destination and the
@@ -156,7 +164,8 @@ The written shape is therefore:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "skillPrefix": "acme",
   "channel": "development",
   "releases": [
     "1.2.3-1786150000000-123e4567-e89b-12d3-a456-426614174000"
@@ -166,7 +175,7 @@ The written shape is therefore:
       "skills": {
         "handoff": {
           "mode": "link",
-          "source": "/absolute/data/agentgear/current/skills/handoff"
+          "source": "/absolute/data/agentgear/current/discovery-skills/acme/handoff"
         },
         "review-code": {
           "mode": "copy",
@@ -185,6 +194,18 @@ The written shape is therefore:
   }
 }
 ```
+
+Target `skills` keys are canonical Agentgear names. The installation-wide
+prefix is inherited by every target. The installed direct-child name is
+`<skillPrefix>-<canonical>` when a prefix is present and may not exceed
+64 characters. Unprefixed `.agentgear` provenance markers remain schema v0 for
+rollback readability. Prefixed markers use schema v1 and record
+`canonicalSkill`, `installedSkill`, `mode`, and `source`. Prefix projections
+rewrite the discovery copy's SKILL.md `name` and exact Codex `$<canonical>`
+self-invocation prompts, leaving canonical
+`agentgear skill get` and `agentgear run` addresses unchanged. A shared link's
+marker lives in its runtime projection; a copied target receives its own copy
+marker after deployment.
 
 `installedAt`, checkout roots, copied-skill source/runtime identifiers, and
 command-source aliases are removed because no ownership or rollback decision
@@ -223,7 +244,7 @@ install records.
 The public `install`/`update` path requests channel `release`; checkout-only
 `agentgear-source-install` requests channel `source`. Before staging, compare
 that logical channel with valid state. Successful source installs serialize it
-as `"development"` for schema-v2 rollback compatibility:
+as `"development"` for source-channel compatibility:
 
 - `channel=null` or absent fresh state may adopt the requested channel after a
   successful transaction.
@@ -269,8 +290,8 @@ empty. Full purge is the only managed runtime teardown and channel reset.
 
 Full purge follows this release contract:
 
-1. Require valid schema-v2 state; schema-v1 and malformed state use the manual
-   clean-reset path and provide no deletion authority.
+1. Require valid schema-v2 or schema-v3 state; schema-v1 and malformed state
+   use the manual clean-reset path and provide no deletion authority.
 2. Derive candidate IDs only from the state inventory. Do not enumerate
    marker-shaped directories to discover more candidates.
 3. Before deleting any release, preflight every recorded ID. Compute its path
@@ -294,7 +315,7 @@ Full purge follows this release contract:
 ## Canonical Fingerprints
 
 Every fingerprint is `sha256-v1:` followed by 64 lowercase hexadecimal
-characters. This fingerprint `v1` is part of the schema-v2 state contract but
+characters. This fingerprint `v1` is part of both supported state contracts but
 is independent of the state's version number:
 
 1. Begin with the UTF-8 bytes `agentgear-fingerprint-v1\0`.
@@ -314,7 +335,7 @@ does not regenerate the current wrapper template. A later template change can
 therefore still update or purge an older valid wrapper.
 
 Changing ownership-bearing fields is an explicit incompatible-state boundary
-and cannot silently reinterpret schema-v2 records. The retired `agyDiscovery`
+and cannot silently reinterpret normalized schema-v3 records. The retired `agyDiscovery`
 extension is removed after its old config contribution is restored. If the
 config cannot be safely reconciled, normal commands continue and retain the
 ownership record for a later retry; a command that removes one of its claimed
@@ -348,8 +369,9 @@ New state is recorded only after the replacement succeeds.
 
 1. Resolve the selection, exact XDG paths, fixed command destinations, and raw
    state without mutation.
-2. Validate the complete schema-v2 state grammar. Any schema-v1, invalid, or
-   other legacy state stops all mutating commands regardless of `--force`.
+2. Normalize valid schema-v2 state, then validate the complete schema-v3
+   in-memory grammar. Any schema-v1, invalid, or other legacy state stops all
+   mutating commands regardless of `--force`.
 3. Apply the state/data coherence gate:
    - state missing plus an existing managed `current` or marked release: fail;
    - any linked-skill or command record plus an entirely missing data root:
@@ -387,9 +409,10 @@ New state is recorded only after the replacement succeeds.
 10. In shared mode, publish `current` with the existing temporary-link rename
    and retain the prior target for rollback. In fallback mode, do not publish
    `current`.
-11. Set `channel` in memory for a fresh state, atomically write the complete
-    schema-v2 state including the new release ID, then discard transaction
-    backups. The successful state commit makes the pending release retained.
+11. Set `channel` in memory for a fresh state and atomically write the complete
+    state including the new release ID. Persist schema v2 when every target is
+    unprefixed, otherwise persist schema v3, then discard transaction backups.
+    The successful state commit makes the pending release retained.
 
 If any step after staging fails, restore selected destinations, restore the
 previous `current` when it was switched, leave the prior state file unchanged,
@@ -534,9 +557,9 @@ another state field or verifier for it.
 - `cli/lib/runtime.mjs`
   - keep staging, markers, fingerprints, wrapper generation, current
     publication/rollback, and the small path-backup transaction;
-  - split the state schema-version and release-marker version constants and
-    validators; state is version 2 while markers remain version 1;
-  - add the strict schema-v2 state grammar, canonical release inventory,
+  - split state, release-marker, and installed-skill marker versions; state is
+    written as v2 for an unprefixed installation and v3 for a prefixed installation;
+  - add strict v2/v3 state handling, canonical release inventory,
     canonical fingerprint implementation, and exact artifact and release
     verifiers;
   - retain the bounded same-skill Markdown reference scanner, literal
@@ -549,10 +572,14 @@ another state field or verifier for it.
   - enforce the channel gate, perform coherence/collision checks, choose one
     source-install deployment mode, and use stage -> mode -> completeness ->
     replace -> publish -> inventory/state ordering;
+  - cap generated discovery names at 64 characters and revalidate the one
+    recorded installation prefix against the current catalog before staging;
   - discard a pending release only after target and `current` rollback both
     succeed; otherwise retain it unrecorded and report manual recovery.
 - `cli/agentgear.mjs`
   - keep ordinary uninstall from collecting retained releases;
+  - resolve canonical and recorded prefixed `run` names together, rejecting
+    cross-skill ambiguity instead of silently preferring either spelling;
   - derive full-purge release candidates only from valid state inventory and
     apply the exact direct-child marker verifier before deletion;
   - purge other commands and runtime artifacts only through the exact
@@ -562,17 +589,20 @@ another state field or verifier for it.
 - `README.md`, `docs/ARCHITECTURE.md`, and `tests/cli.test.mjs`
   - document and verify the conservative recovery boundary.
 
-The compatibility exception adds one provider-scoped migration helper. It
-does not require a catalog or skill-payload change, marker-version bump, new
-manifest, or new runtime file.
+The compatibility exceptions add bounded state and provider-scoped migration
+helpers. Prefixing changes only generated discovery projections and their
+installed-skill provenance markers; it does not rename canonical catalog or
+runtime skill content.
 
 ## Focused Test Matrix
 
 1. Source-installed links use exact `current` paths; release installs copy
    skills; the public package exposes no source-install command.
-2. State grammar writes only schemaVersion 2, keeps source installs readable by
-   preceding revisions through the `"development"` wire token, repairs the
-   transitional `"source"` token, and rejects every schema-v1, path-escaping
+2. State grammar writes schemaVersion 2 with marker v0 while the installation is
+   unprefixed, writes schemaVersion 3 with marker v1 for prefixed entries,
+   losslessly normalizes valid schemaVersion 2 state, keeps the `"development"`
+   wire token, repairs the transitional `"source"` token, and rejects every
+   schema-v1, path-escaping
    skill, unsafe/duplicate/unsorted release ID, unknown command, invalid
    channel, extra field, and malformed fingerprint while accepting the exact
    historical `agyDiscovery` record for migration.

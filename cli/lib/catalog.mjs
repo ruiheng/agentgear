@@ -14,6 +14,9 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+export const MAX_SKILL_NAME_LENGTH = 64;
+export const SKILL_PREFIX_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 function upstreamSkillName(upstream) {
   return path.posix.basename(upstream.skillPath);
 }
@@ -44,6 +47,7 @@ function isSafeRelativeSkillPath(value) {
 
 function isSafeSkillName(value) {
   return typeof value === "string"
+    && value.length <= MAX_SKILL_NAME_LENGTH
     && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 }
 

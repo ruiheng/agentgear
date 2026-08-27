@@ -166,6 +166,18 @@ function normalizeBody(source) {
   return source.replace(/\r\n/g, "\n").replace(/\n*$/, "") + "\n";
 }
 
+export function decodeSimpleFrontmatterScalar(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if (quote === "\"" || quote === "'") {
+    return trimmed.length >= 2 && trimmed.at(-1) === quote
+      ? trimmed.slice(1, -1)
+      : null;
+  }
+  return trimmed;
+}
+
 export function splitFrontmatter(source, label = "document") {
   const normalized = source.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("---\n")) return { fields: {}, body: normalizeBody(normalized) };

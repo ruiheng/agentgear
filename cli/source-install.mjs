@@ -30,6 +30,7 @@ function usage(catalog) {
     "  --scope global|project      Use global or project destinations (default: global).",
     "  --project DIR               Project root for --scope project (default: current directory).",
     "  --dest DIR                  Override one destination directory (default: none; defaults to general).",
+    "  --prefix PREFIX             Prefix installed discovery skill names (default: recorded or none).",
     "  --force                     Replace selected conflicting artifacts (default: false).",
     "  --no-launcher               Skip the global agentgear command (default: false).",
     "  -h, --help                  Show this help (default: false).",

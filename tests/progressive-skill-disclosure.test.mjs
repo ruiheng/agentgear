@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { listSkills, loadCatalog, resolveSelection, upstreamSkillEntries, validateCatalog } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
-import { actionAliases, appendAgentGuidance, appendRuntimeGuidance, buildSkillContentIndex, formatSkillText, listSkillSelectors, resolveSkillAddress, runtimeCommandDefinitions, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { actionAliases, appendAgentGuidance, appendRuntimeGuidance, buildSkillContentIndex, decodeSimpleFrontmatterScalar, formatSkillText, listSkillSelectors, resolveSkillAddress, runtimeCommandDefinitions, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { detectAgentProfiles, resolveAgentProfiles } from "../providers/agent-profiles.mjs";
 import { codeGraphIndexReady, readyExternalCommands, resolveExternalCommand } from "../providers/external-commands.mjs";
 import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
@@ -33,6 +33,13 @@ const entrySkills = [
   "simplify-review",
   "tech-design-workflow"
 ];
+
+test("simple frontmatter decoding preserves trailing quotes in plain scalars", () => {
+  assert.equal(decodeSimpleFrontmatterScalar('Return "done"'), 'Return "done"');
+  assert.equal(decodeSimpleFrontmatterScalar("Return 'done'"), "Return 'done'");
+  assert.equal(decodeSimpleFrontmatterScalar('"handoff"'), "handoff");
+  assert.equal(decodeSimpleFrontmatterScalar('"handoff'), null);
+});
 
 function fixture() {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-disclosure-test-"));

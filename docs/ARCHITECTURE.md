@@ -62,8 +62,10 @@ There are exactly two channels, and they never silently switch. The public
 `agentgear install` and `update` commands request the release channel;
 checkout-only `node ./bin/agentgear-source-install.mjs` requests the source
 channel.
-The first successful install records its channel in schema-v2 installation
-state. A different channel fails before any staging or mutation, even with
+The first successful install records its channel in installation state.
+Unprefixed state stays on the rollback-readable schema-v2 wire format; an
+installation-wide prefix requires schema v3. A different channel fails before
+any staging or mutation, even with
 `--force`; only a full purge resets the channel for a fresh install through the
 other one. The npm package ships no source-install command: the source entry
 point lives only in the source checkout, is excluded from published files and
@@ -71,6 +73,13 @@ scripts, and rejects execution from a staged runtime.
 
 When directory links or Windows junctions are available, source-installed
 skills point to the stable `current` runtime path rather than the checkout.
+The installation records at most one discovery-name prefix shared by every
+target. Canonical runtime
+skills and `agentgear skill get`/`run` addresses remain unprefixed; generated
+discovery projections rewrite the installed directory, SKILL.md name, and
+Codex self-invocation prompt. Generated names are capped at 64 characters, and
+the recorded prefix is
+revalidated against the current catalog before a runtime can be published.
 Rerunning `agentgear-source-install` from the checkout stages its latest
 contents and publishes that path only after target validation and installation
 succeed, so all shared links switch together. Source changes therefore require

@@ -16,6 +16,14 @@ With neither `--pack` nor `--skill`, Agentgear installs the `all` pack. Use
 `--pack core` or another named pack to narrow that selection; `--skill NAME`
 without `--pack` installs only the named skills.
 
+Pass `--prefix NAME` to namespace every installed discovery entry. For example,
+`--skill handoff --prefix acme` installs `acme-handoff` while its bootstrap
+continues to retrieve canonical content with `agentgear skill get handoff`.
+Prefixes use lowercase kebab-case and cannot equal, or end at a `-` boundary
+within, any active, upstream, or retired skill name. One prefix applies to the
+whole Agentgear installation and is reused by later installs, updates, and
+uninstalls. Every generated skill name is limited to 64 characters.
+
 The default targets are `general,gemini,agy,claude`. `general` installs to
 `~/.agents/skills` and `.agents/skills` for Codex and other hosts that discover
 the common Agent Skills layout. `gemini` installs to `~/.gemini/skills` for
@@ -282,9 +290,9 @@ sessions have been restarted.
 
 The source-checkout-only command is
 `node ./bin/agentgear-source-install.mjs`. It accepts the same pack, skill,
-target, scope, destination, `--force`, and `--no-launcher` selection options as
-`agentgear install`; it is intentionally not an `agentgear` subcommand and is
-not published in the npm package.
+target, scope, destination, `--prefix`, `--force`, and `--no-launcher`
+selection options as `agentgear install`; it is intentionally not an
+`agentgear` subcommand and is not published in the npm package.
 
 `--no-launcher` still installs the selected skills. It leaves the global
 `agentgear` command unchanged, so use it only when that command is already

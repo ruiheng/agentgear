@@ -17,6 +17,8 @@ import {
   createInstallTransaction,
   destinationMatchesRecord,
   exists,
+  installedSkillDestination,
+  installedSkillName,
   preflightRuntimePurge,
   purgeManagedRuntime,
   readInstallState,
@@ -87,7 +89,7 @@ function usage() {
     "  migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]",
     "  build",
     "  install [--pack NAME] [--skill NAME] [--target NAME[,NAME]] [--scope global|project]",
-    "          [--project DIR] [--dest DIR] [--force] [--no-launcher]",
+    "          [--project DIR] [--dest DIR] [--prefix PREFIX] [--force] [--no-launcher]",
     "  update [install options]",
     "  status [--target NAME[,NAME]] [--scope global|project] [--project DIR] [--dest DIR]",
     "  uninstall (--pack NAME | --skill NAME | --purge) [--target NAME[,NAME]] [--scope global|project]",
@@ -105,7 +107,7 @@ function usage() {
     "  --skill alone selects only the named skills",
     `  --target ${DEFAULT_TARGETS.join(",")}`,
     "  --scope global; --project current directory; --dest none",
-    "  --force false; --no-launcher false (skip the global command)",
+    "  --prefix none; --force false; --no-launcher false (skip the global command)",
     "",
     "With --dest and no --target, Agentgear uses the general target only.",
     "Every installed bootstrap requires agentgear skill get from the matching release.",
@@ -148,7 +150,8 @@ function status(catalog, options) {
     }
     for (const [name, skill] of skills.sort(([left], [right]) => left.localeCompare(right))) {
       const source = skill.mode === "link" ? skill.source : skill.fingerprint;
-      print("  " + name + "  " + skill.mode + "  " + source);
+      const installedAs = installedSkillName(name, state.skillPrefix);
+      print("  " + name + (installedAs === name ? "" : ` -> ${installedAs}`) + "  " + skill.mode + "  " + source);
     }
   }
 }
@@ -177,7 +180,6 @@ function uninstall(catalog, options) {
   if (state === null) {
     fail("No agentgear installation state recorded.");
   }
-
   // Preflight the complete uninstall scope before any mutation: a mismatch on
   // any selected artifact aborts with every artifact and the state file
   // unchanged, so a late mismatch can never leave earlier deletions recorded.
@@ -186,12 +188,13 @@ function uninstall(catalog, options) {
     const record = targetState(state, target.root);
     for (const skill of skills) {
       const item = record.skills[skill];
+      const installedAs = installedSkillName(skill, state.skillPrefix);
       if (!item) {
-        print("Not managed by agentgear: " + path.join(target.root, skill));
+        print("Not managed by agentgear: " + path.join(target.root, installedAs));
         continue;
       }
-      const destination = path.join(target.root, skill);
-      if (exists(destination) && !destinationMatchesRecord(destination, item)) {
+      const destination = path.join(target.root, installedAs);
+      if (exists(destination) && !destinationMatchesRecord(destination, item, skill, installedAs)) {
         fail("Refusing to remove locally changed skill: " + destination);
       }
       removals.push({ target, record, skill, destination });
@@ -238,8 +241,9 @@ function purgePlan(state, targets) {
     visitedRoots.add(target.root);
     const record = targetState(state, target.root);
     for (const [skill, item] of Object.entries(record.skills)) {
-      const destination = path.join(target.root, skill);
-      if (exists(destination) && !destinationMatchesRecord(destination, item, skill)) {
+      const destination = installedSkillDestination(target.root, skill, state.skillPrefix);
+      const installedAs = path.basename(destination);
+      if (exists(destination) && !destinationMatchesRecord(destination, item, skill, installedAs)) {
         preserved.push(destination);
         continue;
       }
@@ -253,7 +257,6 @@ function purge(catalog, options) {
   if (options.packs.length > 0 || options.skills.length > 0) {
     fail("--purge cannot be combined with --pack or --skill");
   }
-
   const detectedPermissionScopes = retiredPermissionMigrationScopes(options);
   const notifyPermissionMigration = commandRetired => printPermissionMigrationRequirement({
     print,
@@ -524,11 +527,35 @@ export function childProcessOutcome(result, label) {
   return { exitCode: 0, diagnostic: "" };
 }
 
+export function resolveRunSkill(catalog, requestedSkill, env = process.env) {
+  const candidates = new Set();
+  if (catalog.skills.skills[requestedSkill]) candidates.add(requestedSkill);
+  const state = readInstallState(env);
+  const grammar = validateStateGrammar(state, env);
+  if (!grammar.valid) {
+    fail(`Invalid installation state ${computePaths(env).stateFile}: ${grammar.reason}`);
+  }
+  for (const targetRecord of Object.values(state?.targets ?? {})) {
+    for (const canonicalSkill of Object.keys(targetRecord.skills ?? {})) {
+      if (installedSkillName(canonicalSkill, state.skillPrefix) === requestedSkill) candidates.add(canonicalSkill);
+    }
+  }
+  if (candidates.size === 1) {
+    const resolved = candidates.values().next().value;
+    if (catalog.skills.skills[resolved]) return resolved;
+    fail(`Installed skill ${requestedSkill} maps to unavailable canonical skill ${resolved}`);
+  }
+  if (candidates.size > 1) {
+    fail(`Ambiguous installed skill ${requestedSkill}: ${[...candidates].sort().join(", ")}`);
+  }
+  fail("Unknown skill: " + requestedSkill);
+}
+
 function run(argumentsList) {
   if (argumentsList.length < 2) fail("run requires <skill> <script>");
-  const [skill, script, ...scriptArgs] = argumentsList;
+  const [requestedSkill, script, ...scriptArgs] = argumentsList;
   const catalog = loadCatalog(rootDir);
-  if (!catalog.skills.skills[skill]) fail("Unknown skill: " + skill);
+  const skill = resolveRunSkill(catalog, requestedSkill);
   if (path.isAbsolute(script) || script.split(/[\\/]/).includes("..")) {
     fail("Script must be relative to the skill's scripts directory");
   }
@@ -703,7 +730,7 @@ function migrate(catalog, argumentsList) {
     print("Usage: agentgear migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]");
     return;
   }
-  if (options.packs.length || options.skills.length || options.force || options.purge || options.noLauncher || options.json || options.positional.length) {
+  if (options.packs.length || options.skills.length || options.prefix !== undefined || options.force || options.purge || options.noLauncher || options.json || options.positional.length) {
     fail("legacy-skills accepts only target, destination, scope, project, and --apply options");
   }
   if (options.destination && (options.targets.length > 0 || options.scope !== "global" || options.projectSpecified)) {
@@ -769,6 +796,9 @@ export function main(commandArguments = process.argv.slice(2)) {
   }
   if (options.purge && command !== "uninstall") {
     fail("--purge is only valid with uninstall");
+  }
+  if (options.prefix !== undefined && command !== "install" && command !== "update") {
+    fail("--prefix is only valid with install and update");
   }
   const catalog = loadCatalog(rootDir);
   switch (command) {

@@ -5,10 +5,15 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { childProcessOutcome, main } from "../cli/agentgear.mjs";
+import { childProcessOutcome, main, resolveRunSkill } from "../cli/agentgear.mjs";
 import { main as sourceInstallMain } from "../cli/source-install.mjs";
 import { loadCatalog } from "../cli/lib/catalog.mjs";
-import { installSelection, permissionMigrationScopes, resolveTargetRoots, selected } from "../cli/lib/installer.mjs";
+import {
+  installSelection,
+  permissionMigrationScopes,
+  resolveTargetRoots,
+  selected
+} from "../cli/lib/installer.mjs";
 import { parseOptions } from "../cli/lib/options.mjs";
 import { createInstallTransaction, directoryFingerprint, stageRuntime, wrapperFingerprint } from "../cli/lib/runtime.mjs";
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
@@ -278,7 +283,7 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
   try {
     for (const [missing, replacement, errorPattern] of [
       ["bin/agentgear.mjs", outside, /bin[\\/]agentgear\.mjs is missing or is not a file/],
-      ["skills/handoff/SKILL.md", outside, /requires skills[\\/]handoff[\\/]SKILL\.md, which is missing from the staged snapshot or is not a regular file/],
+      ["skills/handoff/SKILL.md", outside, /Projected skill path is missing or unsafe/],
       ["cli/agentgear.mjs", outside, /cli[\\/]agentgear\.mjs is missing or is not a file/]
     ]) {
       const fixture = environmentFixture();
@@ -310,7 +315,7 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
     // external content, even when the leaf is a regular file there.
     for (const [ancestor, leaf, errorPattern] of [
       ["bin", "bin/agentgear.mjs", /bin[\\/]agentgear\.mjs is missing or is not a file/],
-      ["skills", "skills/handoff/SKILL.md", /requires skills[\\/]handoff[\\/]SKILL\.md, which is missing from the staged snapshot or is not a regular file/]
+      ["skills", "skills/handoff/SKILL.md", /Projected skill path is missing or unsafe/]
     ]) {
       const fixture = environmentFixture();
       const checkout = path.join(fixture.temporary, "checkout");
@@ -440,6 +445,360 @@ test("general, Gemini, Agy, and Claude are the default skill targets", () => {
         fixture.environment
       ),
       [{ name: "agy", root: path.join(project, ".agents", "skills") }]
+    );
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("skill prefixes validate conflicts, syntax, and actual generated names", () => {
+  const fixture = environmentFixture();
+  const install = prefix => run([
+    "install", "--skill", "handoff", "--target", "general", "--prefix", prefix, "--no-launcher"
+  ], fixture.environment);
+  try {
+    for (const prefix of ["delegate", "delegate-code", "delegate-code-task"]) {
+      assert.throws(() => install(prefix), /conflicts with known skill "delegate-code-task"/);
+    }
+    assert.throws(() => install("agent"), /known skill "agent-deck"/);
+    assert.throws(() => install("coordinate"), /known skill "coordinate-design-spec"/);
+    assert.throws(() => install("Acme"), /lowercase kebab-case/);
+    assert.throws(
+      () => install("a".repeat(57)),
+      /Installed skill name .* exceeds 64 characters/
+    );
+
+    install("acme-tools");
+    assert.equal(
+      fs.existsSync(path.join(fixture.home, ".agents", "skills", "acme-tools-handoff")),
+      true
+    );
+    assert.throws(
+      () => run([
+        "uninstall", "--skill", "handoff", "--target", "general", "--prefix", "acme-tools"
+      ], fixture.environment),
+      /--prefix is only valid with install and update/
+    );
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+
+  const boundaryFixture = environmentFixture();
+  try {
+    run([
+      "install", "--skill", "handoff", "--target", "general",
+      "--prefix", "a".repeat(56), "--no-launcher"
+    ], boundaryFixture.environment);
+    assert.equal(
+      fs.existsSync(path.join(
+        boundaryFixture.home,
+        ".agents",
+        "skills",
+        `${"a".repeat(56)}-handoff`
+      )),
+      true
+    );
+  } finally {
+    fs.rmSync(boundaryFixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("prefixed release installs preserve canonical runtime addresses and one installation-wide name", () => {
+  const fixture = environmentFixture();
+  const target = path.join(fixture.home, ".agents", "skills");
+  const inheritedTarget = path.join(fixture.home, ".claude", "skills");
+  const unmanaged = path.join(target, "handoff");
+  try {
+    fs.mkdirSync(unmanaged, { recursive: true });
+    fs.writeFileSync(path.join(unmanaged, "user.txt"), "keep\n");
+
+    run([
+      "install", "--skill", "handoff", "--target", "general", "--prefix", "acme", "--no-launcher"
+    ], fixture.environment);
+
+    const installed = path.join(target, "acme-handoff");
+    const bootstrap = fs.readFileSync(path.join(installed, "SKILL.md"), "utf8");
+    assert.match(bootstrap, /^name: acme-handoff$/m);
+    assert.match(bootstrap, /agentgear skill get handoff/);
+    assert.equal(fs.readFileSync(path.join(unmanaged, "user.txt"), "utf8"), "keep\n");
+
+    const marker = JSON.parse(fs.readFileSync(path.join(installed, ".agentgear"), "utf8"));
+    assert.equal(marker.schemaVersion, 1);
+    assert.equal(marker.canonicalSkill, "handoff");
+    assert.equal(marker.installedSkill, "acme-handoff");
+    const state = readState(fixture);
+    assert.equal(state.schemaVersion, 3);
+    assert.equal(state.skillPrefix, "acme");
+    assert.equal(Object.hasOwn(state.targets[target], "skillPrefix"), false);
+    assert.ok(state.targets[target].skills.handoff);
+    assert.match(
+      fs.readFileSync(path.join(installed, "agents", "openai.yaml"), "utf8"),
+      /Use \$acme-handoff /
+    );
+
+    run([
+      "install", "--skill", "handoff", "--target", "claude", "--no-launcher"
+    ], fixture.environment);
+    const inherited = path.join(inheritedTarget, "acme-handoff");
+    const inheritedState = readState(fixture);
+    assert.equal(inheritedState.schemaVersion, 3);
+    assert.equal(inheritedState.skillPrefix, "acme");
+    assert.equal(fs.existsSync(inherited), true);
+    assert.equal(fs.existsSync(path.join(inheritedTarget, "handoff")), false);
+
+    run(["update", "--skill", "handoff", "--target", "general", "--no-launcher"], fixture.environment);
+    assert.equal(fs.existsSync(installed), true);
+    assert.equal(fs.existsSync(path.join(target, "handoff", "user.txt")), true);
+    assert.throws(
+      () => run([
+        "update", "--skill", "handoff", "--target", "claude", "--prefix", "other", "--no-launcher"
+      ], fixture.environment),
+      /Cannot change recorded skill prefix/
+    );
+
+    run(["uninstall", "--skill", "handoff", "--target", "general"], fixture.environment);
+    assert.equal(fs.existsSync(installed), false);
+    assert.equal(fs.existsSync(path.join(unmanaged, "user.txt")), true);
+    const retainedState = readState(fixture);
+    assert.equal(retainedState.schemaVersion, 3);
+    assert.equal(retainedState.skillPrefix, "acme");
+    assert.equal(retainedState.targets[inheritedTarget].skills.handoff.mode, "copy");
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(inherited, ".agentgear"), "utf8")).schemaVersion,
+      1
+    );
+
+    run(["uninstall", "--skill", "handoff", "--target", "claude"], fixture.environment);
+    const downgradedState = readState(fixture);
+    assert.equal(downgradedState.schemaVersion, 2);
+    assert.equal(Object.hasOwn(downgradedState, "skillPrefix"), false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("catalog changes revalidate the recorded prefix and run reports canonical-alias collisions", () => {
+  const fixture = environmentFixture();
+  try {
+    run([
+      "install", "--skill", "handoff", "--target", "general", "--prefix", "acme", "--no-launcher"
+    ], fixture.environment);
+    run([
+      "install", "--skill", "handoff", "--target", "claude", "--no-launcher"
+    ], fixture.environment);
+    const stateBefore = fs.readFileSync(fixture.stateFile, "utf8");
+    const currentBefore = fs.realpathSync(path.join(fixture.dataRoot, "current"));
+    const catalog = structuredClone(loadCatalog(rootDir));
+    catalog.skills.skills["acme-handoff"] = structuredClone(catalog.skills.skills.handoff);
+
+    assert.throws(
+      () => installSelection({
+        catalog,
+        options: parseOptions([
+          "--skill", "handoff", "--target", "claude", "--no-launcher"
+        ]),
+        sourceRoot: rootDir,
+        env: fixture.environment
+      }),
+      /Invalid recorded skill prefix: .*conflicts with known skill "acme-handoff"/
+    );
+    assert.equal(fs.readFileSync(fixture.stateFile, "utf8"), stateBefore);
+    assert.equal(fs.realpathSync(path.join(fixture.dataRoot, "current")), currentBefore);
+    assert.throws(
+      () => resolveRunSkill(catalog, "acme-handoff", fixture.environment),
+      /Ambiguous installed skill acme-handoff: acme-handoff, handoff/
+    );
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("agentgear run accepts canonical and recorded prefixed skill names", () => {
+  const fixture = environmentFixture();
+  try {
+    run([
+      "install", "--skill", "multi-agent-protocol", "--target", "general", "--prefix", "acme", "--no-launcher"
+    ], fixture.environment);
+    for (const skill of ["multi-agent-protocol", "acme-multi-agent-protocol"]) {
+      const result = spawnAgentgear(
+        ["run", skill, "resolve-tool-command.js", "--help"],
+        fixture,
+        fixture.environment
+      );
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const unknown = spawnAgentgear(
+      ["run", "other-multi-agent-protocol", "resolve-tool-command.js", "--help"],
+      fixture,
+      fixture.environment
+    );
+    assert.equal(unknown.status, 1);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("prefixed source installs link a rewritten discovery projection", t => {
+  const fixture = environmentFixture();
+  try {
+    run([
+      "source-install", "--skill", "handoff", "--target", "general", "--prefix", "acme", "--no-launcher"
+    ], fixture.environment);
+    const installed = path.join(fixture.home, ".agents", "skills", "acme-handoff");
+    if (!fs.lstatSync(installed).isSymbolicLink()) {
+      t.skip("directory links are unavailable on this filesystem");
+      return;
+    }
+    assert.equal(
+      fs.readlinkSync(installed),
+      path.join(fixture.dataRoot, "current", "discovery-skills", "acme", "handoff")
+    );
+    const bootstrap = fs.readFileSync(path.join(installed, "SKILL.md"), "utf8");
+    assert.match(bootstrap, /^name: acme-handoff$/m);
+    assert.match(bootstrap, /agentgear skill get handoff/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("prefixed shared source installs withdraw omitted pack skills", t => {
+  const fixture = environmentFixture();
+  const catalog = structuredClone(loadCatalog(rootDir));
+  catalog.skills.packs.small = {
+    description: "Focused pack fixture.",
+    skills: ["handoff"]
+  };
+  const install = argumentsList => installSelection({
+    catalog,
+    options: parseOptions(argumentsList),
+    sourceRoot: rootDir,
+    sourceInstall: true,
+    env: fixture.environment
+  });
+  const target = path.join(fixture.home, ".agents", "skills");
+  try {
+    install(["--pack", "core", "--target", "general", "--prefix", "acme", "--no-launcher"]);
+    const retained = path.join(target, "acme-handoff");
+    if (!fs.lstatSync(retained).isSymbolicLink()) {
+      t.skip("directory links are unavailable on this filesystem");
+      return;
+    }
+    assert.equal(fs.existsSync(path.join(target, "acme-browse-web")), true);
+
+    install(["--pack", "small", "--target", "general", "--no-launcher"]);
+    assert.equal(fs.existsSync(retained), true);
+    assert.equal(fs.existsSync(path.join(target, "acme-browse-web")), false);
+    assert.deepEqual(Object.keys(readState(fixture).targets[target].skills), ["handoff"]);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("prefixed projections reject symlinked mutable files without writing through them", () => {
+  const fixture = environmentFixture();
+  const checkout = path.join(fixture.temporary, "checkout");
+  const outsideSkill = path.join(fixture.temporary, "outside-SKILL.md");
+  const original = "---\nname: handoff\ndescription: External diagnostic file.\n---\n\nKeep this unchanged.\n";
+  try {
+    fs.cpSync(rootDir, checkout, {
+      recursive: true,
+      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+    });
+    fs.writeFileSync(outsideSkill, original);
+    const skillFile = path.join(checkout, "skills", "handoff", "SKILL.md");
+    fs.rmSync(skillFile);
+    fs.symlinkSync(outsideSkill, skillFile, "file");
+
+    assert.throws(
+      () => installSelection({
+        catalog: loadCatalog(checkout),
+        options: parseOptions([
+          "--skill", "handoff", "--target", "general", "--prefix", "acme", "--no-launcher"
+        ]),
+        sourceRoot: checkout,
+        env: fixture.environment
+      }),
+      /Projected skill path is missing or unsafe/
+    );
+    assert.equal(fs.readFileSync(outsideSkill, "utf8"), original);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "acme-handoff")), false);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("focused release updates preserve link and copy provenance for one projection", () => {
+  const fixture = environmentFixture();
+  const target = path.join(fixture.home, ".agents", "skills");
+  const selectedTarget = path.join(fixture.home, ".claude", "skills");
+  const current = path.join(fixture.dataRoot, "current");
+  const skill = "handoff";
+  const destination = path.join(target, skill);
+  const selectedDestination = path.join(selectedTarget, skill);
+  const source = path.join(current, "skills", skill);
+  try {
+    run([
+      "install", "--skill", skill, "--target", "claude", "--no-launcher"
+    ], fixture.environment);
+    assert.equal(fs.existsSync(path.join(source, ".agentgear")), false);
+
+    fs.mkdirSync(target, { recursive: true });
+    fs.symlinkSync(source, destination, "dir");
+    const state = readState(fixture);
+    state.targets[target] = { skills: { [skill]: { mode: "link", source } } };
+    craftState(fixture, state);
+
+    run([
+      "update", "--skill", skill, "--target", "claude", "--no-launcher"
+    ], fixture.environment);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(source, ".agentgear"), "utf8")), {
+      schemaVersion: 0,
+      skill,
+      mode: "link",
+      source
+    });
+    const updatedState = readState(fixture);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(selectedDestination, ".agentgear"), "utf8")), {
+      schemaVersion: 0,
+      skill,
+      mode: "copy",
+      source: updatedState.targets[selectedTarget].skills[skill].fingerprint
+    });
+
+    run(["uninstall", "--skill", skill, "--target", "general"], fixture.environment);
+    assert.equal(fs.existsSync(destination), false);
+    assert.equal(readState(fixture).targets[target], undefined);
+    assert.equal(fs.existsSync(selectedDestination), true);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("prefixed installs accept quoted canonical frontmatter names", () => {
+  const fixture = environmentFixture();
+  const checkout = path.join(fixture.temporary, "checkout");
+  try {
+    fs.cpSync(rootDir, checkout, {
+      recursive: true,
+      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+    });
+    const skillFile = path.join(checkout, "skills", "handoff", "SKILL.md");
+    fs.writeFileSync(
+      skillFile,
+      fs.readFileSync(skillFile, "utf8").replace("name: handoff", "name: \"handoff\"")
+    );
+
+    installSelection({
+      catalog: loadCatalog(checkout),
+      options: parseOptions([
+        "--skill", "handoff", "--target", "general", "--prefix", "acme", "--no-launcher"
+      ]),
+      sourceRoot: checkout,
+      env: fixture.environment
+    });
+    assert.match(
+      fs.readFileSync(path.join(fixture.home, ".agents", "skills", "acme-handoff", "SKILL.md"), "utf8"),
+      /^name: acme-handoff$/m
     );
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
@@ -799,6 +1158,7 @@ test("agentgear-source-install help states every option default", () => {
       /--scope global\|project\s+Use global or project destinations \(default: global\)/,
       /--project DIR\s+Project root for --scope project \(default: current directory\)/,
       /--dest DIR\s+Override one destination directory \(default: none; defaults to general\)/,
+      /--prefix PREFIX\s+Prefix installed discovery skill names \(default: recorded or none\)/,
       /--force\s+Replace selected conflicting artifacts \(default: false\)/,
       /--no-launcher\s+Skip the global agentgear command \(default: false\)/,
       /-h, --help\s+Show this help \(default: false\)/,
@@ -1095,7 +1455,7 @@ test("workflow doctor recognizes verified immutable Agent Deck documentation wit
   }
 });
 
-test("release install copies skills, records schema-v2 state, and ordinary uninstall retains the runtime", () => {
+test("unprefixed release installs retain schema-v2 and marker-v0 rollback readability", () => {
   const fixture = environmentFixture();
   try {
     run(["install", "--pack", "core", "--target", "general"], fixture.environment);
@@ -1113,6 +1473,16 @@ test("release install copies skills, records schema-v2 state, and ordinary unins
     assert.equal(state.targets[path.join(fixture.home, ".agents", "skills")].skills.handoff.source, undefined);
     assert.equal(state.targets[path.join(fixture.home, ".agents", "skills")].skills.handoff.runtimeId, undefined);
     assert.equal(state.targets[path.join(fixture.home, ".agents", "skills")].skills.handoff.installedAt, undefined);
+    assert.equal(
+      Object.hasOwn(state, "skillPrefix"),
+      false
+    );
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(skill, ".agentgear"), "utf8")), {
+      schemaVersion: 0,
+      skill: "handoff",
+      mode: "copy",
+      source: state.targets[path.join(fixture.home, ".agents", "skills")].skills.handoff.fingerprint
+    });
 
     const launcher = path.join(fixture.localBin, "agentgear");
     if (fs.lstatSync(launcher).isSymbolicLink()) {
@@ -1234,6 +1604,8 @@ test("schema-v2 historical full-pack links reconcile install, update, and workfl
             source
           };
         }
+        state.schemaVersion = 2;
+        delete state.skillPrefix;
         craftState(fixture, state);
 
         const before = readState(fixture);
@@ -1254,6 +1626,8 @@ test("schema-v2 historical full-pack links reconcile install, update, and workfl
         }
 
         const after = readState(fixture);
+        assert.equal(after.schemaVersion, 2);
+        assert.equal(Object.hasOwn(after, "skillPrefix"), false);
         for (const skill of historicalSkills) {
           assert.equal(fs.existsSync(path.join(target, skill)), false, `${operation} must withdraw ${skill}`);
           assert.equal(after.targets[target]?.skills[skill], undefined, `${operation} must remove ${skill} state`);
@@ -2426,7 +2800,8 @@ test("mutating commands reject malformed, legacy, and escaping state before any 
   const launcher = path.join(fixture.localBin, "agentgear");
   const currentTarget = path.join(fixture.dataRoot, "current", "bin", "agentgear.mjs");
   const valid = () => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
+    skillPrefix: null,
     channel: "release",
     releases: ["0.1.0-1786000000000-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
     targets: {
@@ -2447,6 +2822,21 @@ test("mutating commands reject malformed, legacy, and escaping state before any 
     {
       ...valid(),
       targets: { [targetRoot]: { ...valid().targets[targetRoot], futureMetadata: { version: 1 } } }
+    },
+    {
+      ...valid(),
+      skillPrefix: "../evil"
+    },
+    {
+      ...valid(),
+      skillPrefix: "a".repeat(64),
+      targets: {
+        [targetRoot]: {
+          skills: {
+            handoff: { mode: "copy", fingerprint: `sha256-v1:${"0".repeat(64)}` }
+          }
+        }
+      }
     },
     { ...valid(), channel: "staging" },
     { ...valid(), releases: ["0.1.0-1786000000000-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/../evil"] },
@@ -2929,7 +3319,7 @@ test("source-install validates every recorded shared link, including skills outs
     fs.rmSync(path.join(checkout, "skills", "handoff"), { recursive: true, force: true });
 
     assert.throws(
-      () => runCheckout(["source-install", "--pack", "workflow", "--target", "general"]),
+      () => runCheckout(["source-install", "--skill", "delegate-code-task", "--target", "general"]),
       /requires skills[\\/]handoff[\\/]SKILL\.md/
     );
 

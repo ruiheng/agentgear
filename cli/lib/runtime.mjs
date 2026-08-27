@@ -3,11 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { validateLegacyAgyDiscovery } from "../../providers/legacy-agy-skill-discovery.mjs";
+import { MAX_SKILL_NAME_LENGTH, SKILL_PREFIX_PATTERN } from "./catalog.mjs";
 import { buildSkillContentIndex, validateSkillContentIndex } from "./skill-content.mjs";
 
 const RUNTIME_MARKER = ".agentgear-runtime.json";
 const MARKER_VERSION = 1;
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
+const PREVIOUS_STATE_VERSION = 2;
 export const SOURCE_CHANNEL = "source";
 export const SOURCE_CHANNEL_STATE_TOKEN = "development";
 const FINGERPRINT_PREFIX = "sha256-v1:";
@@ -15,7 +17,8 @@ const FINGERPRINT_HEADER = "agentgear-fingerprint-v1\0";
 const FINGERPRINT_PATTERN = /^sha256-v1:[0-9a-f]{64}$/;
 const SKILL_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const INSTALLED_SKILL_MARKER = ".agentgear";
-const INSTALLED_SKILL_MARKER_VERSION = 0;
+const PREVIOUS_INSTALLED_SKILL_MARKER_VERSION = 0;
+const INSTALLED_SKILL_MARKER_VERSION = 1;
 const LINK_UNAVAILABLE_CODES = new Set(["EACCES", "EINVAL", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "EPERM"]);
 let temporarySequence = 0;
 // Exact historical command names retained only so managed artifacts can be removed safely.
@@ -60,6 +63,20 @@ export function expandHome(value, env = process.env) {
   if (value === "~") return getHome(env);
   if (value.startsWith("~/")) return path.join(getHome(env), value.slice(2));
   return value;
+}
+
+export function installedSkillName(skill, prefix = null) {
+  return prefix ? `${prefix}-${skill}` : skill;
+}
+
+export function installedSkillDestination(targetPath, skill, prefix = null) {
+  return path.join(targetPath, installedSkillName(skill, prefix));
+}
+
+export function installedSkillRuntimeRelativePath(skill, prefix = null) {
+  return prefix
+    ? path.join("discovery-skills", prefix, skill)
+    : path.join("skills", skill);
 }
 
 export function readJsonIfExists(filePath, fallback) {
@@ -675,7 +692,7 @@ function markerShapedReleaseChildren(paths) {
     .map(entry => entry.name);
 }
 
-// Validate schema-v2 ownership fields before mutation. The one known legacy
+// Validate schema-v3 ownership fields before mutation. The one known legacy
 // target extension is accepted only in its exact historical shape so it can be
 // migrated; `--force` remains powerless against invalid ownership evidence.
 export function validateStateGrammar(state, env = process.env) {
@@ -684,17 +701,20 @@ export function validateStateGrammar(state, env = process.env) {
   const paths = computePaths(env);
 
   if (!isPlainObject(state)) return invalid("top-level value is not a plain object");
-  const keys = Object.keys(state);
-  if (keys.length !== 5
-    || !["schemaVersion", "channel", "releases", "targets", "commands"].every(key => keys.includes(key))) {
-    return invalid(`unexpected top-level fields: ${keys.join(", ")}`);
-  }
   if (state.schemaVersion !== STATE_VERSION) {
     return invalid(`unsupported schemaVersion ${JSON.stringify(state.schemaVersion)}; only ${STATE_VERSION} is valid`);
   }
-  // Schema-v2 keeps the historical token so preceding checkout revisions can
-  // read newly written state. `source` is accepted only to repair state
-  // produced by the short-lived rename transition.
+  const keys = Object.keys(state);
+  if (keys.length !== 6
+    || !["schemaVersion", "skillPrefix", "channel", "releases", "targets", "commands"].every(key => keys.includes(key))) {
+    return invalid(`unexpected top-level fields: ${keys.join(", ")}`);
+  }
+  if (!(state.skillPrefix === null
+    || (typeof state.skillPrefix === "string" && SKILL_PREFIX_PATTERN.test(state.skillPrefix)))) {
+    return invalid(`invalid skillPrefix ${JSON.stringify(state.skillPrefix)}`);
+  }
+  // Keep the historical source-channel wire token. `source` is accepted only
+  // to repair state produced by the short-lived rename transition.
   if (!(state.channel === null
     || state.channel === "release"
     || state.channel === SOURCE_CHANNEL
@@ -740,9 +760,19 @@ export function validateStateGrammar(state, env = process.env) {
     const currentRoot = paths.currentPath;
     for (const [skill, record] of Object.entries(targetRecord.skills)) {
       if (!SKILL_KEY_PATTERN.test(skill)) return invalid(`invalid skill key: ${skill}`);
+      if (state.skillPrefix !== null
+        && installedSkillName(skill, state.skillPrefix).length > MAX_SKILL_NAME_LENGTH) {
+        return invalid(
+          `installed skill name exceeds ${MAX_SKILL_NAME_LENGTH} characters: `
+          + installedSkillName(skill, state.skillPrefix)
+        );
+      }
       if (!isPlainObject(record)) return invalid(`invalid skill record for ${skill}`);
       if (record.mode === "link") {
-        const expectedSource = path.join(currentRoot, "skills", skill);
+        const expectedSource = path.join(
+          currentRoot,
+          installedSkillRuntimeRelativePath(skill, state.skillPrefix)
+        );
         if (Object.keys(record).length !== 2
           || typeof record.source !== "string"
           || normalizeLinkPath(record.source) !== record.source
@@ -1112,8 +1142,8 @@ const STATIC_MODULE_SPECIFIER = /(?:^|[;\n])\s*(?:import\s+(?:[\w*$\s{},]+?\s+fr
 const DOCUMENTED_RUNTIME_SCRIPT = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9.][A-Za-z0-9._/-]*\.(?:mjs|cjs|js))(?![A-Za-z0-9._/-])/g;
 const DOCUMENTED_SKILL_REFERENCE = /(?:^|[^A-Za-z0-9._/-])((?:\.\/)?references\/[A-Za-z0-9][A-Za-z0-9._/-]*\.md)(?![A-Za-z0-9._/-])/gm;
 
-function documentedSkillRuntimeRequirements(snapshotRoot, skill) {
-  const skillRoot = path.resolve(snapshotRoot, "skills", skill);
+function documentedSkillRuntimeRequirements(snapshotRoot, skillRuntimeRelative) {
+  const skillRoot = path.resolve(snapshotRoot, skillRuntimeRelative);
   const documents = new Set();
   const scripts = new Set();
   const pending = ["SKILL.md"];
@@ -1151,18 +1181,18 @@ function documentedSkillRuntimeRequirements(snapshotRoot, skill) {
     }
   }
   return {
-    documents: [...documents].map(document => path.join("skills", skill, document)),
+    documents: [...documents].map(document => path.join(skillRuntimeRelative, document)),
     scripts: [...scripts]
   };
 }
 
-function requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, consumer) {
-  const documented = documentedSkillRuntimeRequirements(snapshotRoot, skill);
+function requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skillRuntimeRelative, consumer) {
+  const documented = documentedSkillRuntimeRequirements(snapshotRoot, skillRuntimeRelative);
   for (const document of documented.documents) {
     requiredRuntimeFile(requirements, document, consumer);
   }
   for (const script of documented.scripts) {
-    requiredRuntimeCommand(commands, script, `${consumer} (documented by skills/${skill})`);
+    requiredRuntimeCommand(commands, script, `${consumer} (documented by ${skillRuntimeRelative})`);
   }
 }
 
@@ -1257,8 +1287,9 @@ export function validateSharedRuntimeConsumers({
   sourceInstall = false,
   installLauncher = false,
   retireCommandDestinations = [],
-  retireSkillDestinations = [],
+  removedSkillDestinations = [],
   plannedSkills = [],
+  skillPrefix = state?.skillPrefix ?? null,
   snapshotRoot = runtime?.root
 }) {
   if (!snapshotRoot) return [];
@@ -1266,29 +1297,43 @@ export function validateSharedRuntimeConsumers({
 
   const requirements = new Map();
   const commands = new Map();
-  const retiredSkills = new Set(retireSkillDestinations);
+  const removedSkills = new Set(removedSkillDestinations);
 
   // Exact active linked-skill records: the state record and the live link
   // artifact must agree before the staged snapshot is required to serve them.
   for (const [targetRoot, targetRecord] of Object.entries(state?.targets ?? {})) {
     for (const [skill, record] of Object.entries(targetRecord?.skills ?? {})) {
       if (record?.mode !== "link") continue;
-      const destination = path.join(targetRoot, skill);
-      if (retiredSkills.has(destination)) continue;
+      const destination = installedSkillDestination(targetRoot, skill, state.skillPrefix);
+      if (removedSkills.has(destination)) continue;
       if (!linkTargetsPath(destination, record.source)) continue;
-      requiredRuntimeFile(requirements, path.join("skills", skill, "SKILL.md"), destination);
-      requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, destination);
+      const runtimeRelative = installedSkillRuntimeRelativePath(skill, state.skillPrefix);
+      requiredRuntimeFile(requirements, path.join(runtimeRelative, "SKILL.md"), destination);
+      requireDocumentedSkillRuntimeRequirements(
+        requirements,
+        commands,
+        snapshotRoot,
+        runtimeRelative,
+        destination
+      );
     }
   }
 
   // Planned shared skills apply only to shared source installations.
   // Release-copy selections and source-install copy fallback are not shared skills.
   if (sourceInstall && mode === "shared") {
-    for (const skill of plannedSkills) {
-      if (typeof skill !== "string" || skill.length === 0) continue;
-      const consumer = `planned skill: ${skill}`;
-      requiredRuntimeFile(requirements, path.join("skills", skill, "SKILL.md"), consumer);
-      requireDocumentedSkillRuntimeRequirements(requirements, commands, snapshotRoot, skill, consumer);
+    for (const planned of plannedSkills) {
+      if (typeof planned !== "string" || planned.length === 0) continue;
+      const runtimeRelative = installedSkillRuntimeRelativePath(planned, skillPrefix);
+      const consumer = `planned skill: ${installedSkillName(planned, skillPrefix)}`;
+      requiredRuntimeFile(requirements, path.join(runtimeRelative, "SKILL.md"), consumer);
+      requireDocumentedSkillRuntimeRequirements(
+        requirements,
+        commands,
+        snapshotRoot,
+        runtimeRelative,
+        consumer
+      );
     }
   }
 
@@ -1380,44 +1425,72 @@ function installedSkillMarkerPath(destination) {
 
 // The marker is deliberately small and local to the managed directory. State
 // remains the deletion authority; this gives humans and diagnostics an
-// auditable v0 provenance record without broadening ordinary ownership.
-export function writeInstalledSkillMarker(destination, skill, { mode, source }) {
+// auditable provenance record without broadening ordinary ownership.
+// Unprefixed entries stay on v0 for rollback readability; prefixed entries use
+// v1, and the matcher accepts both exact shapes.
+export function writeInstalledSkillMarker(destination, skill, { installedAs = skill, mode, source }) {
   const markerPath = installedSkillMarkerPath(destination);
   const info = fs.lstatSync(markerPath, { throwIfNoEntry: false });
   if (info && (!info.isFile() || info.isSymbolicLink())) {
     throw new Error(`Refusing unsafe installed-skill marker path: ${markerPath}`);
   }
-  writeJsonAtomic(markerPath, {
-    schemaVersion: INSTALLED_SKILL_MARKER_VERSION,
-    skill,
-    mode,
-    source
-  });
+  const marker = installedAs === skill
+    ? {
+        schemaVersion: PREVIOUS_INSTALLED_SKILL_MARKER_VERSION,
+        skill,
+        mode,
+        source
+      }
+    : {
+        schemaVersion: INSTALLED_SKILL_MARKER_VERSION,
+        canonicalSkill: skill,
+        installedSkill: installedAs,
+        mode,
+        source
+      };
+  writeJsonAtomic(markerPath, marker);
 }
 
-export function installedSkillMarkerMatches(destination, skill, record) {
+export function installedSkillMarkerMatches(destination, skill, record, installedAs = path.basename(destination)) {
   const markerPath = installedSkillMarkerPath(destination);
   const info = fs.lstatSync(markerPath, { throwIfNoEntry: false });
   if (!info?.isFile() || info.isSymbolicLink()) return false;
   try {
     const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
-    return isPlainObject(marker)
+    const source = record.mode === "link" ? record.source : record.fingerprint;
+    if (isPlainObject(marker)
       && Object.keys(marker).length === 4
-      && marker.schemaVersion === INSTALLED_SKILL_MARKER_VERSION
+      && marker.schemaVersion === PREVIOUS_INSTALLED_SKILL_MARKER_VERSION
       && marker.skill === skill
+      && skill === installedAs
       && marker.mode === record.mode
       && typeof marker.source === "string"
-      && marker.source === (record.mode === "link" ? record.source : record.fingerprint);
+      && marker.source === source) {
+      return true;
+    }
+    return isPlainObject(marker)
+      && Object.keys(marker).length === 5
+      && marker.schemaVersion === INSTALLED_SKILL_MARKER_VERSION
+      && marker.canonicalSkill === skill
+      && marker.installedSkill === installedAs
+      && marker.mode === record.mode
+      && typeof marker.source === "string"
+      && marker.source === source;
   } catch {
     return false;
   }
 }
 
-export function destinationMatchesRecord(destination, record, skill = path.basename(destination)) {
+export function destinationMatchesRecord(
+  destination,
+  record,
+  skill = path.basename(destination),
+  installedAs = path.basename(destination)
+) {
   const info = fs.lstatSync(destination, { throwIfNoEntry: false });
   if (!info) return false;
   const markerInfo = fs.lstatSync(installedSkillMarkerPath(destination), { throwIfNoEntry: false });
-  const markerMatches = !markerInfo || installedSkillMarkerMatches(destination, skill, record);
+  const markerMatches = !markerInfo || installedSkillMarkerMatches(destination, skill, record, installedAs);
   if (record.mode === "link") {
     return typeof record.source === "string"
       && info.isSymbolicLink()
@@ -1542,19 +1615,49 @@ export function removeInstallStateFile({ env = process.env, print }) {
   removeEmptyDirectory(path.dirname(stateFile));
 }
 
+function migratePreviousInstallState(state) {
+  if (!isPlainObject(state) || state.schemaVersion !== PREVIOUS_STATE_VERSION) return state;
+  const keys = Object.keys(state);
+  if (keys.length !== 5
+    || !["schemaVersion", "channel", "releases", "targets", "commands"].every(key => keys.includes(key))
+    || !isPlainObject(state.targets)) {
+    return state;
+  }
+  for (const targetRecord of Object.values(state.targets)) {
+    if (!isPlainObject(targetRecord)
+      || Object.keys(targetRecord).some(key => !["skills", "agyDiscovery"].includes(key))) {
+      return state;
+    }
+  }
+  return { ...state, schemaVersion: STATE_VERSION, skillPrefix: null };
+}
+
+function previousInstallStateWireFormat(state) {
+  if (state.skillPrefix !== null) return null;
+  const { skillPrefix: _skillPrefix, ...previousState } = state;
+  return { ...previousState, schemaVersion: PREVIOUS_STATE_VERSION };
+}
+
 export function readInstallState(env = process.env) {
   const stateFile = getStateFile(env);
   if (!exists(stateFile)) return null;
-  return JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  return migratePreviousInstallState(JSON.parse(fs.readFileSync(stateFile, "utf8")));
 }
 
 export function saveInstallState(state, env = process.env) {
-  const persistedState = state?.channel === SOURCE_CHANNEL
-    ? { ...state, channel: SOURCE_CHANNEL_STATE_TOKEN }
-    : state;
-  const grammar = validateStateGrammar(persistedState, env);
+  const migratedState = migratePreviousInstallState(state);
+  const hasInstalledSkills = Object.values(migratedState?.targets ?? {})
+    .some(target => Object.keys(target.skills ?? {}).length > 0);
+  const currentState = migratedState && !hasInstalledSkills
+    ? { ...migratedState, skillPrefix: null }
+    : migratedState;
+  const normalizedState = currentState?.channel === SOURCE_CHANNEL
+    ? { ...currentState, channel: SOURCE_CHANNEL_STATE_TOKEN }
+    : currentState;
+  const grammar = validateStateGrammar(normalizedState, env);
   if (!grammar.valid) {
     throw new Error(`Refusing to save invalid installation state: ${grammar.reason}`);
   }
+  const persistedState = previousInstallStateWireFormat(normalizedState) ?? normalizedState;
   writeJsonAtomic(getStateFile(env), persistedState);
 }
