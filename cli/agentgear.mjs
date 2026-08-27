@@ -51,6 +51,7 @@ import {
   appendRuntimeGuidance,
   buildSkillContentIndex,
   formatSkillText,
+  listRegisteredActions,
   listSkillSelectors,
   resolveSkillAddress,
   runtimeCommandDefinitions
@@ -84,6 +85,7 @@ function usage() {
     "",
     "Commands:",
     "  list [--json]",
+    "  action list [--json]",
     "  skill get [--agent-profile NAME] ADDRESS...",
     "  skill list [--json] [SKILL]",
     "  migrate legacy-skills [--target NAME[,NAME] | --dest DIR] [--scope global|project] [--project DIR] [--apply]",
@@ -722,6 +724,37 @@ function skill(catalog, argumentsList) {
   process.stdout.write(formatSkillText({ selections }));
 }
 
+function actionUsage() {
+  return [
+    "Usage: agentgear action list [--json]",
+    "",
+    "Lists every registered action as an address accepted by `agentgear skill get`."
+  ].join("\n");
+}
+
+function action(catalog, argumentsList) {
+  const [operation, ...rawArguments] = argumentsList;
+  if (!operation || operation === "--help" || operation === "-h") {
+    print(actionUsage());
+    return;
+  }
+  if (operation !== "list") fail(`Unknown action command: ${operation}`);
+  const options = parseOptions(rawArguments);
+  if (options.help) {
+    print(actionUsage());
+    return;
+  }
+  if ([...options.supplied].some(option => option !== "json") || options.positional.length > 0) {
+    fail("action list accepts only --json");
+  }
+  const records = listRegisteredActions(buildSkillContentIndex(rootDir, catalog));
+  if (options.json) {
+    print(JSON.stringify(records, null, 2));
+  } else if (records.length > 0) {
+    process.stdout.write(records.map(record => record.address).join("\n") + "\n");
+  }
+}
+
 function migrate(catalog, argumentsList) {
   const [operation, ...rawArguments] = argumentsList;
   if (operation !== "legacy-skills") fail("migrate supports only legacy-skills");
@@ -770,6 +803,10 @@ export function main(commandArguments = process.argv.slice(2)) {
       }
       throw error;
     }
+    return;
+  }
+  if (command === "action") {
+    action(loadCatalog(rootDir), argumentsList);
     return;
   }
   if (command === "migrate") {

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { listSkills, loadCatalog, resolveSelection, upstreamSkillEntries, validateCatalog } from "../cli/lib/catalog.mjs";
 import { LEGACY_SKILL_NAMES, migrateLegacySkills } from "../cli/lib/legacy-skill-migration.mjs";
-import { actionAliases, appendAgentGuidance, appendRuntimeGuidance, buildSkillContentIndex, decodeSimpleFrontmatterScalar, formatSkillText, listSkillSelectors, resolveSkillAddress, runtimeCommandDefinitions, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
+import { actionAliases, appendAgentGuidance, appendRuntimeGuidance, buildSkillContentIndex, decodeSimpleFrontmatterScalar, formatSkillText, listRegisteredActions, listSkillSelectors, resolveSkillAddress, runtimeCommandDefinitions, validateActionTemplates, validateSkillContentIndex } from "../cli/lib/skill-content.mjs";
 import { detectAgentProfiles, resolveAgentProfiles } from "../providers/agent-profiles.mjs";
 import { codeGraphIndexReady, readyExternalCommands, resolveExternalCommand } from "../providers/external-commands.mjs";
 import { purgeRetrievedUpstreamSkills, retrieveUpstreamSkill, retrievedSkillMaterializationRoot, upstreamSkillDigest } from "../cli/lib/upstreams.mjs";
@@ -564,7 +564,7 @@ test("skill help states the stable guidance policy once", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(result.stdout, /skill get[^\n]*--json/);
   assert.doesNotMatch(result.stdout, /skill get[^\n]*\[--\]/);
-  assert.match(result.stdout, /skill list \[--json\]/);
+  assert.match(result.stdout, /skill list \[--json\] \[SKILL\]/);
   assert.match(result.stdout, /agentgear skill get action:review_requested/);
   assert.match(result.stdout, /Remember and reuse skill text unless its bootstrap states a refresh boundary\./);
 });
@@ -678,6 +678,37 @@ test("skill list is deterministic and emits directly resolvable owned addresses"
     const lookup = command(["skill", "get", address]);
     assert.equal(lookup.status, 0, `${address}: ${lookup.stderr}`);
   }
+});
+
+test("action list is discoverable and lists every registered action and its owner", () => {
+  const index = buildSkillContentIndex(rootDir, loadCatalog(rootDir));
+  const expected = listRegisteredActions(index);
+
+  const topHelp = command(["--help"]);
+  assert.equal(topHelp.status, 0, topHelp.stderr);
+  assert.match(topHelp.stdout, /action list \[--json\]/);
+
+  const actionHelp = command(["action", "--help"]);
+  assert.equal(actionHelp.status, 0, actionHelp.stderr);
+  assert.match(actionHelp.stdout, /agentgear action list \[--json\]/);
+
+  const textResult = command(["action", "list"]);
+  assert.equal(textResult.status, 0, textResult.stderr);
+  assert.deepEqual(textResult.stdout.trim().split("\n"), expected.map(record => record.address));
+  assert.ok(expected.some(record => record.address === "action:group_message_available"));
+  assert.ok(expected.every(record => record.address.startsWith("action:")));
+
+  const jsonResult = command(["action", "list", "--json"]);
+  assert.equal(jsonResult.status, 0, jsonResult.stderr);
+  assert.deepEqual(JSON.parse(jsonResult.stdout), expected);
+
+  const scoped = command(["action", "list", "route-waypost-action"]);
+  assert.equal(scoped.status, 1);
+  assert.match(scoped.stderr, /action list accepts only --json/);
+
+  const unknown = command(["skill", "get", "action:not_registered"]);
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /Discover registered actions:\n  agentgear action list/);
 });
 
 test("selector aliases cannot shadow canonical or upstream skill entry addresses", () => {

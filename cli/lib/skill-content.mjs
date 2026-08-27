@@ -595,8 +595,11 @@ function bareSelectorCandidates(index, selector) {
 
 export function resolveSkillAddress(index, address) {
   if (!ALIAS_SELECTOR.test(address)) {
+    const discovery = address.startsWith("action:")
+      ? "Discover registered actions:\n  agentgear action list"
+      : "Discover skills:\n  agentgear skill list";
     throw new SkillContentError(
-      `Invalid skill address: ${address}\nDiscover skills:\n  agentgear skill list`,
+      `Invalid skill address: ${address}\n${discovery}`,
       { kind: "unknown" }
     );
   }
@@ -627,8 +630,11 @@ export function resolveSkillAddress(index, address) {
     );
   }
   const suggestions = suggestionDiagnostic(skillAddressSuggestions(index, address), "get");
+  const discovery = address.startsWith("action:")
+    ? "Discover registered actions:\n  agentgear action list"
+    : "Discover skills:\n  agentgear skill list";
   throw new SkillContentError(
-    `Unknown skill address: ${address}.${suggestions}\nDiscover skills:\n  agentgear skill list`,
+    `Unknown skill address: ${address}.${suggestions}\n${discovery}`,
     { kind: "unknown" }
   );
 }
@@ -726,6 +732,16 @@ export function actionAliases(index) {
     result.set(token, record);
   }
   return result;
+}
+
+export function listRegisteredActions(index) {
+  return [...actionAliases(index)].map(([action, record]) => ({
+    action,
+    address: `action:${action}`,
+    owner: record.owner,
+    canonicalSelector: record.selector,
+    summary: record.summary
+  })).sort((left, right) => compareUtf8(left.address, right.address));
 }
 
 function validateMarkdownFences(filePath, source) {

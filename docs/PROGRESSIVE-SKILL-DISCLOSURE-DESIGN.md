@@ -86,6 +86,7 @@ Add one skill-centric retrieval namespace to the existing launcher:
 ~~~text
 agentgear skill get ADDRESS...
 agentgear skill list [SKILL] [--json]
+agentgear action list [--json]
 ~~~
 
 There is no agentgear prompt command.
@@ -108,7 +109,7 @@ An owning skill may add best-effort agent guidance without changing the selector
 
 An owning selector may also declare runtime appendices with `runtime-command` and `append-to-selector` frontmatter. The catalog defines the finite command registry and supported readiness predicates. Every ready authored candidate is independent and advisory; optional-tool absence returns the complete base selector, and unrelated selectors remain byte-identical. `codegraph` additionally requires an existing workspace index; detection never creates one. The complete contract is specified in `docs/ENVIRONMENT-ADAPTIVE-SKILL-GUIDANCE.md`.
 
-skill list is the separate deterministic discovery operation. Without a skill name, text mode writes every canonical and upstream-retrievable skill name, one per line; JSON mode returns their catalog records. With a skill name, text mode writes every canonical address and alias owned by that skill, one per line in bytewise order. Local addresses are qualified so every listed value can be passed directly to skill get; global aliases such as `action:<token>` remain bare. Selector listing accepts no query, returns an empty success for a skill with no selectors, and performs no fuzzy matching. Its JSON mode returns ordered records with requested skill, address in the selector field, canonical owner, canonical selector, aliases, and summary.
+skill list is the separate deterministic skill discovery operation. Without a skill name, text mode writes every canonical and upstream-retrievable skill name, one per line; JSON mode returns their catalog records. With a skill name, text mode writes every canonical address and alias owned by that skill, one per line in bytewise order. action list writes every registered global `action:<token>` address; its JSON records include action, address, owner, canonical selector, and summary. Local addresses are qualified so every listed value can be passed directly to skill get; global aliases remain bare. Selector listing accepts no query, returns an empty success for a skill with no selectors, and performs no fuzzy matching. Its JSON mode returns ordered records with requested skill, address in the selector field, canonical owner, canonical selector, aliases, and summary.
 
 Unknown or ambiguous addresses exit status 2 with a concise diagnostic, up to three deterministic similarity-ranked candidates, and a directly executable discovery or selector-listing command. Candidates are diagnostic only: resolution remains exact, and unknown Action aliases are never silently corrected. Corrupt or duplicate runtime metadata exits status 1. Neither operation accepts a filesystem path, glob, URL, Waypost body, workflow state, or execution arguments.
 

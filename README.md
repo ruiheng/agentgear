@@ -100,7 +100,11 @@ discard an already-persisted delivery receipt.
 ~~~bash
 node ./bin/agentgear.mjs doctor --pack workflow
 node ./bin/agentgear.mjs install --pack workflow --scope project
+agentgear action list
 ~~~
+
+`action list` prints every registered `action:<name>` address. Add
+`--json` to include its owning skill, canonical selector, and summary.
 
 Use `agentgear-source-install` from a source checkout, and rerun it after
 source changes. The target normally links to Agentgear's shared runtime, with
