@@ -1158,7 +1158,8 @@ test("workflow installation exposes only its approved entries and provisions the
     );
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout, /permission_migration_required/);
-    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "check-waypost-messages", "SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "check-waypost-messages", "SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "route-waypost-action", "SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "delegate-code-task", "SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "multi-agent-protocol", "SKILL.md")), false);
     const state = readState(fixture);

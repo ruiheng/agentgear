@@ -128,7 +128,7 @@ Use `roundtable` when the user wants a multi-agent discussion, brainstorm, criti
 4. Participants are persistent host sessions with the moderator as their verified same-host parent, using launch candidates resolved through role `roundtable_participant`.
 5. Moderator sends clarified user intent to the group and nudges selected participants with personal control messages; the first turn is parallel by default, later turns are targeted unless the user asks for sequential round-robin.
 6. Participants read group unread messages with `waypost_recv` plus `as_person`, then post one group reply.
-7. Group subscriber updates arrive as normal personal `group_message_available` deliveries, so the moderator uses normal `check-waypost-messages` pickup and then runs `roundtable` Moderator Group Check.
+7. Group subscriber updates arrive as normal personal `group_message_available` deliveries; `route-waypost-action` resolves the action to the group route, which then runs `roundtable` Moderator Group Check.
 8. Moderator presents synthesis to the user with per-participant `message_id` traceability; raw group history remains the source of truth.
 9. Ending keeps sessions and Waypost message history by default. Generic workflow code does not delete provider-owned participant sessions.
 
@@ -188,7 +188,7 @@ flowchart TD
 - `planner-closeout` is the planner-side runtime action for `closeout_delivered`
 - `execute-plan` is the planner-side runtime action for a supervisor-assigned task list in one workspace
 - `plan-report` is the supervisor-side runtime action for the final report from that planner
-- `check-waypost-messages` routes generic delegation actions to `delegate-task`, code delegation to `delegate-code-task`, and `group/roundtable-*` `group_message_available` to `roundtable`; replace the group name-pattern rule with an explicit mapping if another group workflow is added
+- `route-waypost-action` loads the global `action:<value>` selector named by a received `Action: <value>` field; its `group_message_available` discriminator routes `group/roundtable-*` to `roundtable`
 - planner-owned coder/reviewer/architect/refactor-reviewer sessions use the verified planner parent through generic Waypost session tools
 - use a persistent host session for work a user may want to observe, steer, resume, or revisit; expose its returned session id in the user-facing dispatch result
 - `$explain-for-me` writes `.agent-artifacts/explain-for-me/<id>/index.html`; remote viewing uses an on-demand artifact URI or loopback/SSH tunnel.
@@ -198,7 +198,8 @@ flowchart TD
 - Generic workflow contracts do not rely on host groups or provider-specific cleanup semantics.
 - The receiver should always read message `body` first
 - A received workflow message is executable work, not a notification to acknowledge and ignore
-- Use `check-waypost-messages` as the receiver-side wake handler
+- Let agents discover Waypost receipt through its MCP or CLI
+- Use `route-waypost-action` after receiving a Waypost message containing an `Action: <value>` field
 - cross-session progress is asynchronous; follow the shared Async sender rule after dispatch
 - Waypost Action bodies do not repeat transport `From` or `To`; replies use the claimed delivery's sender and recipient addresses, while action-specific identity fields remain only when workflow ownership or cleanup needs them
 - in a shared workspace, the active task worktree state is coder-owned until planner closeout begins; planner must not alter that workspace state while other agents may still be working there
@@ -225,7 +226,7 @@ Current recommended operating mode:
 Canonical workflow content:
 
 - Project workflow skill: `multi-agent-protocol`
-- Receiver wake handler: `check-waypost-messages`
+- Received Action router: `route-waypost-action`
 - Planner closeout: `planner-closeout`
 - Internal plan-dispatch protocol selector: `multi-agent-protocol/internal/dispatch-plan`
 - Plan execution: `execute-plan`

@@ -15,7 +15,6 @@ import { actionHeader, loadActionProducerManifest } from "../skills/multi-agent-
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entrySkills = [
   "assess-tech-design",
-  "check-waypost-messages",
   "code-health-review",
   "commit-staged",
   "delegate-code-task",
@@ -27,6 +26,7 @@ const entrySkills = [
   "intent-framing",
   "refactor-review",
   "roundtable",
+  "route-waypost-action",
   "simplify-review",
   "tech-design-workflow"
 ];
@@ -349,14 +349,40 @@ test("skill help states the stable guidance policy once", () => {
   assert.match(result.stdout, /the user asks, or there is evidence it changed\./);
 });
 
-test("check-waypost-messages loads its Codex appendix only for Codex", () => {
-  const generic = command(["skill", "get", "--agent-profile", "generic", "check-waypost-messages"]);
-  assert.equal(generic.status, 0, generic.stderr);
-  assert.doesNotMatch(generic.stdout, /## For Codex only/);
+test("route-waypost-action loads the registered instructions for an Action field", () => {
+  const bootstrap = fs.readFileSync(path.join(rootDir, "skills", "route-waypost-action", "SKILL.md"), "utf8");
+  assert.match(bootstrap, /Agentgear/);
+  assert.match(bootstrap, /skill get/);
+  assert.match(bootstrap, /action:<value>/);
+  assert.doesNotMatch(bootstrap, /agentgear skill get route-waypost-action/);
 
-  const codex = command(["skill", "get", "--agent-profile", "codex", "check-waypost-messages"]);
-  assert.equal(codex.status, 0, codex.stderr);
-  assert.match(codex.stdout, /## For Codex only/);
+  const result = command(["skill", "get", "route-waypost-action"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /# Route Waypost Action/);
+  assert.match(result.stdout, /Agentgear/);
+  assert.match(result.stdout, /skill get/);
+  assert.match(result.stdout, /action:<value>/);
+  assert.doesNotMatch(result.stdout, /validat|malformed|case-insensitive/i);
+  assert.doesNotMatch(result.stdout, /waypost_recv/);
+});
+
+test("receiver and rejection handlers settle routing and authentication failures", () => {
+  const receiver = fs.readFileSync(path.join(
+    rootDir,
+    "skills",
+    "multi-agent-protocol",
+    "references",
+    "internal-protocol",
+    "shared-protocol.md"
+  ), "utf8");
+  assert.match(receiver, /Action lookup or another routing step fails/);
+  assert.doesNotMatch(receiver, /malformed or unknown Action is rejected/);
+
+  const rejected = command(["skill", "get", "action:message_rejected"]);
+  assert.equal(rejected.status, 0, rejected.stderr);
+  assert.match(rejected.stdout, /Missing or ambiguous history: defer the claim/);
+  assert.match(rejected.stdout, /Endpoint mismatch: fail it/);
+  assert.match(rejected.stdout, /Acknowledge a matching rejection/);
 });
 
 test("skill get resolves independent addresses, global fallbacks, and atomic errors", () => {
@@ -373,16 +399,16 @@ test("skill get resolves independent addresses, global fallbacks, and atomic err
   assert.equal(fallback.status, 0, fallback.stderr);
   assert.equal(fallback.stdout.trim(), resolveSkillAddress(index, "session-host").body.trim());
 
-  const multi = command(["skill", "get", "check-waypost-messages/invalid-envelope", "tech-design-workflow/report-handling"]);
+  const multi = command(["skill", "get", "action:group_message_available", "tech-design-workflow/report-handling"]);
   assert.equal(multi.status, 0, multi.stderr);
-  assert.match(multi.stdout, /^agentgear skill: check-waypost-messages\/invalid-envelope/m);
+  assert.match(multi.stdout, /^agentgear skill: action:group_message_available/m);
   assert.match(multi.stdout, /^agentgear skill: tech-design-workflow\/report-handling/m);
 
   const ambiguous = command(["skill", "get", "continue-1"]);
   assert.equal(ambiguous.status, 2);
   assert.match(ambiguous.stderr, /Ambiguous skill address continue-1/);
 
-  const unknown = command(["skill", "get", "check-waypost-messages/invalid-envelope", "not-real"]);
+  const unknown = command(["skill", "get", "action:group_message_available", "not-real"]);
   assert.equal(unknown.status, 2);
   assert.equal(unknown.stdout, "");
   assert.match(unknown.stderr, /Unknown skill address: not-real/);
@@ -411,13 +437,13 @@ test("skill list is deterministic and emits directly resolvable owned addresses"
   assert.equal(allJson.status, 0, allJson.stderr);
   assert.deepEqual(JSON.parse(allJson.stdout).map(record => record.name), names);
 
-  const result = command(["skill", "list", "check-waypost-messages", "--json"]);
+  const result = command(["skill", "list", "route-waypost-action", "--json"]);
   assert.equal(result.status, 0, result.stderr);
   const records = JSON.parse(result.stdout);
   const selectors = records.map(record => record.selector);
   assert.deepEqual(selectors, [...selectors].sort());
   assert.ok(selectors.includes("action:group_message_available"));
-  assert.ok(selectors.includes("check-waypost-messages/invalid-envelope"));
+  assert.ok(selectors.includes("route-waypost-action/group-route"));
 
   const planReport = command(["skill", "list", "plan-report"]);
   assert.equal(planReport.status, 0, planReport.stderr);

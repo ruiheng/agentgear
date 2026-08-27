@@ -52,9 +52,8 @@ Task: <task_id_or_N/A>
 [action-specific correlation fields only]
 ```
 
-`message_rejected` is the sole header exception: malformed or unknown input may
-have no trustworthy Task, so its exact templates begin with Action and correlate
-only by `Original Delivery`.
+`message_rejected` may omit Task because it correlates by `Original Delivery`;
+its exact templates begin with Action and Original Delivery.
 
 `Action:` is a stable token. The action skill owns its meaning and any extra fields.
 Do not copy transport routing into body `From` or `To` headers. The claimed
@@ -121,11 +120,11 @@ On a wakeup nudge or explicit user message check:
 
 1. Call `waypost_recv` first.
 2. If no personal message is returned, report it; `no_message` ends this receive pass.
-3. Use `body` as the primary input and delivery metadata as routing authority. A message without an Action field is an ordinary personal message. A valid Action selects its action skill; an explicit malformed or unknown Action is rejected to its received `sender_address`.
+3. Use `body` as the primary input and delivery metadata as routing authority. A message without an Action field is an ordinary personal message. An Action field selects its action skill; on lookup failure, do not infer a workflow.
 4. Settle each claimed delivery according to its current state:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
    - `waypost_release` or `waypost_defer` only when the delivery itself cannot be handled now
-   - the reported Waypost CLI `fail` command when a routing rejection cannot be returned
+   - the reported Waypost CLI `fail` command when Action lookup or another routing step fails
 5. Continue receiving other useful work when appropriate. One claim is not a global receive lock; do not hold an unprocessable delivery merely to preserve ordering.
 
 ## Natural End Gate

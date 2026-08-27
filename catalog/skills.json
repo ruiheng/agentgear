@@ -60,6 +60,7 @@
   "retiredSkills": [
     "agent-deck-workflow",
     "assess-design-spec",
+    "check-waypost-messages",
     "coordinate-design-spec",
     "dispatch-plan",
     "refactor-review-request",
@@ -89,7 +90,6 @@
       },
       "skills": [
         "multi-agent-protocol",
-        "check-waypost-messages",
         "code-health-review",
         "delegate-code-task",
         "delegate-task",
@@ -103,6 +103,7 @@
         "review-request",
         "roundtable",
         "roundtable-participant",
+        "route-waypost-action",
         "simplify-review",
         "prune-tech-design",
         "tech-design-workflow",
@@ -129,7 +130,6 @@
     "assess-tech-design": {"tags": ["design", "standalone"], "exposure": "entry"},
     "browser-test": {"tags": ["browser", "workflow"], "exposure": "prompt-only"},
     "browser-test-request": {"tags": ["browser", "workflow"], "exposure": "prompt-only"},
-    "check-waypost-messages": {"tags": ["workflow", "receiver"], "exposure": "entry"},
     "code-health-review": {"tags": ["review", "workflow"], "exposure": "entry"},
     "commit-staged": {"tags": ["git", "standalone"], "exposure": "entry"},
     "tech-design-workflow": {"tags": ["design", "workflow"], "exposure": "entry"},
@@ -151,6 +151,7 @@
     "review-request": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
     "roundtable": {"tags": ["discussion", "workflow"], "exposure": "entry"},
     "roundtable-participant": {"tags": ["discussion", "workflow"], "exposure": "prompt-only"},
+    "route-waypost-action": {"tags": ["workflow", "receiver", "routing"], "exposure": "entry"},
     "simplify-review": {"tags": ["review", "workflow"], "exposure": "entry"},
     "review-tech-design": {"tags": ["design", "workflow"], "exposure": "prompt-only"}
   }
