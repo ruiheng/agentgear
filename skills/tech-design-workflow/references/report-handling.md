@@ -33,7 +33,8 @@ Apply the report with ordinary agent judgment:
 - `SOUND`: accept correctness only with no caveats;
 - `SOUND_WITH_CAVEATS`: require every caveat to appear verbatim and in order in
   the reviewed artifact;
-- `MINIMAL`: accept pruning.
+- `MINIMAL`: accept pruning and use that exact immutable artifact as the next
+  pruner baseline.
 
 Wait for reviewer and pruner when both were requested. Resolve disagreements
 from evidence or ask the relevant role for another ordinary review.
@@ -44,7 +45,8 @@ Revision before revision or delivery. Reuse an already recorded answer. Reflect
 the decision in the design when relevant. The next review dispatch carries the
 new revision; no separate context notification is needed.
 
-After the active reports accept the artifact, follow `author-round` delivery.
+After active reports accept the artifact, follow `author-round`; its exact-final
+pruner check still applies unless policy is `never`.
 Keep accepted caveats in the next artifact and final delivery, not in a shared
 progress database.
 For review-existing, retain the accepted commit at the design tip, rerun its path

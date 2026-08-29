@@ -23,7 +23,8 @@ For a new request, choose draft-review when no defensible committed specificatio
 
 - The user owns task authority. Resolve technical questions from evidence. The blocked role asks the user directly. In draft-review, the author records exact answers; in review-existing, the requester records them.
 - The requester starts the lane and delivers the result. The author drafts and revises; the reviewer independently assesses each dispatched snapshot.
-- Draft-review may add one `design_pruner` that only removes unnecessary design. Start it at lane creation only when the user explicitly requires it. Otherwise the deterministic review dispatcher activates it when the current artifact reaches the configured size threshold; an explicit user prohibition wins.
+- Draft-review may add one `design_pruner` that only removes unnecessary design. `always` starts it immediately and ignores the initial size threshold; `auto` starts it at that threshold; `never` uses none.
+- With `auto` or `always`, recheck after `MINIMAL` only for author-declared major structural change or substantial cumulative growth. The exact final artifact also requires `MINIMAL`; minor fixes go only to the reviewer.
 - In draft-review, author, reviewer, and an enabled pruner are distinct sibling sessions. Lazy activation creates the pruner as another sibling before review dispatch.
 - The lane manifest holds compact lane metadata and the current review checkpoint. Participant routes stay stable.
 - The requester creates the Canonical Contract. After draft dispatch, the author maintains it. Reviewer and pruner remain read-only.

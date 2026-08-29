@@ -15,7 +15,8 @@ On `design_spec_delivered`:
    delivered Round. Require it to be a complete regular file. Match Decision and
    ordered Caveats to the delivered artifact: `SOUND` uses `None`, while
    `SOUND_WITH_CAVEATS` requires the same nonempty ordered list verbatim under
-   `## Caveats`.
+   `## Caveats`. Unless policy is `never`, require `Pruner Decision: MINIMAL`;
+   for `never`, reject that field.
 3. Retrieve `agentgear skill get assess-tech-design` and actively assess the
    artifact against the original request, current Canonical Contract, accepted
    user decisions expressed in the design, and repository evidence. Author and

@@ -11,11 +11,11 @@ Resolve requester identity from explicit input, then current session context. In
 
 Resolve archive branch from explicit input, or use the current branch when it is clearly the formal-doc landing branch. Ask when detached HEAD or ambiguity prevents a safe choice.
 
-Resolve `pruner_policy` once from an explicit user choice: `always` requires a
-pruner at lane creation, `never` prohibits one, and otherwise use `auto`. Auto
-does not create a pruner during initial setup. The review-dispatch program reads
-the configured size thresholds after each artifact is ready and stops
-before review when lazy activation is required.
+Resolve `pruner_policy` once: explicit `always` creates the pruner now and skips
+the initial size threshold; explicit `never` uses no pruner, including at
+delivery; otherwise use `auto` and create it lazily at that threshold. After
+`MINIMAL`, enabled policies recheck only for author-declared major structural
+change, configured cumulative growth, or the exact final artifact.
 
 Resolve `architect_author`, `architect_reviewer`, and an explicitly enabled `design_pruner`
 through the shared Tool Resolution Contract with the target workdir. Keep launch

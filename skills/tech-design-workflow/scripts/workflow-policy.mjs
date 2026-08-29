@@ -39,7 +39,7 @@ export function parseWorkflowPolicyToml(source, label = "workflow policy") {
     if (section !== "tech_design.pruner") {
       throw new Error(`${label}: assignment outside [tech_design.pruner] on line ${index + 1}`);
     }
-    const assignment = /^(max_lines|max_chars)\s*=\s*([0-9]+)$/.exec(line);
+    const assignment = /^(max_lines|max_chars|recheck_added_lines|recheck_added_chars)\s*=\s*([0-9]+)$/.exec(line);
     if (!assignment) throw new Error(`${label}: invalid assignment on line ${index + 1}`);
     const value = Number(assignment[2]);
     if (!Number.isSafeInteger(value) || value <= 0) {
@@ -62,10 +62,15 @@ export function loadWorkflowPolicy({ paths, ...pathOptions } = {}) {
     loaded += 1;
   }
   if (loaded === 0) throw new Error("no workflow policy file was found");
-  for (const key of ["max_lines", "max_chars"]) {
+  for (const key of ["max_lines", "max_chars", "recheck_added_lines", "recheck_added_chars"]) {
     if (!Number.isSafeInteger(policy[key]) || policy[key] <= 0) {
       throw new Error(`workflow policy is missing tech_design.pruner.${key}`);
     }
   }
-  return Object.freeze({ maxLines: policy.max_lines, maxChars: policy.max_chars });
+  return Object.freeze({
+    maxLines: policy.max_lines,
+    maxChars: policy.max_chars,
+    recheckAddedLines: policy.recheck_added_lines,
+    recheckAddedChars: policy.recheck_added_chars
+  });
 }

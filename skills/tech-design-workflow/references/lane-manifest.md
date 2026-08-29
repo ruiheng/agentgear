@@ -46,8 +46,9 @@ Write complete rounds as
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. Because a dispatched
 round is review evidence, a revision creates the next numbered snapshot.
 
-The deterministic review dispatcher reads the manifest and artifact, measures
-the artifact using the layered TOML policy, and sends review requests. It does
-not write workflow state. For `auto`, reaching either threshold requires the
-author to supply a lazy pruner for that dispatch. `always` uses the initial
-pruner; `never` sends no prune request.
+The dispatcher does not write workflow state. `auto` first prunes at
+`max_lines` or `max_chars`; `always` ignores that initial threshold. After
+`MINIMAL`, pass that snapshot as `--pruner-baseline-artifact`. Recheck only for
+`--major-structure-change`, cumulative growth reaching `recheck_added_lines` or
+`recheck_added_chars`, or `--final-pruner-check`. Final mode sends only to the
+pruner. `never` uses none.

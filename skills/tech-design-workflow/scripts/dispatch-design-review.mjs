@@ -36,8 +36,12 @@ Required:
 
 Optional:
   --previous-artifact <workspace-relative-path>
-  --pruner-session-id <id>      Supply the lazy pruner when the threshold requires it
-  --pruner-to-address <address> Supply the lazy pruner when the threshold requires it
+  --pruner-baseline-artifact <workspace-relative-path>
+                                  Last artifact that received MINIMAL
+  --major-structure-change      Mark a material structural change since that baseline
+  --final-pruner-check          Send only the mandatory final pruner confirmation
+  --pruner-session-id <id>      Supply the lazy pruner when this dispatch requires it
+  --pruner-to-address <address> Supply the lazy pruner when this dispatch requires it
   --content-type <type>         Default: text/markdown
   --schema-version <value>      Default: 1
   --send-timeout-ms <ms>        Default: 0
@@ -45,7 +49,8 @@ Optional:
   -h, --help
 
 The program reads the stable lane manifest and layered TOML policy, measures the
-artifact, then sends review requests. It never writes workflow state.`;
+artifact and cumulative growth since the last MINIMAL baseline, then sends the
+required review requests. It never writes workflow state.`;
 
 function plain(value, label) {
   if (typeof value !== "string" || !value || /[\r\n\0]/.test(value)) fail(`${label} has an unsafe value`);
@@ -88,6 +93,15 @@ export function measureDesign(source) {
   };
 }
 
+export function measureGrowth(baselineSource, currentSource) {
+  const baseline = measureDesign(baselineSource);
+  const current = measureDesign(currentSource);
+  return {
+    addedLines: Math.max(0, current.lines - baseline.lines),
+    addedChars: Math.max(0, current.chars - baseline.chars)
+  };
+}
+
 function validateManifest(manifest) {
   if (manifest?.schema_version !== 2) fail("design lane manifest must use schema 2");
   for (const field of [
@@ -113,25 +127,21 @@ function validateManifest(manifest) {
   }
 }
 
-function resolvePruner(manifest, options, thresholdReached) {
+function requirePruner(manifest, options, reason) {
   const supplied = Boolean(options.prunerSessionId || options.prunerToAddress);
   if (Boolean(options.prunerSessionId) !== Boolean(options.prunerToAddress)) {
     fail("--pruner-session-id and --pruner-to-address must be provided together");
   }
   if (manifest.pruner_policy === "always") {
-    if (supplied) fail("the lane manifest already records its required pruner");
-    return { sessionId: manifest.pruner_session_id, address: manifest.pruner_to_address };
-  }
-  if (manifest.pruner_policy === "never") {
-    if (supplied) fail("the lane explicitly disables pruning");
-    return null;
-  }
-  if (!thresholdReached) {
-    if (supplied) fail("the design does not reach the lazy-pruner threshold");
-    return null;
+    if (supplied) fail("the lane manifest already records its pruner");
+    return {
+      sessionId: manifest.pruner_session_id,
+      address: manifest.pruner_to_address,
+      reason
+    };
   }
   if (!supplied) {
-    fail("design reaches the configured threshold; activate a design_pruner and rerun", 3, "PRUNER_REQUIRED");
+    fail(`design requires ${reason}; activate the lane's design_pruner and rerun`, 3, "PRUNER_REQUIRED");
   }
   plain(options.prunerSessionId, "--pruner-session-id");
   plain(options.prunerToAddress, "--pruner-to-address");
@@ -139,7 +149,36 @@ function resolvePruner(manifest, options, thresholdReached) {
   const addresses = [manifest.requester_address, manifest.author_to_address, manifest.reviewer_to_address];
   if (ids.includes(options.prunerSessionId)) fail("pruner session id must be distinct");
   if (addresses.includes(options.prunerToAddress)) fail("pruner address must be distinct");
-  return { sessionId: options.prunerSessionId, address: options.prunerToAddress };
+  return { sessionId: options.prunerSessionId, address: options.prunerToAddress, reason };
+}
+
+function resolvePruner(manifest, options, evidence) {
+  const supplied = Boolean(options.prunerSessionId || options.prunerToAddress);
+  if (Boolean(options.prunerSessionId) !== Boolean(options.prunerToAddress)) {
+    fail("--pruner-session-id and --pruner-to-address must be provided together");
+  }
+  if (manifest.pruner_policy === "never") {
+    if (supplied) fail("the lane explicitly disables pruning");
+    if (options.finalPrunerCheck) fail("the lane explicitly waives final pruner confirmation");
+    return null;
+  }
+  if (options.finalPrunerCheck) return requirePruner(manifest, options, "final confirmation");
+
+  let reason = null;
+  if (!evidence.baselineArtifact && manifest.pruner_policy === "always") {
+    reason = "initial no-threshold review";
+  } else if (!evidence.baselineArtifact && evidence.thresholdReached) {
+    reason = "initial complexity review";
+  } else if (evidence.baselineArtifact && options.majorStructureChange) {
+    reason = "major structural change";
+  } else if (evidence.baselineArtifact && evidence.growthThresholdReached) {
+    reason = "substantial cumulative content growth";
+  }
+  if (!reason) {
+    if (supplied) fail("this revision does not require a pruner recheck");
+    return null;
+  }
+  return requirePruner(manifest, options, reason);
 }
 
 function reviewMessage(factory, manifest, options) {
@@ -159,11 +198,11 @@ function reviewMessage(factory, manifest, options) {
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const options = parseArgs(argv, {
     values: [
-      "--workdir", "--lane-manifest", "--artifact", "--previous-artifact", "--round",
+      "--workdir", "--lane-manifest", "--artifact", "--previous-artifact", "--pruner-baseline-artifact", "--round",
       "--context-revision", "--pruner-session-id", "--pruner-to-address",
       "--content-type", "--schema-version", "--send-timeout-ms"
     ],
-    flags: ["--json"],
+    flags: ["--major-structure-change", "--final-pruner-check", "--json"],
     defaults: {
       contentType: "text/markdown",
       schemaVersion: "1",
@@ -210,6 +249,26 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     if (options.previousArtifact !== expectedPrevious) fail(`--previous-artifact must equal ${expectedPrevious}`);
     resolveWorkspaceFile(workdir, options.previousArtifact, "previous artifact");
   }
+  if (options.finalPrunerCheck && (options.prunerBaselineArtifact || options.majorStructureChange)) {
+    fail("--final-pruner-check cannot be combined with baseline or structural-change options");
+  }
+
+  let baselineFile = null;
+  if (options.prunerBaselineArtifact) {
+    if (manifest.pruner_policy === "never") fail("--pruner-baseline-artifact is not valid with never policy");
+    const prefix = path.posix.join(".agent-artifacts", "design-spec", manifest.author_session_id);
+    const match = /^r([0-9]{3,})\.md$/.exec(path.posix.basename(options.prunerBaselineArtifact));
+    const baselineRound = match ? Number(match[1]) : 0;
+    if (path.posix.dirname(options.prunerBaselineArtifact) !== prefix
+      || !baselineRound || baselineRound >= options.round
+      || options.prunerBaselineArtifact !== expectedArtifactPath(manifest.author_session_id, baselineRound)) {
+      fail("--pruner-baseline-artifact must be an earlier immutable artifact for this author");
+    }
+    baselineFile = resolveWorkspaceFile(workdir, options.prunerBaselineArtifact, "pruner baseline artifact");
+  }
+  if (options.majorStructureChange && !baselineFile) {
+    fail("--major-structure-change requires --pruner-baseline-artifact");
+  }
 
   const contractFile = resolveWorkspaceFile(workdir, manifest.context_file, "canonical contract");
   const contract = readContract(contractFile, fs.readFileSync, false);
@@ -220,9 +279,19 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     env: dependencies.env || process.env,
     homeDir: dependencies.homeDir
   });
-  const metrics = measureDesign(fs.readFileSync(artifactFile, "utf8"));
+  const artifactSource = fs.readFileSync(artifactFile, "utf8");
+  const metrics = measureDesign(artifactSource);
+  const growth = baselineFile
+    ? measureGrowth(fs.readFileSync(baselineFile, "utf8"), artifactSource)
+    : { addedLines: 0, addedChars: 0 };
   const thresholdReached = metrics.lines >= policy.maxLines || metrics.chars >= policy.maxChars;
-  const pruner = resolvePruner(manifest, options, thresholdReached);
+  const growthThresholdReached = Boolean(baselineFile)
+    && (growth.addedLines >= policy.recheckAddedLines || growth.addedChars >= policy.recheckAddedChars);
+  const pruner = resolvePruner(manifest, options, {
+    thresholdReached,
+    baselineArtifact: options.prunerBaselineArtifact,
+    growthThresholdReached
+  });
 
   const sendOptions = {
     fromAddress: manifest.author_to_address,
@@ -245,7 +314,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       runNudgeCommand: dependencies.runNudge
     });
   };
-  const reviewer = send(
+  const reviewer = options.finalPrunerCheck ? null : send(
     sendDesignSpecReviewRequestedMessage,
     manifest.reviewer_session_id,
     manifest.reviewer_to_address,
@@ -270,16 +339,26 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     round: options.round,
     lines: metrics.lines,
     chars: metrics.chars,
+    pruner_baseline_artifact: options.prunerBaselineArtifact || null,
+    added_lines_since_pruner: baselineFile ? growth.addedLines : null,
+    added_chars_since_pruner: baselineFile ? growth.addedChars : null,
+    major_structure_change: Boolean(options.majorStructureChange),
+    final_pruner_check: Boolean(options.finalPrunerCheck),
+    reviewer_requested: Boolean(reviewer),
     pruner_requested: Boolean(pruner),
+    pruner_reason: pruner?.reason || null,
     ...stageSummary("reviewer", reviewer),
     ...stageSummary("pruner", prunerResult)
   };
   const prunerText = prunerResult
     ? ` pruner_delivery_id=${prunerResult.receipt.delivery_id} pruner_notify_status=${prunerResult.notification.status}`
     : "";
+  const textSummary = options.finalPrunerCheck
+    ? `Final pruner check dispatched: ${manifest.task_id} r${options.round}${prunerText}\n`
+    : `Design review dispatched: ${manifest.task_id} r${options.round} reviewer_delivery_id=${reviewer.receipt.delivery_id} reviewer_notify_status=${reviewer.notification.status}${prunerText}\n`;
   process.stdout.write(options.json
     ? `${JSON.stringify(summary)}\n`
-    : `Design review dispatched: ${manifest.task_id} r${options.round} reviewer_delivery_id=${reviewer.receipt.delivery_id} reviewer_notify_status=${reviewer.notification.status}${prunerText}\n`);
+    : textSummary);
 }
 
 if (isMain(import.meta.url)) execute(main);

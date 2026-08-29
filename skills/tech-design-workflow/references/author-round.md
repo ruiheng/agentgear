@@ -64,16 +64,17 @@ agentgear run tech-design-workflow dispatch-design-review.mjs \
   --json
 ```
 
-Omit `--previous-artifact` for round 1. The program reads the layered TOML
-policy, measures the artifact, and sends the reviewer request without writing
-lane or review state.
+Omit `--previous-artifact` for round 1. After `MINIMAL`, pass that exact snapshot
+as `--pruner-baseline-artifact` on later normal dispatches. Add
+`--major-structure-change` when the author judges that the revision materially
+reorganizes boundaries, ownership, data flow, rollout, or another defining
+structure. Local fixes and wording changes do not qualify. The dispatcher
+measures cumulative additions from the baseline.
 
 `USER_CHECKPOINT_REQUIRED` means no request was sent; use the checkpoint flow above.
 
-`PRUNER_REQUIRED` means no request was sent. Resolve and create the deterministic
-`design_pruner` sibling through the Tool Resolution and Session Host contracts,
-then rerun with `--pruner-session-id` and `--pruner-to-address`. The request gives
-the lazy pruner the manifest, contract revision, and exact artifact it needs.
+`PRUNER_REQUIRED` means nothing was sent. Resolve or recover the lane's one
+`design_pruner`, then rerun with its session ID and address.
 
 Receipts and nudge outcomes are transport diagnostics. Within one invocation, a
 returned delivery id is final durable success and never causes another Waypost
@@ -91,8 +92,13 @@ both reports when a pruner was requested.
 
 Revise on `NEEDS_REVISION` or `NEEDS_SIMPLIFICATION`; use the direct-user flow
 above when a product or scope choice blocks revision. Apply reviewer-collected
-answers through `report-handling`. Deliver only after correctness is `SOUND` or
-`SOUND_WITH_CAVEATS`, and an enabled pruner reports `MINIMAL`.
+answers through `report-handling`. `MINIMAL` establishes the reviewed artifact
+as the next pruner baseline.
+
+After correctness accepts the artifact, require `MINIMAL` for that exact
+artifact unless policy is `never`. If needed, dispatch the same snapshot with
+`--final-pruner-check` and the pruner identity, omitting baseline/structure
+options. It sends only to the pruner and keeps the round.
 
 ```markdown
 Task: <task_id>
@@ -101,12 +107,13 @@ Lane Manifest: <workspace-relative lane manifest>
 Artifact: <accepted artifact>
 Round: <accepted round>
 Decision: <SOUND | SOUND_WITH_CAVEATS>
+[Pruner Decision: MINIMAL]
 [Pruner Session ID: <lazy pruner real id>]
 
 ## Caveats
 - <exact accepted caveat in artifact order | None>
 ```
 
-Use `None` for `SOUND`. Include the lazy pruner session ID only when the
-requester did not create and record that pruner initially. The requester owns
-assessment, archival, and closeout.
+Use `None` for `SOUND`. Include `Pruner Decision` unless policy is `never`.
+Include the lazy pruner session ID only when the requester did not create it.
+The requester owns assessment, archival, and closeout.

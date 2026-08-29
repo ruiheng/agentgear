@@ -17,7 +17,8 @@ import {
 import { AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS } from "../providers/session-hosts.mjs";
 import {
   main as dispatchReview,
-  measureDesign
+  measureDesign,
+  measureGrowth
 } from "../skills/tech-design-workflow/scripts/dispatch-design-review.mjs";
 import { main as advanceReviewCheckpoint } from "../skills/tech-design-workflow/scripts/advance-design-review-checkpoint.mjs";
 import {
@@ -680,10 +681,17 @@ test("contract parser and TOML policy enforce simple human-editable inputs", () 
 
     const defaults = path.join(directory, "defaults.toml");
     const override = path.join(directory, "override.toml");
-    fs.writeFileSync(defaults, "[tech_design.pruner]\nmax_lines = 250\nmax_chars = 20000\n");
+    fs.writeFileSync(defaults, "[tech_design.pruner]\nmax_lines = 250\nmax_chars = 20000\nrecheck_added_lines = 50\nrecheck_added_chars = 4000\n");
     fs.writeFileSync(override, "[tech_design.pruner]\nmax_lines = 300\n");
-    assert.deepEqual(loadWorkflowPolicy({ paths: [defaults, override] }), { maxLines: 300, maxChars: 20000 });
-    assert.deepEqual(parseWorkflowPolicyToml("[tech_design.pruner]\nmax_chars = 42\n"), { max_chars: 42 });
+    assert.deepEqual(loadWorkflowPolicy({ paths: [defaults, override] }), {
+      maxLines: 300,
+      maxChars: 20000,
+      recheckAddedLines: 50,
+      recheckAddedChars: 4000
+    });
+    assert.deepEqual(parseWorkflowPolicyToml("[tech_design.pruner]\nrecheck_added_chars = 42\n"), {
+      recheck_added_chars: 42
+    });
     assert.throws(() => parseWorkflowPolicyToml("[tech_design.pruner]\nmax_words = 10\n"), /invalid assignment/);
     assert.throws(() => parseWorkflowPolicyToml("[tech_design.pruner]\nmax_lines = 0\n"), /positive integer/);
   } finally {
@@ -694,6 +702,10 @@ test("contract parser and TOML policy enforce simple human-editable inputs", () 
 
 test("design measurement counts nonempty lines and non-whitespace Unicode characters", () => {
   assert.deepEqual(measureDesign(" one \n\n二 三\n"), { lines: 2, chars: 5 });
+  assert.deepEqual(measureGrowth("one\ntwo\n", "one revised\ntwo\nthree\n"), {
+    addedLines: 1,
+    addedChars: 12
+  });
 });
 
 test("below-threshold review dispatch sends only reviewer and never changes manifest", async () => {
@@ -767,6 +779,122 @@ test("auto policy blocks before sending until an oversized design has a lazy pru
   }
 });
 
+test("auto policy skips pruner for minor fixes and rechecks cumulative growth from MINIMAL", async () => {
+  const item = fixture();
+  const policy = {
+    maxLines: 3,
+    maxChars: 1000,
+    recheckAddedLines: 2,
+    recheckAddedChars: 1000
+  };
+  try {
+    await createLane(item);
+    const baseline = writeArtifact(item, 1, "# Design\n\nOne.\nTwo.\n");
+    await captureStdout(() => dispatchReview([
+      ...reviewArgs(item),
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      requireCommand() {}, runWaypost: successfulWaypost([]), loadPolicy: () => policy
+    }));
+
+    writeArtifact(item, 2, "# Design\n\nOne corrected.\nTwo.\n");
+    const minorRecords = [];
+    const minor = JSON.parse(await captureStdout(() => dispatchReview([
+      ...reviewArgs(item, 2),
+      "--pruner-baseline-artifact", baseline.relative
+    ], {
+      requireCommand() {}, runWaypost: successfulWaypost(minorRecords), loadPolicy: () => policy
+    })));
+    assert.deepEqual(minorRecords.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
+    assert.equal(minor.added_lines_since_pruner, 0);
+    assert.equal(minor.pruner_requested, false);
+
+    writeArtifact(item, 3, "# Design\n\nOne corrected.\nTwo.\nThree.\nFour.\n");
+    const blocked = [];
+    const growthArgs = [
+      ...reviewArgs(item, 3),
+      "--pruner-baseline-artifact", baseline.relative
+    ];
+    await assert.rejects(dispatchReview(growthArgs, {
+      requireCommand() {}, runWaypost: successfulWaypost(blocked), loadPolicy: () => policy
+    }), error => error.prefix === "PRUNER_REQUIRED" && /cumulative content growth/.test(error.message));
+    assert.deepEqual(blocked, []);
+
+    const growthRecords = [];
+    const growth = JSON.parse(await captureStdout(() => dispatchReview([
+      ...growthArgs,
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      requireCommand() {}, runWaypost: successfulWaypost(growthRecords), loadPolicy: () => policy
+    })));
+    assert.deepEqual(growthRecords.map(record => actionFrom(record.body)), [
+      "design_spec_review_requested", "design_prune_requested"
+    ]);
+    assert.equal(growth.added_lines_since_pruner, 2);
+    assert.equal(growth.pruner_reason, "substantial cumulative content growth");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("auto policy rechecks declared major structure without treating minor edits as structure", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    await createLane(item);
+    const baseline = writeArtifact(item, 1, "# Design\n\nOne.\nTwo.\n");
+    writeArtifact(item, 2, "# Design\n\nTwo.\nOne.\n");
+    const summary = JSON.parse(await captureStdout(() => dispatchReview([
+      ...reviewArgs(item, 2),
+      "--pruner-baseline-artifact", baseline.relative,
+      "--major-structure-change",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      loadPolicy: () => ({
+        maxLines: 10, maxChars: 1000, recheckAddedLines: 50, recheckAddedChars: 4000
+      })
+    })));
+    assert.deepEqual(records.map(record => actionFrom(record.body)), [
+      "design_spec_review_requested", "design_prune_requested"
+    ]);
+    assert.equal(summary.pruner_reason, "major structural change");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("final pruner check forces exact-artifact pruning without repeating reviewer work", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    await createLane(item);
+    writeArtifact(item, 1, "# Small design\n");
+    const summary = JSON.parse(await captureStdout(() => dispatchReview([
+      ...reviewArgs(item),
+      "--final-pruner-check",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      loadPolicy: () => ({
+        maxLines: 250, maxChars: 20000, recheckAddedLines: 50, recheckAddedChars: 4000
+      })
+    })));
+    assert.deepEqual(records.map(record => actionFrom(record.body)), ["design_prune_requested"]);
+    assert.equal(summary.reviewer_requested, false);
+    assert.equal(summary.pruner_requested, true);
+    assert.equal(summary.pruner_reason, "final confirmation");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
 test("review dispatch retries a failed nudge inside the same invocation", async () => {
   const item = fixture();
   try {
@@ -830,6 +958,82 @@ test("always and never policies deterministically override the threshold", async
     } finally {
       fs.rmSync(item.workdir, { recursive: true, force: true });
     }
+  }
+});
+
+test("always bypasses the initial size threshold without pruning every later round", async () => {
+  const item = fixture();
+  const policy = {
+    maxLines: 250,
+    maxChars: 20000,
+    recheckAddedLines: 50,
+    recheckAddedChars: 4000
+  };
+  try {
+    await captureStdout(() => dispatchDraft([
+      ...item.args,
+      "--pruner-policy", "always",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], { requireCommand() {}, runWaypost: successfulWaypost([]) }));
+
+    const baseline = writeArtifact(item, 1, "# Small design\n\nOne.\n");
+    const initialRecords = [];
+    const initial = JSON.parse(await captureStdout(() => dispatchReview(reviewArgs(item), {
+      requireCommand() {}, runWaypost: successfulWaypost(initialRecords), loadPolicy: () => policy
+    })));
+    assert.deepEqual(initialRecords.map(record => actionFrom(record.body)), [
+      "design_spec_review_requested", "design_prune_requested"
+    ]);
+    assert.equal(initial.pruner_reason, "initial no-threshold review");
+
+    writeArtifact(item, 2, "# Small design\n\nOne corrected.\n");
+    const minorRecords = [];
+    await captureStdout(() => dispatchReview([
+      ...reviewArgs(item, 2),
+      "--pruner-baseline-artifact", baseline.relative
+    ], {
+      requireCommand() {}, runWaypost: successfulWaypost(minorRecords), loadPolicy: () => policy
+    }));
+    assert.deepEqual(minorRecords.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
+
+    writeArtifact(item, 3, "# Small design\n\nOne corrected and reorganized.\n");
+    const structuralRecords = [];
+    await captureStdout(() => dispatchReview([
+      ...reviewArgs(item, 3),
+      "--pruner-baseline-artifact", baseline.relative,
+      "--major-structure-change"
+    ], {
+      requireCommand() {}, runWaypost: successfulWaypost(structuralRecords), loadPolicy: () => policy
+    }));
+    assert.deepEqual(structuralRecords.map(record => actionFrom(record.body)), [
+      "design_spec_review_requested", "design_prune_requested"
+    ]);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("never policy rejects a final pruner check", async () => {
+  const item = fixture();
+  try {
+    await captureStdout(() => dispatchDraft([
+      ...item.args,
+      "--pruner-policy", "never"
+    ], { requireCommand() {}, runWaypost: successfulWaypost([]) }));
+    writeArtifact(item, 1, "# Design\n");
+    await assert.rejects(dispatchReview([
+      ...reviewArgs(item),
+      "--final-pruner-check"
+    ], {
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => ({
+        maxLines: 1, maxChars: 1, recheckAddedLines: 1, recheckAddedChars: 1
+      })
+    }), /explicitly waives final pruner confirmation/);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
   }
 });
 

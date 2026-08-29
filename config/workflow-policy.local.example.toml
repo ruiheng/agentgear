@@ -4,3 +4,5 @@
 # [tech_design.pruner]
 # max_lines = 300
 # max_chars = 24000
+# recheck_added_lines = 60
+# recheck_added_chars = 4800
