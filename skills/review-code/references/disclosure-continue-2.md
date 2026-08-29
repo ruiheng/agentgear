@@ -12,7 +12,7 @@ Retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-p
 
 Skill-specific context resolution:
 Review continuity:
-- `review_task_context`: validate, retain as task-scoped planner context, acknowledge, and wait
+- `review_task_context`: validate, retain as task-scoped planner context, `waypost_ack` it, and wait
 - new/full `review_requested`: body starts a review; never use saved context
 - delegated new/full `review_requested`: body plus the matching task-scoped planner context starts the review
 - confirmed delta: `round >1`, round advances from the active review, and task/requester/reviewer/lane match. Body owns routing; use matching context only for omitted review frame

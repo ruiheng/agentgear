@@ -23,7 +23,7 @@ Provide one of:
 On delegated `review_task_context`:
 - verify planner sender, task, reviewer identity, session host, Branch Plan, Workspace Handoff, Task Contract, and workflow policy
 - retain it as this task-scoped reviewer's planner context; keep transport metadata internal
-- acknowledge it and wait; do not inspect or judge code from this message alone
+- `waypost_ack` it and wait; do not inspect or judge code from this message alone
 
 On the later delegated `review_requested` from coder:
 - recover the matching task-scoped planner context when it is not already active
