@@ -145,6 +145,8 @@ compaction omitted task details.
 State is isolated by a hash of the Codex `session_id` under
 `$XDG_STATE_HOME/agentgear/compact-memory` (or
 `~/.local/state/agentgear/compact-memory` when `XDG_STATE_HOME` is unset).
+Missing state is treated as empty; other state failures preserve the existing
+file and surface a Codex system message instead of silently discarding history.
 
 Use `agentgear-source-install` from a source checkout, and rerun it after
 source changes. The target normally links to Agentgear's shared runtime, with

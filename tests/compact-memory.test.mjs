@@ -153,12 +153,42 @@ test("PostToolUse keeps only sticky Waypost identifiers and subjects in one sess
     const context = compactAdditionalContext(sessionId, { env: item.env });
     assert.match(context, /delivery="dlv_sticky" subject="task"/);
     assert.match(context, /Sticky Waypost tasks already received/);
-    assert.match(context, /read the relevant delivery by ID; do not use recv/);
+    assert.match(context, /read these deliveries by ID; do not use recv/);
     assert.doesNotMatch(context, /file=/);
     assert.doesNotMatch(context, /Implement the parser/);
     assert.doesNotMatch(context, /dlv_plain/);
     assert.doesNotMatch(context, /agentgear skill get/i);
     assert.equal(compactAdditionalContext("another-thread", { env: item.env }), null);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("invalid session memory is reported and never overwritten", () => {
+  const item = fixture();
+  try {
+    const sessionId = "thread-invalid-memory";
+    const root = sessionMemoryDirectory(sessionId, item.env);
+    const file = path.join(root, "memory.json");
+    const original = "{not-json\n";
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(file, original);
+
+    const restored = handleHook({
+      session_id: sessionId, hook_event_name: "SessionStart", source: "compact"
+    }, { env: item.env });
+    assert.match(restored.systemMessage, /compact memory was not restored: Cannot read compact memory/);
+    assert.equal(Object.hasOwn(restored, "hookSpecificOutput"), false);
+
+    const updated = handleHook({
+      session_id: sessionId,
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "agentgear skill get handoff" },
+      tool_response: { exit_code: 0, output: "skill text" }
+    }, { env: item.env });
+    assert.match(updated.systemMessage, /compact memory was not updated: Cannot read compact memory/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }
@@ -370,6 +400,83 @@ test("Codex compact-memory ownership is exact and uninstall preserves similar us
     document = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
     assert.deepEqual(document.hooks, { PostToolUse: [similar] });
     assert.equal(uninstallCodexCompactMemory({ env: item.env }).changed, false);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Codex compact-memory refuses malformed hook groups without changing the file", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    fs.mkdirSync(item.env.CODEX_HOME, { recursive: true });
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    const original = '{"hooks":{"SessionStart":["malformed"]}}\n';
+    fs.writeFileSync(hooksPath, original);
+
+    assert.throws(
+      () => installCodexCompactMemory({ env: item.env, launcher }),
+      /hooks\.SessionStart\[0\] must be an object/
+    );
+    assert.equal(fs.readFileSync(hooksPath, "utf8"), original);
+    assert.throws(
+      () => doctorCodexCompactMemory({ env: item.env, launcher }),
+      /hooks\.SessionStart\[0\] must be an object/
+    );
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Codex compact-memory preserves a hooks symlink and target mode", {
+  skip: process.platform === "win32"
+}, () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+
+    const managed = path.join(item.temporary, "managed");
+    const target = path.join(managed, "hooks.json");
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    fs.mkdirSync(managed, { recursive: true });
+    fs.mkdirSync(item.env.CODEX_HOME, { recursive: true });
+    fs.writeFileSync(target, "{}\n", { mode: 0o640 });
+    fs.chmodSync(target, 0o640);
+    fs.symlinkSync(path.relative(item.env.CODEX_HOME, target), hooksPath);
+
+    installCodexCompactMemory({ env: item.env, launcher });
+    assert.equal(fs.lstatSync(hooksPath).isSymbolicLink(), true);
+    assert.equal(fs.statSync(target).mode & 0o777, 0o640);
+    assert.match(fs.readFileSync(target, "utf8"), /Agentgear Codex compact memory/);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Codex compact-memory refuses to rewrite unsafe JSON numbers", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    fs.mkdirSync(item.env.CODEX_HOME, { recursive: true });
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    for (const literal of ["9007199254740993", "0.12345678901234567890"]) {
+      const original = `{"external":{"value":${literal}}}\n`;
+      fs.writeFileSync(hooksPath, original);
+      assert.throws(
+        () => installCodexCompactMemory({ env: item.env, launcher }),
+        /cannot round-trip safely/
+      );
+      assert.equal(fs.readFileSync(hooksPath, "utf8"), original);
+    }
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }

@@ -10,6 +10,7 @@ import { hasStickyTaskContextMarker } from "./compact-memory-shared.mjs";
 
 export const STICKY_MESSAGE_LIMIT = 8;
 export const SKILL_GET_LIMIT = 32;
+const ERROR_DETAIL_LIMIT = 500;
 
 function stateHome(env) {
   const home = env.HOME || os.homedir();
@@ -24,17 +25,33 @@ export function sessionMemoryDirectory(sessionId, env = process.env) {
 
 function writeJsonAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporary, filePath);
+  const temporary = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`
+  );
+  let descriptor;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.fchmodSync(descriptor, 0o600);
+    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = undefined;
+    fs.renameSync(temporary, filePath);
+  } finally {
+    if (descriptor !== undefined) {
+      try { fs.closeSync(descriptor); } catch {}
+    }
+    try { fs.rmSync(temporary, { force: true }); } catch {}
+  }
 }
 
-function readJson(filePath, fallback = null) {
+function readJson(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch (error) {
-    if (error?.code === "ENOENT") return fallback;
-    return fallback;
+    if (error?.code === "ENOENT") return undefined;
+    throw new Error(`Cannot read compact memory ${filePath}: ${error.message}`, { cause: error });
   }
 }
 
@@ -106,15 +123,32 @@ function memoryFile(root) {
 }
 
 function readMemory(root) {
-  const existing = readJson(memoryFile(root), {});
+  const filePath = memoryFile(root);
+  const existing = readJson(filePath);
+  if (existing === undefined) {
+    return { schema_version: 1, sticky_messages: [], skill_gets: [] };
+  }
+  if (!isPlainObject(existing) || existing.schema_version !== 1
+    || !Array.isArray(existing.sticky_messages) || !Array.isArray(existing.skill_gets)) {
+    throw new Error(`Invalid compact memory schema: ${filePath}`);
+  }
+  if (existing.sticky_messages.some(message => !isPlainObject(message)
+    || typeof message.delivery_id !== "string" || message.delivery_id === ""
+    || typeof message.subject !== "string")) {
+    throw new Error(`Invalid sticky message record: ${filePath}`);
+  }
+  if (existing.skill_gets.some(argv => !Array.isArray(argv) || argv.length < 4
+    || argv[0] !== "agentgear" || argv[1] !== "skill" || argv[2] !== "get"
+    || argv.some(value => typeof value !== "string"))) {
+    throw new Error(`Invalid Agentgear skill-get record: ${filePath}`);
+  }
   return {
     schema_version: 1,
-    sticky_messages: Array.isArray(existing?.sticky_messages)
-      ? existing.sticky_messages.filter(message => isPlainObject(message) && typeof message.delivery_id === "string")
-      : [],
-    skill_gets: Array.isArray(existing?.skill_gets)
-      ? existing.skill_gets.filter(argv => Array.isArray(argv))
-      : []
+    sticky_messages: existing.sticky_messages.map(message => ({
+      delivery_id: message.delivery_id,
+      subject: message.subject
+    })),
+    skill_gets: existing.skill_gets.map(argv => [...argv])
   };
 }
 
@@ -269,6 +303,22 @@ function dataDisplay(value) {
   return JSON.stringify(String(value));
 }
 
+function boundedErrorDetail(error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  const characters = Array.from(detail);
+  if (characters.length <= ERROR_DETAIL_LIMIT) return detail;
+  const marker = "…";
+  const head = Math.floor(ERROR_DETAIL_LIMIT / 2);
+  const tail = ERROR_DETAIL_LIMIT - head - Array.from(marker).length;
+  return `${characters.slice(0, head).join("")}${marker}${characters.slice(-tail).join("")}`;
+}
+
+function memoryFailureOutput(action, error) {
+  return {
+    systemMessage: `Agentgear compact memory was not ${action}: ${boundedErrorDetail(error)}`
+  };
+}
+
 export function compactAdditionalContext(sessionId, { env = process.env } = {}) {
   const root = sessionMemoryDirectory(sessionId, env);
   const memory = readMemory(root);
@@ -282,7 +332,7 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
       const subject = message.subject || "(no subject)";
       lines.push(`- delivery=${dataDisplay(message.delivery_id)} subject=${dataDisplay(subject)}`);
     }
-    lines.push("If task details are missing, read the relevant delivery by ID; do not use recv.");
+    lines.push("Missing details: read these deliveries by ID; do not use recv.");
   }
   if (calls.length > 0) {
     if (lines.length > 0) lines.push("");
@@ -295,11 +345,20 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
 export function handleHook(input, options = {}) {
   if (!isPlainObject(input)) throw new Error("Codex hook input must be a JSON object");
   if (input.hook_event_name === "PostToolUse") {
-    handlePostToolUse(input, options);
+    try {
+      handlePostToolUse(input, options);
+    } catch (error) {
+      return memoryFailureOutput("updated", error);
+    }
     return null;
   }
   if (input.hook_event_name !== "SessionStart" || input.source !== "compact") return null;
-  const additionalContext = compactAdditionalContext(input.session_id, options);
+  let additionalContext;
+  try {
+    additionalContext = compactAdditionalContext(input.session_id, options);
+  } catch (error) {
+    return memoryFailureOutput("restored", error);
+  }
   if (!additionalContext) return null;
   return {
     hookSpecificOutput: {
