@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { listPacks, loadCatalog } from "./lib/catalog.mjs";
+import { refreshInstalledCodexHooks } from "./lib/codex-hooks.mjs";
 import { DEFAULT_TARGETS, installSelection } from "./lib/installer.mjs";
 import { isReleaseSnapshot } from "./lib/runtime.mjs";
 import { parseOptions } from "./lib/options.mjs";
@@ -78,6 +79,7 @@ export function main(argumentsList = process.argv.slice(2)) {
     sourceInstall: true,
     print
   });
+  refreshInstalledCodexHooks({ print });
 }
 
 export { rootDir };

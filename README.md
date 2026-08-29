@@ -106,19 +106,22 @@ agentgear action list
 `action list` prints every registered `action:<name>` address. Add
 `--json` to include its owning skill, canonical selector, and summary.
 
-### Codex compact-memory hooks
+### Codex hooks
 
 Agentgear can install an optional pair of user-level [Codex
 hooks](https://learn.chatgpt.com/docs/hooks):
 
 ~~~bash
-agentgear compact-memory install
-agentgear compact-memory doctor
-agentgear compact-memory uninstall
+agentgear hooks install
+agentgear hooks doctor
+agentgear hooks uninstall
 ~~~
 
 After installation, use `/hooks` in Codex to review and trust both Agentgear
 hooks. Installation preserves hook groups it does not own.
+Later `agentgear install`, `update`, and `agentgear-source-install` runs refresh
+the Agentgear-owned groups when they are already present; they never enable the
+hooks for a user who has not explicitly installed them.
 
 This is a best-effort supplement to Codex compaction, not a transcript or
 progress tracker. Per Codex session, it stores the latest eight Waypost
@@ -253,7 +256,7 @@ initializer.
 | `permissions init/check` | Configure or verify workflow permissions for supported agent harnesses. |
 | `permissions preset` | List, copy, or add reusable development-stack permission presets. |
 | `session delete` | Delete a session through a stable host-neutral interface; Thurbox uses recoverable soft-delete. |
-| `compact-memory install/uninstall/doctor` | Install, remove, or diagnose the optional Codex compaction-memory hooks. |
+| `hooks install/uninstall/doctor` | Install, remove, or diagnose Agentgear's optional Codex hooks. |
 | `run` | Run a script bundled with an installed skill. |
 
 `agentgear session delete` normalizes host-specific deletion and failure

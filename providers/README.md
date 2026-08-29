@@ -17,4 +17,4 @@ schema validation, target selection, and transactional orchestration remain in
 `cli/lib/`; native paths, formats, and settings merge behavior stay here.
 
 `codex-compact-memory.mjs` owns the Codex-native hooks path, document shape,
-managed-group merge, and platform launcher checks for compact-memory setup.
+managed-group merge, and platform launcher checks for Agentgear hook setup.

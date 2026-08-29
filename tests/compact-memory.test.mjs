@@ -519,7 +519,42 @@ test("Codex compact-memory install refuses a missing stable launcher before writ
   }
 });
 
-test("compact-memory CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
+test("installed-only Codex hook reconciliation neither opts in nor requires a launcher", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    const untouched = installCodexCompactMemory({
+      env: item.env,
+      launcher,
+      onlyIfInstalled: true
+    });
+    assert.equal(untouched.installed, false);
+    assert.equal(untouched.changed, false);
+    assert.equal(fs.existsSync(path.join(item.env.CODEX_HOME, "hooks.json")), false);
+
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    installCodexCompactMemory({ env: item.env, launcher });
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    const document = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+    document.hooks.SessionStart[0].matcher = "stale";
+    fs.writeFileSync(hooksPath, `${JSON.stringify(document, null, 2)}\n`);
+
+    const refreshed = installCodexCompactMemory({
+      env: item.env,
+      launcher,
+      onlyIfInstalled: true
+    });
+    assert.equal(refreshed.installed, true);
+    assert.equal(refreshed.changed, true);
+    assert.deepEqual(doctorCodexCompactMemory({ env: item.env, launcher }).missing, []);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
   const item = fixture();
   try {
     const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
@@ -533,17 +568,22 @@ test("compact-memory CLI installs, diagnoses, and uninstalls the Codex hooks", (
       encoding: "utf8"
     });
 
-    const installed = invoke(["compact-memory", "install"]);
+    const installed = invoke(["hooks", "install"]);
     assert.equal(installed.status, 0, installed.stderr);
-    assert.match(installed.stdout, /compact-memory hooks installed/);
-    const doctor = invoke(["compact-memory", "doctor"]);
+    assert.match(installed.stdout, /Agentgear Codex hooks installed/);
+    const doctor = invoke(["hooks", "doctor"]);
     assert.equal(doctor.status, 0, doctor.stderr);
     assert.match(doctor.stdout, /capture hook: configured/);
     assert.match(doctor.stdout, /recovery hook: configured/);
-    const uninstalled = invoke(["compact-memory", "uninstall"]);
+
+    const legacy = invoke(["compact-memory", "doctor"]);
+    assert.equal(legacy.status, 0, legacy.stderr);
+    assert.match(legacy.stderr, /`compact-memory` is deprecated; use `agentgear hooks`/);
+
+    const uninstalled = invoke(["hooks", "uninstall"]);
     assert.equal(uninstalled.status, 0, uninstalled.stderr);
-    assert.match(uninstalled.stdout, /compact-memory hooks uninstalled/);
-    const after = invoke(["compact-memory", "doctor"]);
+    assert.match(uninstalled.stdout, /Agentgear Codex hooks uninstalled/);
+    const after = invoke(["hooks", "doctor"]);
     assert.equal(after.status, 1, after.stderr);
     assert.match(after.stdout, /capture hook: missing/);
   } finally {
@@ -551,7 +591,101 @@ test("compact-memory CLI installs, diagnoses, and uninstalls the Codex hooks", (
   }
 });
 
-test("full Agentgear purge unregisters compact-memory hooks before removing the launcher", () => {
+test("install and update refresh opted-in hooks without enabling them initially", () => {
+  const item = fixture();
+  try {
+    const executable = path.resolve("bin/agentgear.mjs");
+    const invoke = argumentsList => childProcess.spawnSync(process.execPath, [executable, ...argumentsList], {
+      cwd: path.resolve("."),
+      env: item.env,
+      encoding: "utf8"
+    });
+    const selection = ["--skill", "handoff", "--target", "general"];
+    const initial = invoke(["install", ...selection]);
+    assert.equal(initial.status, 0, initial.stderr);
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    assert.equal(fs.existsSync(hooksPath), false);
+
+    const optedIn = invoke(["hooks", "install"]);
+    assert.equal(optedIn.status, 0, optedIn.stderr);
+    for (const operation of ["install", "update"]) {
+      const document = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+      document.hooks.SessionStart[0].matcher = `stale-${operation}`;
+      fs.writeFileSync(hooksPath, `${JSON.stringify(document, null, 2)}\n`);
+      const refreshed = invoke([operation, ...selection]);
+      assert.equal(refreshed.status, 0, refreshed.stderr);
+      assert.match(refreshed.stdout, /refreshed Agentgear Codex hooks/);
+      assert.equal(JSON.parse(fs.readFileSync(hooksPath, "utf8"))
+        .hooks.SessionStart[0].matcher, "^compact$");
+    }
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("ordinary install reports optional hook refresh errors without failing after commit", () => {
+  const item = fixture();
+  try {
+    const executable = path.resolve("bin/agentgear.mjs");
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    const original = "{invalid-json\n";
+    fs.mkdirSync(item.env.CODEX_HOME, { recursive: true });
+    fs.writeFileSync(hooksPath, original);
+    const installed = childProcess.spawnSync(process.execPath, [
+      executable,
+      "install",
+      "--skill",
+      "handoff",
+      "--target",
+      "general"
+    ], {
+      cwd: path.resolve("."),
+      env: item.env,
+      encoding: "utf8"
+    });
+
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.match(installed.stdout, /Warning: Agentgear Codex hooks were not refreshed/);
+    assert.equal(fs.readFileSync(hooksPath, "utf8"), original);
+    assert.equal(fs.existsSync(path.join(item.env.HOME, ".local", "bin", "agentgear")), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("source install refreshes opted-in hooks without enabling them initially", () => {
+  const item = fixture();
+  try {
+    const sourceInstaller = path.resolve("bin/agentgear-source-install.mjs");
+    const agentgear = path.resolve("bin/agentgear.mjs");
+    const invoke = (executable, argumentsList) => childProcess.spawnSync(
+      process.execPath,
+      [executable, ...argumentsList],
+      { cwd: path.resolve("."), env: item.env, encoding: "utf8" }
+    );
+    const selection = ["--skill", "handoff", "--target", "general"];
+    const initial = invoke(sourceInstaller, selection);
+    assert.equal(initial.status, 0, initial.stderr);
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    assert.equal(fs.existsSync(hooksPath), false);
+
+    const optedIn = invoke(agentgear, ["hooks", "install"]);
+    assert.equal(optedIn.status, 0, optedIn.stderr);
+    const document = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+    document.hooks.PostToolUse[0].matcher = "stale";
+    fs.writeFileSync(hooksPath, `${JSON.stringify(document, null, 2)}\n`);
+
+    const refreshed = invoke(sourceInstaller, selection);
+    assert.equal(refreshed.status, 0, refreshed.stderr);
+    assert.match(refreshed.stdout, /refreshed Agentgear Codex hooks/);
+    assert.match(JSON.parse(fs.readFileSync(hooksPath, "utf8"))
+      .hooks.PostToolUse[0].matcher, /waypost/);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("full Agentgear purge unregisters Codex hooks before removing the launcher", () => {
   const item = fixture();
   try {
     const executable = path.resolve("bin/agentgear.mjs");
@@ -562,12 +696,12 @@ test("full Agentgear purge unregisters compact-memory hooks before removing the 
     });
     const installed = invoke(["install", "--skill", "handoff", "--target", "general"]);
     assert.equal(installed.status, 0, installed.stderr);
-    const hooked = invoke(["compact-memory", "install"]);
+    const hooked = invoke(["hooks", "install"]);
     assert.equal(hooked.status, 0, hooked.stderr);
 
     const purged = invoke(["uninstall", "--purge"]);
     assert.equal(purged.status, 0, purged.stderr);
-    assert.match(purged.stdout, /unregistered Codex compact-memory hooks/);
+    assert.match(purged.stdout, /unregistered Agentgear Codex hooks/);
     assert.equal(fs.existsSync(path.join(item.env.HOME, ".local", "bin", "agentgear")), false);
     const document = JSON.parse(fs.readFileSync(path.join(item.env.CODEX_HOME, "hooks.json"), "utf8"));
     assert.equal(Object.hasOwn(document, "hooks"), false);

@@ -198,6 +198,11 @@ function mergeManagedGroup(groups, desired) {
   return updated;
 }
 
+function hasManagedGroup(hooks) {
+  return Object.entries(MANAGED_DESCRIPTIONS).some(([event, description]) =>
+    (hooks[event] ?? []).some(group => group?.description === description));
+}
+
 function existingWritePath(filePath) {
   const info = fs.lstatSync(filePath, { throwIfNoEntry: false });
   if (info) return fs.realpathSync(filePath);
@@ -228,10 +233,18 @@ function writeDocument(filePath, value, mode) {
   }
 }
 
-export function installCodexCompactMemory({ env = process.env, launcher, platform = process.platform } = {}) {
+export function installCodexCompactMemory({
+  env = process.env,
+  launcher,
+  platform = process.platform,
+  onlyIfInstalled = false
+} = {}) {
   const filePath = path.join(codexHome(env), "hooks.json");
   const { value, mode, unsafeNumber } = readDocument(filePath);
   const hooks = validateHooks(value.hooks, filePath);
+  if (onlyIfInstalled && !hasManagedGroup(hooks)) {
+    return { path: filePath, changed: false, installed: false, launcher };
+  }
   const commands = hookCommands(launcher);
   if (!codexCompactMemoryLauncherUsable(launcher, { platform })) {
     throw new Error(`Agentgear launcher is not usable: ${launcher}`);
@@ -247,7 +260,7 @@ export function installCodexCompactMemory({ env = process.env, launcher, platfor
     refuseUnsafeRewrite(filePath, unsafeNumber);
     writeDocument(filePath, next, mode);
   }
-  return { path: filePath, changed, command: commands.command, launcher };
+  return { path: filePath, changed, installed: true, command: commands.command, launcher };
 }
 
 export function uninstallCodexCompactMemory({ env = process.env } = {}) {

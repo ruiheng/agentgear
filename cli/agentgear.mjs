@@ -64,6 +64,7 @@ import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
 import { runPermissionPresetCommand } from "./lib/permission-presets.mjs";
+import { refreshInstalledCodexHooks } from "./lib/codex-hooks.mjs";
 import {
   doctorCodexCompactMemory,
   installCodexCompactMemory,
@@ -108,7 +109,7 @@ function usage() {
     "  permissions preset list|show|add [options]",
     "  resolve-tool-command [resolver options]",
     "  session delete --host NAME --session-id ID [--profile NAME] [--json]",
-    "  compact-memory install|uninstall|doctor",
+    "  hooks install|uninstall|doctor",
     "  run <skill> <script> [args...]",
     "",
     "Install/update defaults:",
@@ -352,7 +353,7 @@ function purge(catalog, options) {
     } else {
       const compactMemoryHooks = uninstallCodexCompactMemory({ env: process.env });
       if (compactMemoryHooks.changed) {
-        print(`unregistered Codex compact-memory hooks: ${compactMemoryHooks.path}`);
+        print(`unregistered Agentgear Codex hooks: ${compactMemoryHooks.path}`);
       }
       const tornDown = purgeManagedRuntime({ state, env: process.env, print });
       if (tornDown) {
@@ -743,41 +744,41 @@ function actionUsage() {
   ].join("\n");
 }
 
-function compactMemory(argumentsList) {
+function hooks(argumentsList) {
   const [operation, ...rest] = argumentsList;
   if (!operation || operation === "--help" || operation === "-h") {
     print([
-      "Usage: agentgear compact-memory install|uninstall|doctor",
+      "Usage: agentgear hooks install|uninstall|doctor",
       "",
-      "Install or diagnose the Codex best-effort compact-memory hooks.",
+      "Install or diagnose Agentgear's optional Codex hooks.",
       "After installation, review and trust both Agentgear hooks with /hooks in Codex."
     ].join("\n"));
     return;
   }
-  if (rest.length > 0) fail(`compact-memory ${operation} does not accept arguments`);
+  if (rest.length > 0) fail(`hooks ${operation} does not accept arguments`);
   const launcher = computePaths().launcher;
   if (operation === "install") {
     const result = installCodexCompactMemory({ launcher });
-    print(`Codex compact-memory hooks ${result.changed ? "installed" : "already installed"}: ${result.path}`);
+    print(`Agentgear Codex hooks ${result.changed ? "installed" : "already installed"}: ${result.path}`);
     print("Codex hook trust: review both Agentgear hooks with /hooks before use");
     return;
   }
   if (operation === "uninstall") {
     const result = uninstallCodexCompactMemory();
-    print(`Codex compact-memory hooks ${result.changed ? "uninstalled" : "not installed"}: ${result.path}`);
+    print(`Agentgear Codex hooks ${result.changed ? "uninstalled" : "not installed"}: ${result.path}`);
     return;
   }
   if (operation === "doctor") {
     const result = doctorCodexCompactMemory({ launcher });
-    print(`Codex compact-memory capture hook: ${result.missing.includes("PostToolUse") ? "missing" : "configured"}`);
-    print(`Codex compact-memory recovery hook: ${result.missing.includes("SessionStart") ? "missing" : "configured"}`);
+    print(`Agentgear Codex capture hook: ${result.missing.includes("PostToolUse") ? "missing" : "configured"}`);
+    print(`Agentgear Codex recovery hook: ${result.missing.includes("SessionStart") ? "missing" : "configured"}`);
     print(`Agentgear launcher: ${result.launcherUsable ? "available" : "unusable"}`);
     print("Codex hook trust: not checked; verify with /hooks in Codex");
     print(`Hooks file: ${result.path}`);
     if (result.missing.length > 0 || !result.launcherUsable) process.exitCode = 1;
     return;
   }
-  fail(`Unknown compact-memory command: ${operation}`);
+  fail(`Unknown hooks command: ${operation}`);
 }
 
 function action(catalog, argumentsList) {
@@ -844,8 +845,13 @@ export function main(commandArguments = process.argv.slice(2)) {
     runCompactMemoryHook();
     return;
   }
+  if (command === "hooks") {
+    hooks(argumentsList);
+    return;
+  }
   if (command === "compact-memory") {
-    compactMemory(argumentsList);
+    process.stderr.write("agentgear: `compact-memory` is deprecated; use `agentgear hooks`\n");
+    hooks(argumentsList);
     return;
   }
   if (command === "skill") {
@@ -905,6 +911,7 @@ export function main(commandArguments = process.argv.slice(2)) {
     case "install":
     case "update":
       installSelection({ catalog, options, sourceRoot: rootDir, print });
+      refreshInstalledCodexHooks({ print });
       break;
     case "status":
       status(catalog, options);
