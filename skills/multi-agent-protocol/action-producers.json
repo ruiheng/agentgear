@@ -4,6 +4,7 @@
   "actions": {
     "REVIEW_TASK_CONTEXT": {
       "token": "review_task_context",
+      "sticky": true,
       "script": "send-delegate-with-active-task-lock.mjs",
       "export": "REVIEW_TASK_CONTEXT",
       "factory": "reviewTaskContextMessage",
@@ -11,6 +12,7 @@
     },
     "EXECUTE_DELEGATE_TASK": {
       "token": "execute_delegate_task",
+      "sticky": true,
       "script": "send-delegate-with-active-task-lock.mjs",
       "export": "EXECUTE_DELEGATE_TASK",
       "factory": "executeDelegateTaskMessage",

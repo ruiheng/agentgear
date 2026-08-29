@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fail, run } from "./workflow-lib.mjs";
+import { appendStickyTaskContextMarker } from "./compact-memory-shared.mjs";
 
 const ACTION_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const ACTION_NAME = /^[A-Z][A-Z0-9_]*$/;
@@ -120,9 +121,13 @@ function actionMessage(declaration, envelope) {
   const seenHeaders = new Set();
   const before = headerFields(beforeHeaders, "before", seenHeaders);
   const after = headerFields(afterHeaders, "after", seenHeaders);
+  const declarationValue = actionDeclaration(declaration);
   const initialEnvelope = [...before, actionHeader(declaration), ...after].join("\n");
   const message = Object.freeze({});
-  messageBodies.set(message, `${initialEnvelope}\n\n${body}`);
+  const messageBody = `${initialEnvelope}\n\n${body}`;
+  messageBodies.set(message, declarationValue.sticky
+    ? appendStickyTaskContextMarker(messageBody)
+    : messageBody);
   messageDeclarations.set(message, declaration);
   return message;
 }
@@ -142,6 +147,7 @@ export function loadActionProducerManifest(moduleUrl) {
     if (!ACTION_NAME.test(name) || !declaration || typeof declaration !== "object" || Array.isArray(declaration)
       || typeof declaration.token !== "string" || !ACTION_TOKEN.test(declaration.token)
       || declaration.export !== name || typeof declaration.script !== "string" || !SCRIPT_NAME.test(declaration.script)
+      || typeof declaration.sticky !== "boolean"
       || typeof declaration.factory !== "string" || !FACTORY_NAME.test(declaration.factory)
       || typeof declaration.sender !== "string" || !SENDER_NAME.test(declaration.sender)
       || seenTokens.has(declaration.token) || seenFactories.has(declaration.factory) || seenSenders.has(declaration.sender)) {
@@ -153,7 +159,7 @@ export function loadActionProducerManifest(moduleUrl) {
       fail(`Action producer script is missing or unsafe: ${script}`);
     }
     const value = Object.freeze({});
-    declaredActionsByValue.set(value, Object.freeze({ name, token: declaration.token, script }));
+    declaredActionsByValue.set(value, Object.freeze({ name, token: declaration.token, script, sticky: declaration.sticky }));
     actions[name] = value;
     factories[name] = Object.freeze(envelope => actionMessage(value, envelope));
     senders[name] = Object.freeze((message, options) => sendDeclaredActionMessage(value, message, options));

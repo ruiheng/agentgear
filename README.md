@@ -106,6 +106,46 @@ agentgear action list
 `action list` prints every registered `action:<name>` address. Add
 `--json` to include its owning skill, canonical selector, and summary.
 
+### Codex compact-memory hooks
+
+Agentgear can install an optional pair of user-level [Codex
+hooks](https://learn.chatgpt.com/docs/hooks):
+
+~~~bash
+agentgear compact-memory install
+agentgear compact-memory doctor
+agentgear compact-memory uninstall
+~~~
+
+After installation, use `/hooks` in Codex to review and trust both Agentgear
+hooks. Installation preserves hook groups it does not own.
+
+This is a best-effort supplement to Codex compaction, not a transcript or
+progress tracker. Per Codex session, it stores the latest eight Waypost
+messages whose final non-empty body line is exactly:
+
+~~~text
+Keep this task context across compaction.
+~~~
+
+Agentgear's scripted task senders add that line only for declarations marked
+`sticky: true`. Initial coder and reviewer task contexts are sticky; later
+review-request notifications are not. The original selected message body is
+not copied; Agentgear keeps only each message's subject and delivery id in one
+small session-local index. The hook also remembers up to 32 distinct successful
+direct `agentgear skill get ...` commands in that index. Direct
+Waypost CLI capture is limited to successful `recv` and `read` commands with
+explicit `--json` output. After a compact, Codex receives only delivery ids and
+subjects, plus a
+reminder that these are historical messages and that relevant skill
+instructions can be fetched again. It does not store user prompts or execution
+progress. Use the delivery id to read the original message from Waypost when
+compaction omitted task details.
+
+State is isolated by a hash of the Codex `session_id` under
+`$XDG_STATE_HOME/agentgear/compact-memory` (or
+`~/.local/state/agentgear/compact-memory` when `XDG_STATE_HOME` is unset).
+
 Use `agentgear-source-install` from a source checkout, and rerun it after
 source changes. The target normally links to Agentgear's shared runtime, with
 automatic copy fallback on filesystems that reject links; the normal
@@ -211,6 +251,7 @@ initializer.
 | `permissions init/check` | Configure or verify workflow permissions for supported agent harnesses. |
 | `permissions preset` | List, copy, or add reusable development-stack permission presets. |
 | `session delete` | Delete a session through a stable host-neutral interface; Thurbox uses recoverable soft-delete. |
+| `compact-memory install/uninstall/doctor` | Install, remove, or diagnose the optional Codex compaction-memory hooks. |
 | `run` | Run a script bundled with an installed skill. |
 
 `agentgear session delete` normalizes host-specific deletion and failure

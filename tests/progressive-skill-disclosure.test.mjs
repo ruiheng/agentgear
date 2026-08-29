@@ -1162,7 +1162,7 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
   });
   assert.equal(result.status, 0);
   assert.equal(sent.command, "waypost");
-  assert.equal(sent.options.input, "Task: t\nAction: review_task_context\n\nbody");
+  assert.equal(sent.options.input, "Task: t\nAction: review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
   assert.deepEqual(
     sent.options.input.split("\n\n", 1)[0].match(/^action:.*$/gim),
     ["Action: review_task_context"]
@@ -1195,7 +1195,7 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
     }
   });
   assert.equal(accessorValueReads, 1);
-  assert.equal(accessorInput, "Task: safe\nAction: review_task_context\n\nbody");
+  assert.equal(accessorInput, "Task: safe\nAction: review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
 
   let proxyNameReads = 0;
   let proxyValueReads = 0;
@@ -1229,7 +1229,7 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
   });
   assert.equal(proxyNameReads, 1);
   assert.equal(proxyValueReads, 1);
-  assert.equal(proxyInput, "Task: safe\nAction: review_task_context\n\nbody");
+  assert.equal(proxyInput, "Task: safe\nAction: review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
   assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
     before: new Array(1), after: [], body: "body"
   }), /header 1 must have string name and value/);
@@ -1291,6 +1291,12 @@ test("action-template validation checks every declared Waypost sender without pa
     const invalidIndex = buildSkillContentIndex(checkout, catalog, { validateBootstraps: true });
     assert.equal(validateActionTemplates(invalidIndex, aliases).some(error => /action-producers\.json: unregistered Action token not_registered/.test(error)), true);
 
+    const missingSticky = JSON.parse(original);
+    delete missingSticky.actions.REVIEW_TASK_CONTEXT.sticky;
+    fs.writeFileSync(declaration, `${JSON.stringify(missingSticky, null, 2)}\n`);
+    const stickyIndex = buildSkillContentIndex(checkout, catalog, { validateBootstraps: true });
+    assert.equal(validateActionTemplates(stickyIndex, aliases).some(error => /invalid Action producer declaration REVIEW_TASK_CONTEXT/.test(error)), true);
+
     const missingBoundary = JSON.parse(original);
     missingBoundary.actions.REVIEW_TASK_CONTEXT.script = "producer-fixture.mjs";
     fs.writeFileSync(declaration, `${JSON.stringify(missingBoundary, null, 2)}\n`);
@@ -1327,7 +1333,7 @@ test("Action producer manifests cover every actual sender exactly once", () => {
     for (const value of Object.values(declaration.actions)) {
       const script = path.join(rootDir, "skills", skill, "scripts", value.script);
       const tokens = actual.get(script) ?? [];
-      tokens.push({ token: value.token, factory: value.factory, sender: value.sender });
+      tokens.push({ token: value.token, factory: value.factory, sender: value.sender, sticky: value.sticky });
       actual.set(script, tokens);
     }
   }
@@ -1338,8 +1344,9 @@ test("Action producer manifests cover every actual sender exactly once", () => {
   for (const [script, entries] of actual) {
     const source = fs.readFileSync(script, "utf8");
     assert.doesNotMatch(source, /\bsendActionMessage\s*\(/, script);
-    for (const { token, factory, sender } of entries) {
+    for (const { token, factory, sender, sticky } of entries) {
       assert.equal(aliases.has(token), true, token);
+      assert.equal(typeof sticky, "boolean", `${token} must declare sticky explicitly`);
       assert.match(source, new RegExp(`(?:\\b${factory}\\s*\\(|\\(\\s*${factory}\\s*,)`), `${script} must pass ${factory}`);
       assert.match(source, new RegExp(`(?:\\b${sender}\\s*\\(|\\(\\s*${sender}\\s*,)`), `${script} must pass ${sender}`);
     }

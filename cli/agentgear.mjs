@@ -64,6 +64,12 @@ import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
 import { runPermissionPresetCommand } from "./lib/permission-presets.mjs";
+import {
+  doctorCodexCompactMemory,
+  installCodexCompactMemory,
+  uninstallCodexCompactMemory
+} from "../providers/codex-compact-memory.mjs";
+import { runCompactMemoryHook } from "../skills/multi-agent-protocol/scripts/compact-memory-hook.mjs";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
@@ -102,6 +108,7 @@ function usage() {
     "  permissions preset list|show|add [options]",
     "  resolve-tool-command [resolver options]",
     "  session delete --host NAME --session-id ID [--profile NAME] [--json]",
+    "  compact-memory install|uninstall|doctor",
     "  run <skill> <script> [args...]",
     "",
     "Install/update defaults:",
@@ -343,6 +350,10 @@ function purge(catalog, options) {
       print("Purge complete.");
       notifyPermissionMigration(false);
     } else {
+      const compactMemoryHooks = uninstallCodexCompactMemory({ env: process.env });
+      if (compactMemoryHooks.changed) {
+        print(`unregistered Codex compact-memory hooks: ${compactMemoryHooks.path}`);
+      }
       const tornDown = purgeManagedRuntime({ state, env: process.env, print });
       if (tornDown) {
         removeInstallStateFile({ print });
@@ -732,6 +743,43 @@ function actionUsage() {
   ].join("\n");
 }
 
+function compactMemory(argumentsList) {
+  const [operation, ...rest] = argumentsList;
+  if (!operation || operation === "--help" || operation === "-h") {
+    print([
+      "Usage: agentgear compact-memory install|uninstall|doctor",
+      "",
+      "Install or diagnose the Codex best-effort compact-memory hooks.",
+      "After installation, review and trust both Agentgear hooks with /hooks in Codex."
+    ].join("\n"));
+    return;
+  }
+  if (rest.length > 0) fail(`compact-memory ${operation} does not accept arguments`);
+  const launcher = computePaths().launcher;
+  if (operation === "install") {
+    const result = installCodexCompactMemory({ launcher });
+    print(`Codex compact-memory hooks ${result.changed ? "installed" : "already installed"}: ${result.path}`);
+    print("Codex hook trust: review both Agentgear hooks with /hooks before use");
+    return;
+  }
+  if (operation === "uninstall") {
+    const result = uninstallCodexCompactMemory();
+    print(`Codex compact-memory hooks ${result.changed ? "uninstalled" : "not installed"}: ${result.path}`);
+    return;
+  }
+  if (operation === "doctor") {
+    const result = doctorCodexCompactMemory({ launcher });
+    print(`Codex compact-memory capture hook: ${result.missing.includes("PostToolUse") ? "missing" : "configured"}`);
+    print(`Codex compact-memory recovery hook: ${result.missing.includes("SessionStart") ? "missing" : "configured"}`);
+    print(`Agentgear launcher: ${result.launcherUsable ? "available" : "unusable"}`);
+    print("Codex hook trust: not checked; verify with /hooks in Codex");
+    print(`Hooks file: ${result.path}`);
+    if (result.missing.length > 0 || !result.launcherUsable) process.exitCode = 1;
+    return;
+  }
+  fail(`Unknown compact-memory command: ${operation}`);
+}
+
 function action(catalog, argumentsList) {
   const [operation, ...rawArguments] = argumentsList;
   if (!operation || operation === "--help" || operation === "-h") {
@@ -789,6 +837,15 @@ export function main(commandArguments = process.argv.slice(2)) {
   }
   if (command === "run") {
     run(argumentsList);
+    return;
+  }
+  if (command === "compact-memory-hook") {
+    if (argumentsList.length > 0) fail("compact-memory-hook does not accept arguments");
+    runCompactMemoryHook();
+    return;
+  }
+  if (command === "compact-memory") {
+    compactMemory(argumentsList);
     return;
   }
   if (command === "skill") {

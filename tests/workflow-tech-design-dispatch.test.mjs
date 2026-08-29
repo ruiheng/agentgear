@@ -24,6 +24,7 @@ import {
   loadWorkflowPolicy,
   parseWorkflowPolicyToml
 } from "../skills/tech-design-workflow/scripts/workflow-policy.mjs";
+import { hasStickyTaskContextMarker } from "../skills/multi-agent-protocol/scripts/compact-memory-shared.mjs";
 
 function fixture() {
   const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-design-dispatch-"));
@@ -203,6 +204,7 @@ test("initial dispatch writes one stable manifest and notifies reviewer before a
       "design_spec_review_context",
       "design_spec_draft_requested"
     ]);
+    assert.equal(records.every(record => hasStickyTaskContextMarker(record.body)), true);
     const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
     assert.equal(manifest.schema_version, 2);
     assert.equal(manifest.pruner_policy, "auto");
@@ -233,6 +235,7 @@ test("always policy records and initializes one pruner", async () => {
     assert.deepEqual(records.map(record => actionFrom(record.body)), [
       "design_spec_review_context", "design_prune_context", "design_spec_draft_requested"
     ]);
+    assert.equal(records.every(record => hasStickyTaskContextMarker(record.body)), true);
     const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
     assert.equal(manifest.pruner_policy, "always");
     assert.equal(manifest.pruner_session_id, "pruner-1");
@@ -706,6 +709,7 @@ test("below-threshold review dispatch sends only reviewer and never changes mani
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
     }));
     assert.deepEqual(records.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
+    assert.equal(hasStickyTaskContextMarker(records[0].body), false);
     assert.equal(fs.readFileSync(item.manifestFile, "utf8"), before);
     assert.doesNotMatch(records[0].body, /SHA|Epoch|Gate/);
     const summary = JSON.parse(stdout);
@@ -755,6 +759,7 @@ test("auto policy blocks before sending until an oversized design has a lazy pru
     assert.deepEqual(records.map(record => actionFrom(record.body)), [
       "design_spec_review_requested", "design_prune_requested"
     ]);
+    assert.equal(records.some(record => hasStickyTaskContextMarker(record.body)), false);
     assert.equal(fs.readFileSync(item.manifestFile, "utf8"), before);
     for (const record of records) assert.doesNotMatch(record.body, /SHA|Epoch|Gate/);
   } finally {

@@ -8,6 +8,7 @@ import {
   main as sendDelegate,
   readDelegateBody
 } from "../skills/multi-agent-protocol/scripts/send-delegate-with-active-task-lock.mjs";
+import { hasStickyTaskContextMarker } from "../skills/multi-agent-protocol/scripts/compact-memory-shared.mjs";
 
 function exists(filePath) {
   return fs.lstatSync(filePath, { throwIfNoEntry: false }) !== undefined;
@@ -297,6 +298,8 @@ test("required review sends one opaque task contract to reviewer then coder", as
     }
     assert.match(records[0].body, /Action: review_task_context/);
     assert.match(records[1].body, /Action: execute_delegate_task/);
+    assert.equal(hasStickyTaskContextMarker(records[0].body), true);
+    assert.equal(hasStickyTaskContextMarker(records[1].body), true);
     assert.ok(records[0].body.includes(`# Task Contract\n${brief}`));
     assert.ok(records[1].body.includes(`# Task Contract\n${brief}`));
     const executionContract = records[1].body.split("# Execution Contract\n")[1];

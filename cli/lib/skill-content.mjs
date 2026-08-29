@@ -911,6 +911,7 @@ function actionProducerDeclarations(index) {
     for (const [name, declaration] of Object.entries(definition.actions)) {
       if (!/^[A-Z][A-Z0-9_]*$/.test(name) || !declaration || typeof declaration !== "object" || Array.isArray(declaration)
         || typeof declaration.token !== "string" || typeof declaration.script !== "string" || declaration.export !== name
+        || typeof declaration.sticky !== "boolean"
         || typeof declaration.factory !== "string" || !/^[a-z][A-Za-z0-9]*Message$/.test(declaration.factory)
         || typeof declaration.sender !== "string" || !/^[a-z][A-Za-z0-9]*Message$/.test(declaration.sender)) {
         candidates.push({ filePath, invalid: true, detail: `invalid Action producer declaration ${name}` });
