@@ -638,6 +638,63 @@ test("agentgear run accepts canonical and recorded prefixed skill names", () => 
   }
 });
 
+test("agentgear run supports command and skill help", () => {
+  const fixture = environmentFixture();
+  try {
+    const commandHelp = spawnAgentgear(["run", "--help"], fixture, fixture.environment);
+    assert.equal(commandHelp.status, 0, commandHelp.stderr);
+    assert.match(commandHelp.stdout, /Usage: agentgear run <skill> <script> \[args\.\.\.\]/);
+    assert.match(commandHelp.stdout, /Pass --help after <script> for script-specific help\./);
+
+    for (const helpOption of ["--help", "-h"]) {
+      const skillHelp = spawnAgentgear(
+        ["run", "multi-agent-protocol", helpOption],
+        fixture,
+        fixture.environment
+      );
+      assert.equal(skillHelp.status, 0, skillHelp.stderr);
+      assert.match(
+        skillHelp.stdout,
+        /Usage: agentgear run multi-agent-protocol <script> \[args\.\.\.\]/
+      );
+      assert.match(skillHelp.stdout, /Bundled scripts:/);
+      assert.match(skillHelp.stdout, /  resolve-tool-command\.js/);
+    }
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("agentgear run skill help includes nested script paths", () => {
+  const fixture = environmentFixture();
+  const checkout = path.join(fixture.temporary, "checkout");
+  try {
+    fs.cpSync(rootDir, checkout, {
+      recursive: true,
+      filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+    });
+    const nestedDirectory = path.join(
+      checkout,
+      "skills",
+      "multi-agent-protocol",
+      "scripts",
+      "nested"
+    );
+    fs.mkdirSync(nestedDirectory, { recursive: true });
+    fs.writeFileSync(path.join(nestedDirectory, "tool.mjs"), "");
+
+    const result = childProcess.spawnSync(
+      process.execPath,
+      [path.join(checkout, "bin", "agentgear.mjs"), "run", "multi-agent-protocol", "--help"],
+      { cwd: checkout, encoding: "utf8", env: { ...process.env, ...fixture.environment } }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /  nested\/tool\.mjs/);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("prefixed source installs link a rewritten discovery projection", t => {
   const fixture = environmentFixture();
   try {

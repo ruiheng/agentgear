@@ -565,11 +565,50 @@ export function resolveRunSkill(catalog, requestedSkill, env = process.env) {
   fail("Unknown skill: " + requestedSkill);
 }
 
+function bundledScriptPaths(scriptsRoot, relative = "") {
+  const directory = path.join(scriptsRoot, relative);
+  const scripts = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0)) {
+    const childRelative = path.join(relative, entry.name);
+    if (entry.isDirectory()) scripts.push(...bundledScriptPaths(scriptsRoot, childRelative));
+    else if (entry.isFile()) scripts.push(childRelative.split(path.sep).join("/"));
+  }
+  return scripts;
+}
+
+function runUsage(skill) {
+  const lines = [
+    `Usage: agentgear run ${skill ? `${skill} ` : "<skill> "}<script> [args...]`,
+    "",
+    "Run a bundled script owned by a skill.",
+    "Pass --help after <script> for script-specific help."
+  ];
+  if (!skill) return lines.join("\n");
+
+  const scriptsRoot = path.join(rootDir, "skills", skill, "scripts");
+  const scripts = fs.statSync(scriptsRoot, { throwIfNoEntry: false })?.isDirectory()
+    ? bundledScriptPaths(scriptsRoot)
+    : [];
+  lines.push("", "Bundled scripts:");
+  if (scripts.length === 0) lines.push("  (none)");
+  else lines.push(...scripts.map(script => `  ${script}`));
+  return lines.join("\n");
+}
+
 function run(argumentsList) {
+  if (argumentsList.length === 1 && ["--help", "-h"].includes(argumentsList[0])) {
+    print(runUsage());
+    return;
+  }
   if (argumentsList.length < 2) fail("run requires <skill> <script>");
   const [requestedSkill, script, ...scriptArgs] = argumentsList;
   const catalog = loadCatalog(rootDir);
   const skill = resolveRunSkill(catalog, requestedSkill);
+  if (["--help", "-h"].includes(script)) {
+    print(runUsage(skill));
+    return;
+  }
   if (path.isAbsolute(script) || script.split(/[\\/]/).includes("..")) {
     fail("Script must be relative to the skill's scripts directory");
   }
