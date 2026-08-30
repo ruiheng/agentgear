@@ -8,6 +8,8 @@ This file is for prompt authors, not for the executing agent.
 
 Write the smallest prompt that is still unambiguous at runtime.
 
+First identify the prompt's core objective, then judge the prompt against it. State that objective and only decision-relevant constraints in compact, high-signal wording suited to the actual situation and reader. Do not prescribe steps or explain details an AI can safely infer; leave room to adapt. Keep deliberate redundancy only when it materially reinforces priority or useful reasoning.
+
 Good prompt writing optimizes for all three:
 - low token cost
 - easy parsing by the model
