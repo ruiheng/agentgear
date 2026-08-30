@@ -3754,6 +3754,25 @@ test("runtime stages use distinct release IDs in one clock tick", () => {
   }
 });
 
+test("runtime staging excludes volatile build directories", () => {
+  const fixture = environmentFixture();
+  const sourceRoot = path.join(fixture.temporary, "source");
+  try {
+    fs.mkdirSync(path.join(sourceRoot, ".dist-concurrent", "universal"), { recursive: true });
+    fs.mkdirSync(path.join(sourceRoot, "skills", "fixture"), { recursive: true });
+    fs.writeFileSync(path.join(sourceRoot, "package.json"), '{"version":"0.1.0"}\n');
+    fs.writeFileSync(path.join(sourceRoot, ".dist-concurrent", "universal", "partial"), "volatile");
+    fs.writeFileSync(path.join(sourceRoot, "skills", "fixture", "SKILL.md"), "stable");
+
+    const runtime = stageRuntime({ sourceRoot, env: fixture.environment });
+
+    assert.equal(fs.existsSync(path.join(runtime.root, ".dist-concurrent")), false);
+    assert.equal(fs.readFileSync(path.join(runtime.root, "skills", "fixture", "SKILL.md"), "utf8"), "stable");
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("agentgear-source-install rejects staged and packaged sources; agentgear has no source-install subcommand", async () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");

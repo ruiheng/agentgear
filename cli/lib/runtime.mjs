@@ -210,7 +210,7 @@ export function wrapperFingerprint(destination) {
 
 function ignoredRuntimePath(sourcePath, sourceRoot) {
   const relative = path.relative(sourceRoot, sourcePath).split(path.sep)[0];
-  return [".git", "node_modules", "dist"].includes(relative);
+  return [".git", "node_modules", "dist"].includes(relative) || relative.startsWith(".dist-");
 }
 
 function copyRuntime(sourceRoot, destination) {
