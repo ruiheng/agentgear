@@ -339,6 +339,10 @@ test("draft reviewer decisions return to the author-owned Canonical Contract", (
     new URL("../skills/tech-design-workflow/references/context-correction.md", import.meta.url),
     "utf8"
   );
+  const draftStart = fs.readFileSync(
+    new URL("../skills/tech-design-workflow/references/draft-review-start.md", import.meta.url),
+    "utf8"
+  );
   const pruning = fs.readFileSync(
     new URL("../skills/prune-tech-design/references/disclosure-start.md", import.meta.url),
     "utf8"
@@ -350,6 +354,8 @@ test("draft reviewer decisions return to the author-owned Canonical Contract", (
   assert.match(delivery, /manifest's author address/);
   assert.match(pruning, /initial-context `NEEDS_INPUT` to the manifest author/);
   assert.match(correction, /The requester reports the failure and\s+does not edit the Contract/);
+  assert.match(draftStart, /Action: design_task_context_revision/);
+  assert.match(draftStart, /do not edit the author-owned Canonical Contract/);
 });
 
 test("partial durable failure leaves the stable lane manifest", async () => {

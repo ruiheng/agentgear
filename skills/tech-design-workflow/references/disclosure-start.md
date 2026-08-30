@@ -12,6 +12,7 @@ Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protoc
 - New draft-review lane: retrieve `agentgear skill get tech-design-workflow/draft-review`.
 - New review-existing lane: retrieve `agentgear skill get tech-design-workflow/review-existing`.
 - `design_spec_draft_requested`: retrieve `agentgear skill get tech-design-workflow/author-round`.
+- `design_task_context_revision`: retrieve `agentgear skill get tech-design-workflow/task-context-revision`.
 - `design_spec_review_report` or `design_prune_report`: retrieve `agentgear skill get tech-design-workflow/report-handling`.
 - `design_spec_review_context_rejected`: retrieve `agentgear skill get tech-design-workflow/context-correction`.
 - `design_spec_delivered`: retrieve `agentgear skill get tech-design-workflow/requester-delivery`.

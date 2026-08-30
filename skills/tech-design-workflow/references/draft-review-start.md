@@ -67,3 +67,23 @@ sends only the fixed session-host wake notice unless it is already leased or
 acknowledged. Failure to read delivery state does not block that one replay. Do
 not rerun the wrapper to repair a nudge.
 Report delivery ids and nudge outcomes, then follow the Async sender rule.
+
+## Later User Decisions
+
+If the requester receives an exact user-authoritative product or scope change
+after dispatch, do not edit the author-owned Canonical Contract. Send the author:
+
+```markdown
+Task: <task_id>
+Action: design_task_context_revision
+Lane Manifest: <workspace-relative lane manifest>
+
+## User Decision Delta
+<exact user wording>
+
+## Requester Context
+<supporting facts or requested emphasis; omit when empty>
+```
+
+Use `Action: generic` for updates that do not request this contract and review
+transition.

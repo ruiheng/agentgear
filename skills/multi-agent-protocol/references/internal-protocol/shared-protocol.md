@@ -52,6 +52,11 @@ Task: <task_id_or_N/A>
 [action-specific correlation fields only]
 ```
 
+Use `Action:` only when the owning workflow defines the exact stable token and
+its receiver instructions. Never invent, rename, or approximate an Action. If
+no specialized Action applies, use `Action: generic` for ordinary collaboration;
+it adds no specialized workflow behavior.
+
 `message_rejected` may omit Task because it correlates by `Original Delivery`;
 its exact templates begin with Action and Original Delivery.
 

@@ -56,7 +56,7 @@ A prompt slice opts into the runtime index with restricted frontmatter:
 ---
 skill-selector: author-round
 selector-summary: Draft or revise one immutable design round and request review.
-selector-aliases: action:design_spec_draft_requested, action:design_spec_context_corrected
+selector-aliases: action:design_spec_draft_requested
 ---
 
 # Author Round
@@ -139,7 +139,7 @@ The initial action-alias set is complete for the current workflow surface:
 | design_prune_context | prune-tech-design/start | Direct pruner context intake. |
 | design_prune_report | tech-design-workflow/report-handling | Direct result handling by the request sender. |
 | design_prune_requested | prune-tech-design/start | Direct pruner execution. |
-| design_spec_context_corrected | tech-design-workflow/author-round | Direct author execution. |
+| design_task_context_revision | tech-design-workflow/task-context-revision | Authenticates and applies a requester-relayed user-authoritative change. |
 | design_spec_delivered | tech-design-workflow/requester-delivery | Direct requester closeout. |
 | design_spec_draft_requested | tech-design-workflow/author-round | Direct author execution. |
 | design_spec_review_context | review-tech-design/context-intake | Direct reviewer context intake. |
@@ -149,6 +149,7 @@ The initial action-alias set is complete for the current workflow surface:
 | execute_delegate_task | delegate-code-task/execute | Direct coder execution. |
 | execute_delegated_task | delegate-task/execute | Direct non-code worker execution. |
 | execute_plan | execute-plan/start | Direct planner execution. |
+| generic | multi-agent-protocol/generic-message | Ordinary collaboration without a specialized workflow transition. |
 | group_message_available | route-waypost-action/group-route | Branches on Group-Address and As-Person; roundtable is one branch. |
 | message_rejected | multi-agent-protocol/message-rejected | Handles a workflow-level rejection of one outbound delivery without replying to the rejection. |
 | plan_report_delivered | plan-report/receive | Direct supervisor handling. |
@@ -163,7 +164,7 @@ The initial action-alias set is complete for the current workflow surface:
 | abort_iteration | review-code/result-route | Routes an iteration stop to the planner for planned lanes, or the requester for standalone review. |
 | work_accepted | review-code/result-route | Routes an accepted implementation to the planner for planned lanes, or the requester for standalone review. |
 
-The action set deliberately excludes retired review_completed and other unsupported legacy actions. Adding, renaming, or removing an action requires changing the owning slice's selector-aliases metadata and any producer template in the same change.
+The action set deliberately excludes retired review_completed and other unsupported legacy actions. Adding, renaming, or removing an action requires changing the owning slice's selector-aliases metadata and any producer template in the same change. Senders never invent an Action token: communication outside a specialized transition uses `Action: generic`.
 
 Validation collects every exact Action: <token> line in indexed selector bodies. JavaScript Waypost senders are an explicit producer boundary instead of a source-text heuristic: every skill-owned sender that writes a Waypost --body-file must be named in its owning action-producers.json manifest, and each manifest entry declares one alias-registered token, an explicit `sticky` boolean, exact script, factory export, and sender export. The shared helper snapshots each caller-supplied header name and value exactly once into primitive locals, constructs the initial envelope from those structured `{ name, value }` snapshots, inserts the one declared `Action` itself, rejects caller-supplied `Action`, transport-owned `From`/`To`, duplicate header names (case-insensitively), and empty or CR/LF/NUL header values, then appends a separately supplied body. For a `sticky: true` declaration it also appends the exact final line `Keep this task context across compaction.` so the optional Agentgear Codex hook can preserve the received task context; notification-only declarations remain `sticky: false`. Indexed prompt validation likewise rejects physical `From:` or `To:` template lines. Waypost delivery `sender_address` and `recipient_address` own reply routing; session identities appear only as action-specific task data when continuity, ownership, or cleanup needs them. Header-bound provider values remain opaque apart from that envelope-safety rule; existing path or provider validators retain their own authority. Its manifest-bound sender closure unwraps only a message branded for that exact declaration; callers cannot supply a module URL to claim a different sender. Raw strings, copied objects, and computed tokens cannot become an Action header or reach the declared sender path. Dynamic, placeholder, duplicate-choice, or shell-expanded Action values are invalid at the producer boundary; conditional outputs use separately declared exact values. Generic protocol prose must describe the header without an Action: placeholder line. Transport-originated actions such as group_message_available may be registered without a local producer. Tests assert the full declared producer set against the aliases, not a representative subset.
 
@@ -506,7 +507,7 @@ Later-round design review may use an ordinary diff between immutable design arti
 ## Failure behavior
 
 - Missing or corrupt selector content fails before workflow execution with an exact skill/selector or alias diagnostic. The agent does not guess.
-- A message without an Action field is handled as an ordinary personal message.
+- An ordinary workflow message uses `Action: generic`; a received message without an Action field remains an ordinary personal message.
 - An unsupported action is not guessed or rejected by the router; the Receiver Contract fails any associated claim as a routing failure.
 - A prompt-only skill explicitly exposed without a working launcher produces an actionable bootstrap error; --no-launcher warns during installation.
 - A failed authoritative update rolls back owned withdrawals, new writes, runtime publication, and installation state.

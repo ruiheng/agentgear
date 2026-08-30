@@ -623,6 +623,8 @@ test("receiver and rejection handlers settle routing and authentication failures
     "shared-protocol.md"
   ), "utf8");
   assert.match(receiver, /Action lookup or another routing step fails/);
+  assert.match(receiver, /Never invent, rename, or approximate an Action/);
+  assert.match(receiver, /If\s+no specialized Action applies, use `Action: generic`/);
   assert.doesNotMatch(receiver, /malformed or unknown Action is rejected/);
 
   const rejected = command(["skill", "get", "action:message_rejected"]);
@@ -1055,8 +1057,8 @@ test("action aliases are complete, direct, and selector validation resolves mult
     "delegated_task_result", "design_prune_context", "design_prune_report", "design_prune_requested",
     "design_spec_delivered", "design_spec_draft_requested",
     "design_spec_review_context", "design_spec_review_context_rejected",
-    "design_spec_review_report", "design_spec_review_requested",
-    "execute_delegate_task", "execute_delegated_task", "execute_plan", "group_message_available",
+    "design_spec_review_report", "design_spec_review_requested", "design_task_context_revision",
+    "execute_delegate_task", "execute_delegated_task", "execute_plan", "generic", "group_message_available",
     "intent_framer_turn", "intent_framer_update", "message_rejected",
     "plan_report_delivered", "refactor_review_report", "refactor_review_requested", "review_requested",
     "review_task_context", "rework_required", "roundtable_participant_turn", "simplify_review_report",
