@@ -17,15 +17,18 @@ Use `delegate-task` in Selection-Only Use first when another action owns surface
 
 Before session, workspace, or brief work, decide whether the request is one independently reviewable task or an ordered task queue. Do not dispatch before making this decision.
 
-- Split distinct testable outcomes or dependency boundaries, not files, layers, or implementation steps. For an approved plan item, only verify that it is cohesive.
-- Each unit must have one outcome and testable acceptance criteria. Include prerequisites or boundaries only when relevant. Ask only when splitting changes scope, priority, or tradeoffs.
+- A feature or release goal defines what must ship together, not what one coder should receive. Apply this gate even to an approved plan item; one release may still require several serial tasks.
+- Choose units primarily by engineering boundaries: dependency order, architecture or migration seams, risk isolation, and a bounded review surface. A unit may deliver enabling structure or an intermediate checkpoint rather than user-facing behavior.
+- A dispatchable task has one engineering objective and checkpoint-specific acceptance criteria; it does not ask the coder to choose sequencing among sibling objectives. Split distinct objectives and dependency boundaries, not files, layers, or implementation steps.
+- Task completion does not require release readiness or every build and test to pass. For an intentional intermediate state, record the exact expected failures, why they are acceptable at this checkpoint, and the later queued task that restores them. Treat other failures as unplanned.
+- Keep changes together only when separating them would not create a coherent engineering checkpoint. Include prerequisites or boundaries only when relevant. Ask only when splitting changes scope, priority, or tradeoffs.
 - Dispatch only the first ready unit and keep the queue serial. The planner owns cross-task decomposition; the coder owns implementation breakdown within that unit.
 
 ## Brief Quality
 
 Delegate the outcome, not a solution recipe.
 
-- Give the coder only decision-relevant context: parent goal when it affects local choices, hard boundaries, established evidence, non-obvious fixed decisions with source, and testable acceptance criteria.
+- Give the coder only decision-relevant context: parent goal when it affects local choices, hard boundaries, established evidence, non-obvious fixed decisions with source, and checkpoint-specific acceptance criteria.
 - Let the coder investigate, decompose implementation within the selected task unit, choose the implementation, and validate it.
 - Optimize for the smallest conflict surface that still completes the task; exclude unrelated refactors, renames, moves, and cleanup.
 - List only required reading and useful references. Omit empty optional sections rather than inventing context. Do not pin a commit unless an exact historical snapshot is explicitly required.
@@ -88,7 +91,7 @@ Write one canonical brief under `.agent-artifacts/message/`. The wrapper embeds 
 - Watch for: [material risk]
 
 ## Acceptance Criteria
-- [testable outcome]
+- [verifiable checkpoint outcome, including explicitly expected failing checks when applicable]
 
 ## Special Requirements
 [verbatim; only when present]
