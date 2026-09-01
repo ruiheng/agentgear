@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { sessionNudgeSpec } from "../../../providers/session-hosts.mjs";
+import { sessionNudgeOutcome, sessionNudgeSpec } from "../../../providers/session-hosts.mjs";
 import {
   execute,
   fail,
@@ -56,7 +56,8 @@ Each invocation sends new durable participant requests. If Waypost reports that
 its best-effort nudge failed, is unknown, or was not attempted for a temporarily
 unready target, this invocation retries only the fixed session-host wake notice
 unless the delivery is already leased or acknowledged. Failure to inspect
-delivery state does not block that one replay.`;
+delivery state does not block that one replay. An unconfirmed nudge is not
+replayed because delivery may already have been attempted.`;
 
 export const DEFAULT_SEND_TIMEOUT_MS = 0;
 export const DELIVERY_STATE_TIMEOUT_MS = 5000;
@@ -64,6 +65,7 @@ export const NUDGE_MESSAGE = "NOTICE: There might be new message in waypost.";
 
 const NO_NUDGE_REPLAY_STATUSES = new Set([
   "sent",
+  "unconfirmed",
   "skipped_already_claimed",
   "skipped_disabled",
   "skipped_local"
@@ -95,6 +97,7 @@ export function sendOutputFrom(output) {
     notification: {
       status: notifyStatus || "unknown",
       scheme: optionalOutputString(payload.notify_scheme),
+      detail: optionalOutputString(payload.notify_detail),
       error: optionalOutputString(payload.notify_error)
         || (notifyStatus ? null : "waypost send --notify returned no notify_status")
     }
@@ -272,18 +275,7 @@ function sendNudge(sessionHost, sessionId, runCommand) {
     return { status: "failed", scheme: sessionHost, error: error.message };
   }
   const result = runCommand(spec.command, spec.args, { timeoutMs: spec.timeoutMs });
-  if (result.timedOut || result.signal || result.error || result.status !== 0) {
-    return {
-      status: "failed",
-      scheme: sessionHost,
-      error: result.timedOut
-        ? `nudge timed out after ${spec.timeoutMs}ms`
-        : result.signal
-          ? `nudge terminated by ${result.signal}`
-          : result.error?.message || (result.stderr || result.stdout).trim() || `exit code ${result.status}`
-    };
-  }
-  return { status: "sent", scheme: sessionHost, error: null };
+  return sessionNudgeOutcome(sessionHost, result);
 }
 
 function retryNudge(result, sessionHost, sessionId, readDeliveryCommand, runNudgeCommand) {
@@ -330,6 +322,7 @@ export function stageSummary(prefix, result) {
     [`${prefix}_delivery_id`]: result?.receipt.delivery_id || null,
     [`${prefix}_notify_status`]: result?.notification.status || null,
     [`${prefix}_notify_scheme`]: result?.notification.scheme || null,
+    [`${prefix}_notify_detail`]: result?.notification.detail || null,
     [`${prefix}_notify_error`]: result?.notification.error || null,
     [`${prefix}_nudge_retry_count`]: result?.nudgeRetryCount || 0,
     [`${prefix}_nudge_delivery_state`]: result?.nudgeDeliveryState || null

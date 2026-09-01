@@ -128,10 +128,12 @@ const coder = body.includes("Action: execute_delegate_task");
 if (process.env.WAYPOST_MODE === "fail-review" && review) process.exit(7);
 if (process.env.WAYPOST_MODE === "fail-coder" && coder) process.exit(8);
 const notifyFailed = process.env.WAYPOST_MODE === "notify-fail-all";
+const notifyUnconfirmed = process.env.WAYPOST_MODE === "notify-unconfirmed";
 const response = JSON.stringify({
   delivery_id: review ? "review-1" : "coder-1",
-  notify_status: notifyFailed ? "failed" : "sent",
+  notify_status: notifyFailed ? "failed" : notifyUnconfirmed ? "unconfirmed" : "sent",
   notify_scheme: "agent-deck",
+  notify_detail: notifyUnconfirmed ? "turn submission was not confirmed" : null,
   notify_error: notifyFailed ? "simulated wake failure" : null
 }) + "\\n";
 if (process.env.WAYPOST_MODE === "timeout") setTimeout(() => {}, 10000);
@@ -312,11 +314,43 @@ test("required review sends one opaque task contract to reviewer then coder", as
     assert.equal(lock.review_context_delivery_id, "review-1");
     assert.equal(lock.review_context_notify_status, "sent");
     assert.equal(lock.review_context_notify_scheme, "agent-deck");
+    assert.equal(lock.review_context_notify_detail, null);
     assert.equal(lock.review_context_notify_error, null);
     assert.equal(lock.delivery_id, "coder-1");
     assert.equal(lock.coder_notify_status, "sent");
     assert.equal(lock.coder_notify_scheme, "agent-deck");
+    assert.equal(lock.coder_notify_detail, null);
     assert.equal(lock.coder_notify_error, null);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("unconfirmed notification detail is preserved in the lock and summary", async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-send-delegate-"));
+  const workdir = path.join(temporary, "workspace");
+  const artifactRoot = path.join(workdir, ".agent-artifacts");
+  const bin = path.join(temporary, "bin");
+  const log = path.join(temporary, "waypost.log");
+  try {
+    fs.mkdirSync(workdir, { recursive: true });
+    writeExecutable(bin, loggingWaypost);
+    const brief = writeBrief(temporary);
+    const output = await captureStdout(() => withEnvironment({
+      PATH: bin,
+      WAYPOST_LOG: log,
+      WAYPOST_MODE: "notify-unconfirmed"
+    }, () => sendDelegate(args(temporary, artifactRoot, brief, "required", ["--json"]))));
+
+    const summary = JSON.parse(output);
+    assert.equal(summary.review_context_notify_status, "unconfirmed");
+    assert.equal(summary.review_context_notify_detail, "turn submission was not confirmed");
+    assert.equal(summary.coder_notify_status, "unconfirmed");
+    assert.equal(summary.coder_notify_detail, "turn submission was not confirmed");
+
+    const lock = JSON.parse(fs.readFileSync(path.join(artifactRoot, "active-task.lock", "lock.json"), "utf8"));
+    assert.equal(lock.review_context_notify_detail, "turn submission was not confirmed");
+    assert.equal(lock.coder_notify_detail, "turn submission was not confirmed");
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

@@ -19,6 +19,7 @@ import { createInstallTransaction, directoryFingerprint, stageRuntime, wrapperFi
 import { deleteSession } from "../cli/lib/session-hosts.mjs";
 import {
   AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS,
+  sessionNudgeOutcome,
   sessionNudgeSpec,
   THURBOX_NUDGE_PROCESS_TIMEOUT_MS
 } from "../providers/session-hosts.mjs";
@@ -44,7 +45,7 @@ test("session nudge provider maps the common wake request to each host CLI", () 
     command: "agent-deck",
     timeoutMs: AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS,
     args: [
-      "session", "send", "-defer-if-busy", "-defer-timeout", "5s",
+      "session", "send", "--json", "-defer-if-busy", "-defer-timeout", "5s",
       "-timeout", "5s", "reviewer-1", "wake"
     ]
   });
@@ -55,6 +56,46 @@ test("session nudge provider maps the common wake request to each host CLI", () 
     timeoutMs: THURBOX_NUDGE_PROCESS_TIMEOUT_MS,
     args: ["session", "send", "reviewer-1", "wake"]
   });
+});
+
+test("session nudge provider distinguishes unconfirmed agent-deck delivery", () => {
+  const typed = sessionNudgeOutcome("agent-deck", {
+    status: 1,
+    stdout: JSON.stringify({ success: false, delivery: "typed", submitted: false }),
+    stderr: "",
+    error: null,
+    signal: null,
+    timedOut: false
+  });
+  assert.equal(typed.status, "unconfirmed");
+  assert.match(typed.detail, /submission was not confirmed/);
+  assert.equal(typed.error, null);
+
+  const failed = sessionNudgeOutcome("agent-deck", {
+    status: 1,
+    stdout: JSON.stringify({ success: false, delivery: "typed_not_submitted", error: "not submitted" }),
+    stderr: "",
+    error: null,
+    signal: null,
+    timedOut: false
+  });
+  assert.deepEqual(failed, {
+    status: "failed",
+    scheme: "agent-deck",
+    detail: null,
+    error: "not submitted"
+  });
+
+  const unknown = sessionNudgeOutcome("agent-deck", {
+    status: 0,
+    stdout: JSON.stringify({ submitted: false }),
+    stderr: "",
+    error: null,
+    signal: null,
+    timedOut: false
+  });
+  assert.equal(unknown.status, "unconfirmed");
+  assert.match(unknown.detail, /without a delivery verdict/);
 });
 
 test("agentgear run explains signal and nonzero child exits", () => {

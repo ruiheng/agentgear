@@ -93,6 +93,7 @@ export function sendOutputFrom(output) {
     notification: {
       status: notifyStatus || "unknown",
       scheme: optionalOutputString(payload.notify_scheme),
+      detail: optionalOutputString(payload.notify_detail),
       error: optionalOutputString(payload.notify_error)
         || (notifyStatus ? null : "waypost send --notify returned no notify_status")
     }
@@ -272,6 +273,7 @@ function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, mes
 function recordNotification(lock, prefix, notification) {
   lock[`${prefix}_notify_status`] = notification.status;
   lock[`${prefix}_notify_scheme`] = notification.scheme;
+  lock[`${prefix}_notify_detail`] = notification.detail;
   lock[`${prefix}_notify_error`] = notification.error;
 }
 
@@ -429,11 +431,13 @@ export async function main(argv = process.argv.slice(2)) {
       coder_delivery_id: coderSent.receipt.delivery_id,
       coder_notify_status: coderSent.notification.status,
       coder_notify_scheme: coderSent.notification.scheme,
+      coder_notify_detail: coderSent.notification.detail,
       coder_notify_error: coderSent.notification.error,
       reviewer_session_id: options.reviewerSessionId || null,
       review_context_delivery_id: reviewContextDeliveryId || null,
       review_context_notify_status: reviewContextNotification?.status || null,
       review_context_notify_scheme: reviewContextNotification?.scheme || null,
+      review_context_notify_detail: reviewContextNotification?.detail || null,
       review_context_notify_error: reviewContextNotification?.error || null,
       lock_dir: lockDir,
       lock_file: lockFile,

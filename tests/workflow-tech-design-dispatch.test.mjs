@@ -467,7 +467,7 @@ test("initial dispatch replays target_queued notifications that never attempted 
 });
 
 test("initial dispatch does not replay notification outcomes that need no wake", async () => {
-  for (const notifyStatus of ["skipped_local", "skipped_disabled", "skipped_already_claimed"]) {
+  for (const notifyStatus of ["unconfirmed", "skipped_local", "skipped_disabled", "skipped_already_claimed"]) {
     const item = fixture();
     const nudges = [];
     try {
@@ -478,7 +478,8 @@ test("initial dispatch does not replay notification outcomes that need no wake",
             status: 0,
             stdout: JSON.stringify({
               delivery_id: options.input.includes("design_spec_review_context") ? "reviewer-delivery" : "author-delivery",
-              notify_status: notifyStatus
+              notify_status: notifyStatus,
+              ...(notifyStatus === "unconfirmed" ? { notify_detail: "turn submission was not confirmed" } : {})
             }),
             stderr: "",
             error: null,
@@ -495,6 +496,10 @@ test("initial dispatch does not replay notification outcomes that need no wake",
       assert.equal(result.reviewer_context_notify_status, notifyStatus);
       assert.equal(result.reviewer_context_nudge_retry_count, 0);
       assert.equal(result.author_draft_notify_status, notifyStatus);
+      assert.equal(
+        result.reviewer_context_notify_detail,
+        notifyStatus === "unconfirmed" ? "turn submission was not confirmed" : null
+      );
     } finally {
       fs.rmSync(item.workdir, { recursive: true, force: true });
     }
@@ -572,7 +577,7 @@ test("initial dispatch replays a nudge when delivery state cannot be read", asyn
   }
 });
 
-test("direct nudge timeout and signal are reported as failed attempts", async () => {
+test("direct nudge timeout and signal are reported as unconfirmed attempts", async () => {
   const item = fixture();
   let attempts = 0;
   try {
@@ -600,13 +605,12 @@ test("direct nudge timeout and signal are reported as failed attempts", async ()
           : { status: 0, stdout: "", stderr: "", error: null, signal: "SIGTERM", timedOut: false };
       }
     })));
-    assert.equal(result.reviewer_context_notify_status, "failed");
-    assert.equal(
-      result.reviewer_context_notify_error,
-      `nudge timed out after ${AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS}ms`
-    );
-    assert.equal(result.author_draft_notify_status, "failed");
-    assert.equal(result.author_draft_notify_error, "nudge terminated by SIGTERM");
+    assert.equal(result.reviewer_context_notify_status, "unconfirmed");
+    assert.match(result.reviewer_context_notify_detail, /timed out after delivery may already have been attempted/);
+    assert.equal(result.reviewer_context_notify_error, null);
+    assert.equal(result.author_draft_notify_status, "unconfirmed");
+    assert.match(result.author_draft_notify_detail, /terminated by SIGTERM after delivery may already have been attempted/);
+    assert.equal(result.author_draft_notify_error, null);
     assert.equal(result.reviewer_context_nudge_retry_count, 1);
     assert.equal(result.author_draft_nudge_retry_count, 1);
   } finally {
