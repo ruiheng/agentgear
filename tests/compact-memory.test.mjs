@@ -153,7 +153,8 @@ test("PostToolUse keeps only sticky Waypost identifiers and subjects in one sess
     const context = compactAdditionalContext(sessionId, { env: item.env });
     assert.match(context, /delivery="dlv_sticky" subject="task"/);
     assert.match(context, /Sticky Waypost tasks already received/);
-    assert.match(context, /read these deliveries by ID; do not use recv/);
+    assert.match(context, /run `waypost read <delivery-id> --json`/);
+    assert.doesNotMatch(context, /recv/);
     assert.doesNotMatch(context, /file=/);
     assert.doesNotMatch(context, /Implement the parser/);
     assert.doesNotMatch(context, /dlv_plain/);

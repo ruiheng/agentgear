@@ -140,10 +140,10 @@ direct `agentgear skill get ...` commands in that index. Direct
 Waypost CLI capture is limited to successful `recv` and `read` commands with
 explicit `--json` output. After a compact, Codex receives only delivery ids and
 subjects, plus a
-reminder that these are historical messages and that relevant skill
-instructions can be fetched again. It does not store user prompts or execution
-progress. Use the delivery id to read the original message from Waypost when
-compaction omitted task details.
+reminder that these are historical messages, the command to read them by
+delivery id, and that relevant skill instructions can be fetched again. It does
+not store user prompts or execution progress. Use the displayed `waypost read`
+command to recover the original message when compaction omitted task details.
 
 State is isolated by a hash of the Codex `session_id` under
 `$XDG_STATE_HOME/agentgear/compact-memory` (or

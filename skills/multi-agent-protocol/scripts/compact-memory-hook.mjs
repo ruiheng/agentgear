@@ -332,7 +332,7 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
       const subject = message.subject || "(no subject)";
       lines.push(`- delivery=${dataDisplay(message.delivery_id)} subject=${dataDisplay(subject)}`);
     }
-    lines.push("Missing details: read these deliveries by ID; do not use recv.");
+    lines.push("Missing details: run `waypost read <delivery-id> --json`.");
   }
   if (calls.length > 0) {
     if (lines.length > 0) lines.push("");
