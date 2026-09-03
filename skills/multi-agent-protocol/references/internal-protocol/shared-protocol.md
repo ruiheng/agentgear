@@ -130,7 +130,7 @@ On a wakeup nudge or explicit user message check:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
    - `waypost_release` or `waypost_defer` only when the delivery itself cannot be handled now
    - the reported Waypost CLI `fail` command when Action lookup or another routing step fails
-5. Continue receiving other useful work when appropriate. One claim is not a global receive lock; do not hold an unprocessable delivery merely to preserve ordering.
+5. Use the available Waypost receive interface to process work, not to wait for work; repeat it when draining known pending work, but do not poll meaninglessly. One claim is not a global receive lock; do not hold an unprocessable delivery merely to preserve ordering.
 
 ## Natural End Gate
 
