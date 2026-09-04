@@ -40,14 +40,35 @@ unsupported authenticated context returns `NEEDS_INPUT`; routing errors do not.
 Ask: what can be removed from the design and document while the explicit goal
 and required behavior remain clear?
 
-- Test every material component, abstraction, mode, compatibility path, state
-  store, configuration surface, and optional capability for deletion.
+Start with an independent minimal model from the Canonical Contract and current
+repository facts: required outcomes, actors, state, and actual boundaries. Do
+this before using the target or its rationale to form an architecture. Treat
+the current and previous artifacts as untrusted proposals; the previous target
+is evidence of change, not evidence that its structure is needed.
+
+- Compare the proposal with that minimal model. For every material component,
+  boundary, abstraction, mode, compatibility path, state store, configuration
+  surface, and optional capability, ask: what concrete requirement or repository
+  fact breaks if this is deleted or its boundary is collapsed? A coherent
+  decomposition is not evidence of necessity.
+- Run structural counterfactuals before the prose pass: collapse adjacent
+  layers, give state one owner, remove indirection and extension points, and
+  delete hypothetical modes or compatibility machinery. Flag the concept when
+  the required behavior still has a clear owner and flow after the removal.
+- Look specifically for duplicated sources of truth, pass-through wrappers,
+  speculative generality, premature plugin/configuration surfaces, and separate
+  lifecycles or failure boundaries that have no present requirement.
+- Put structural findings before local prose findings. Each structural finding
+  names the removable boundary or concept, the evidence that it is not required
+  now, and the surviving simpler flow; do not prescribe a replacement design.
 - Remove repeated rationale, ornamental sections, and detail an implementer can
   safely infer.
 - Keep concepts justified by user authority, a hard constraint, or current
   repository fact.
 - Recommend only remove, merge, compress, inline, reuse, or defer. Do not invent
   a replacement architecture or reward hypothetical future-proofing.
+- Do not return `MINIMAL` after finding only wording cleanups if the minimal model
+  is materially simpler than the proposal; report the structural simplification.
 - Ask the user directly and wait when required user input blocks pruning. Carry
   the exact question and answer under `## User Decisions`; the draft author
   records the confirmed answer in the User Decision Delta.

@@ -1,6 +1,6 @@
 ---
 name: prune-tech-design
-description: Independently remove unnecessary concepts and prose from a technical design without changing user-required behavior. Use for design_prune_context or design_prune_requested messages, or when directly asked to simplify a technical design or its documentation.
+description: Independently challenge and remove unnecessary boundaries, concepts, and prose from a technical design without changing user-required behavior. Use for design_prune_context or design_prune_requested messages, or when directly asked to simplify a technical design or its documentation.
 ---
 
 Review only. Do not edit the design.
