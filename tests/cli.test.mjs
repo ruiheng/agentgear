@@ -224,7 +224,7 @@ function writeNodeExecutable(directory, name, source) {
   return filePath;
 }
 
-function writeWaypostExecutable(directory, output = "waypost 0.6.0", status = 0) {
+function writeWaypostExecutable(directory, output = "waypost 0.8.0", status = 0) {
   return writeNodeExecutable(directory, "waypost", `
 if (process.argv[2] === "--version") {
   process.stdout.write(${JSON.stringify(`${output}\n`)});
@@ -1488,7 +1488,7 @@ test("workflow doctor keeps optional Agent Deck documentation non-blocking acros
   }
 });
 
-test("workflow doctor requires Waypost 0.6.0 from --version output", () => {
+test("workflow doctor requires Waypost 0.8.0 from --version output", () => {
   const fixture = environmentFixture();
   try {
     const bin = path.join(fixture.temporary, "bin");
@@ -1499,7 +1499,7 @@ test("workflow doctor requires Waypost 0.6.0 from --version output", () => {
     writeWaypostExecutable(bin, "waypost 0.5.9");
     const old = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
     assert.equal(old.status, 1);
-    assert.match(old.stdout, /incompatible waypost \(required >= 0\.6\.0; found 0\.5\.9; version too old\)/);
+    assert.match(old.stdout, /incompatible waypost \(required >= 0\.8\.0; found 0\.5\.9; version too old\)/);
 
     writeWaypostExecutable(bin, "unknown");
     const invalid = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
@@ -1511,10 +1511,10 @@ test("workflow doctor requires Waypost 0.6.0 from --version output", () => {
     assert.equal(unsupported.status, 1);
     assert.match(unsupported.stdout, /--version failed/);
 
-    writeWaypostExecutable(bin, "waypost version 0.7.0");
+    writeWaypostExecutable(bin, "waypost version 0.8.0");
     const current = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
     assert.equal(current.status, 0, current.stderr);
-    assert.match(current.stdout, /ok\s+waypost 0\.7\.0 \(required >= 0\.6\.0\)/);
+    assert.match(current.stdout, /ok\s+waypost 0\.8\.0 \(required >= 0\.8\.0\)/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -1898,6 +1898,7 @@ test("workflow update requires permission reinitialization for missing Waypost C
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /permission_migration_required missing=waypost-cli-fail/);
+    assert.match(result.stdout, /permission_migration_required missing=waypost-cli-dead-letter/);
     assert.match(result.stdout, /Detected outdated Waypost CLI approvals in scope\(s\): user/);
     assert.match(result.stdout, /Run: agentgear permissions init/);
     assert.match(result.stdout, /Restart existing agent sessions/);

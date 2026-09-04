@@ -508,7 +508,11 @@ export function findMissingWorkflowLauncherApprovals({
   };
 }
 
-function missingClaudeWaypostCliFailIssue(paths) {
+function shellRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function missingClaudeWaypostCliActionIssue(paths, action) {
   let ownership;
   try {
     ownership = readWaypostOwnershipManifest(paths.configRoot);
@@ -519,26 +523,71 @@ function missingClaudeWaypostCliFailIssue(paths) {
   const actions = new Set(ownership.rules.map(rule => rule.action));
   const hasPriorCliRules = actions.has("read") || actions.has("list")
     || ownership.permissions.some(permission => / (?:read|list)(?: \*)?\)$/.test(permission));
-  const hasFail = actions.has("fail")
-    || ownership.permissions.some(permission => / fail(?: \*)?\)$/.test(permission));
-  return hasPriorCliRules && !hasFail
-    ? `Claude Waypost CLI approvals are missing fail: ${paths.claudeSettings}`
+  const actionPattern = new RegExp(` ${shellRegex(action)}(?: \\*)?\\)$`);
+  const hasAction = actions.has(action)
+    || ownership.permissions.some(permission => actionPattern.test(permission));
+  return hasPriorCliRules && !hasAction
+    ? `Claude Waypost CLI approvals are missing ${action}: ${paths.claudeSettings}`
     : null;
 }
 
-function missingGeneratedWaypostCliFailIssue(filePath, label) {
+function missingGeneratedWaypostCliActionIssue(filePath, label, action) {
   const inspected = readRetiredPermissionFile(filePath, label);
   if (inspected.issue || inspected.source === null) return null;
   if (!inspected.source.includes("# Agentgear workflow - generated")) return null;
   const rule = String.raw`(?:pattern|commandPrefix)\s*=\s*\[[^\]\r\n]*"--state-dir"[^\]\r\n]*"ACTION"\]`;
   const hasPriorCliRules = new RegExp(rule.replace("ACTION", "(?:read|list)")).test(inspected.source);
-  const hasFail = new RegExp(rule.replace("ACTION", "fail")).test(inspected.source);
-  return hasPriorCliRules && !hasFail
-    ? `${label} Waypost CLI approvals are missing fail: ${filePath}`
+  const hasAction = new RegExp(rule.replace("ACTION", shellRegex(action))).test(inspected.source);
+  return hasPriorCliRules && !hasAction
+    ? `${label} Waypost CLI approvals are missing ${action}: ${filePath}`
     : null;
 }
 
-export function findMissingWaypostCliFailApprovals({
+function missingAgyWaypostCliActionIssue(paths, action) {
+  if (!paths.agySettings || !paths.agyClaims) return null;
+
+  const claimInspected = readRetiredPermissionFile(paths.agyClaims, "Agy workflow claims");
+  if (claimInspected.issue || claimInspected.source === null) return null;
+
+  let claim;
+  try {
+    claim = JSON.parse(claimInspected.source);
+  } catch {
+    return null;
+  }
+  // Only inspect the workflow-owned claim. Agy settings can contain arbitrary
+  // command(...) grants, and those must not be treated as Agentgear approvals.
+  if (claim?.version !== 1 || claim?.producer !== "workflow"
+    || !Array.isArray(claim.permissions)
+    || claim.permissions.some(permission => typeof permission !== "string")) {
+    return null;
+  }
+
+  const priorWaypostCli = claim.permissions.filter(permission =>
+    permission.startsWith("command(")
+    && permission.includes(" --state-dir ")
+    && (permission.endsWith(" read)") || permission.endsWith(" list)"))
+  );
+  if (priorWaypostCli.length === 0) return null;
+
+  const settingsInspected = readRetiredPermissionFile(paths.agySettings, "Agy settings");
+  if (settingsInspected.issue || settingsInspected.source === null) return null;
+  let settings;
+  try {
+    settings = JSON.parse(settingsInspected.source);
+  } catch {
+    return null;
+  }
+  const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
+  const missing = priorWaypostCli
+    .map(permission => permission.replace(/ (?:read|list)\)$/, ` ${action})`))
+    .filter(permission => !allowed.has(permission));
+  return missing.length > 0
+    ? `Agy Waypost CLI approvals are missing ${action}: ${paths.agySettings}`
+    : null;
+}
+
+function findMissingWaypostCliActionApprovals(action, {
   scope = "user",
   project = process.cwd(),
   env = process.env
@@ -549,15 +598,17 @@ export function findMissingWaypostCliFailApprovals({
   const projectDir = path.resolve(project);
   const paths = permissionPaths(scope, projectDir, env);
   const issues = [];
-  const claudeIssue = missingClaudeWaypostCliFailIssue(paths);
+  const claudeIssue = missingClaudeWaypostCliActionIssue(paths, action);
   if (claudeIssue) issues.push(claudeIssue);
+  const agyIssue = missingAgyWaypostCliActionIssue(paths, action);
+  if (agyIssue) issues.push(agyIssue);
   for (const [filePath, label] of [
     [paths.codexRules, "Codex rules"],
     [paths.codexLegacyRules, "Legacy Codex rules"],
     [paths.geminiPolicy, "Gemini policy"],
     [paths.geminiLegacyPolicy, "Legacy Gemini policy"]
   ]) {
-    const issue = missingGeneratedWaypostCliFailIssue(filePath, label);
+    const issue = missingGeneratedWaypostCliActionIssue(filePath, label, action);
     if (issue) issues.push(issue);
   }
   return {
@@ -567,6 +618,14 @@ export function findMissingWaypostCliFailApprovals({
     issues,
     paths
   };
+}
+
+export function findMissingWaypostCliFailApprovals(options = {}) {
+  return findMissingWaypostCliActionApprovals("fail", options);
+}
+
+export function findMissingWaypostCliDeadLetterApprovals(options = {}) {
+  return findMissingWaypostCliActionApprovals("dead-letter", options);
 }
 
 function generatedClaudePermissions(waypost) {
