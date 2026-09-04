@@ -11,6 +11,8 @@ Action: execute_delegated_task
 Task kind: generic
 Round: 1
 
+Apply the `route-waypost-action` skill.
+
 <task contract>
 ```
 

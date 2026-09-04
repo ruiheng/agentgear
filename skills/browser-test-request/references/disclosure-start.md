@@ -73,6 +73,8 @@ Planner: <planner_session_id_or_N/A>
 Round: <round>
 Browser Check: <browser_check_id>
 
+Apply the `route-waypost-action` skill.
+
 ## Summary
 [One-line browser-check summary]
 

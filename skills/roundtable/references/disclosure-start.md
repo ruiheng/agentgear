@@ -51,7 +51,7 @@ Resolve by priority: explicit input -> current roundtable context -> message bod
    - Call `session_require` for an explicit `participant_session_id` or known `participant_session_ref`, current workspace, and known host.
    - On `ready`, reuse its returned host, real id, and address.
    - On `not_found`, resolve role `roundtable_participant`, then create `<participant_session_ref>` with the recorded moderator parent and selected opaque launch candidate. `session_create` verifies the parent; do not preflight it with `session_require`.
-   - Record each returned host, real id, and sole address. The personal control message is the bootstrap path; do not inject a startup instruction.
+   - Record each returned host, real id, and sole address. The personal control message includes the `route-waypost-action` skill.
 6. Send the opening user-intent message to the group with `waypost_send group:true`, `to_address = group_address`, and `from_address = moderator_notify_address`.
 7. Send each participant one personal control message with Action `roundtable_participant_turn`; first turns are parallel by default.
 
@@ -103,6 +103,8 @@ Use this body for participant personal message:
 Task: <roundtable_id>
 Action: roundtable_participant_turn
 Round: <round>
+
+Apply the `route-waypost-action` skill.
 
 ## Roundtable
 - Group: <group_address>

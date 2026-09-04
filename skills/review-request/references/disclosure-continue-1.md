@@ -75,6 +75,8 @@ Action: review_requested
 Round: <round>
 Requester session: <requester_session_id>
 
+Apply the `route-waypost-action` skill.
+
 ## Summary
 [One-line review request summary]
 

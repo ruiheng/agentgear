@@ -1131,6 +1131,26 @@ test("action-template validation rejects indented and dynamic emitted headers", 
   }
 });
 
+test("manual first Action templates mention the route skill", () => {
+  const templates = [
+    "skills/multi-agent-protocol/references/internal-protocol/dispatch-plan.md",
+    "skills/delegate-task/references/dispatch.md",
+    "skills/intent-framing/references/sequence.md",
+    "skills/browser-test-request/references/disclosure-start.md",
+    "skills/refactor-review/references/internal-protocol/request.md",
+    "skills/review-request/references/disclosure-continue-1.md",
+    "skills/roundtable/references/disclosure-start.md",
+    "skills/tech-design-workflow/references/review-existing.md"
+  ];
+  for (const relativePath of templates) {
+    const source = fs.readFileSync(path.join(rootDir, relativePath), "utf8");
+    assert.ok(
+      source.includes("Apply the `route-waypost-action` skill."),
+      `${relativePath} must mention route-waypost-action`
+    );
+  }
+});
+
 test("declared Action producer boundary rejects dynamic tokens and forged declarations", () => {
   const declarations = loadActionProducerManifest(
     pathToFileURL(path.join(rootDir, "skills", "multi-agent-protocol", "scripts", "action-producers.mjs")).href

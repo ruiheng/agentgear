@@ -31,6 +31,8 @@ Action: design_spec_review_requested
 Round: <round>
 Review Checkpoint: <review_checkpoint>
 
+Apply the `route-waypost-action` skill.
+
 ## Requester Context
 - Source: inline requester Design Task Contract
 

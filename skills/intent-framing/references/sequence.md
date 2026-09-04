@@ -18,6 +18,8 @@ Task: <flow_id>
 Action: intent_framer_turn
 Framer: <framer_id>
 
+Apply the `route-waypost-action` skill.
+
 Flow: <manifest path>
 Artifact: <framer artifact path>
 Inputs:

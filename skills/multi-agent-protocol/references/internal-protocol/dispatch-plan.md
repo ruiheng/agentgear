@@ -62,6 +62,8 @@ Planner: {{TO_SESSION_ID}}
 Supervisor session: <supervisor_session_id>
 Round: 1
 
+Apply the `route-waypost-action` skill.
+
 ## Summary
 [One-line plan summary]
 

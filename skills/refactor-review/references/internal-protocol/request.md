@@ -68,6 +68,8 @@ Action: refactor_review_requested
 Planner: <planner_session_id_or_N/A>
 Round: <round>
 
+Apply the `route-waypost-action` skill.
+
 ## Summary
 [One-line refactor review request summary]
 
