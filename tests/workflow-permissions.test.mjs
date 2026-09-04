@@ -5,9 +5,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { main as cliMain } from "../cli/agentgear.mjs";
+import { permissionMigrationScopes } from "../cli/lib/installer.mjs";
 import {
   checkPermissions,
   findMissingWorkflowLauncherApprovals,
+  findMissingWaypostCliDeadLetterApprovals,
   findMissingWaypostCliFailApprovals,
   findRetiredPermissionApprovals,
   initializePermissions,
@@ -29,7 +31,7 @@ function writeWaypostExecutable(directory, name = "waypost") {
 const args = process.argv.slice(2);
 const supported = (args[0] === "mcp" && args[1] === "--help") ||
   (args[0] === "doc" && args[1] === "--help") ||
-  (args[0] === "--state-dir" && ["read", "list", "fail", "forward", "wait", "undefer", "group", "address", "renew"].includes(args[2]) && args[3] === "--help");
+  (args[0] === "--state-dir" && ["read", "list", "fail", "dead-letter", "forward", "wait", "undefer", "group", "address", "renew"].includes(args[2]) && args[3] === "--help");
 process.exit(supported ? 0 : 1);
 ` : `#!/bin/sh
 if [ "$#" -eq 2 ] && { [ "$1" = "mcp" ] || [ "$1" = "doc" ]; } && [ "$2" = "--help" ]; then
@@ -37,7 +39,7 @@ if [ "$#" -eq 2 ] && { [ "$1" = "mcp" ] || [ "$1" = "doc" ]; } && [ "$2" = "--he
 fi
 if [ "$#" -eq 4 ] && [ "$1" = "--state-dir" ] && [ "$4" = "--help" ]; then
   case "$3" in
-    read|list|fail|forward|wait|undefer|group|address|renew) exit 0 ;;
+    read|list|fail|dead-letter|forward|wait|undefer|group|address|renew) exit 0 ;;
   esac
 fi
 exit 1
@@ -328,11 +330,60 @@ test("permission migration detects managed Waypost CLI rules missing fail", () =
     assert.equal(stale.required, true);
     assert.equal(stale.issues.length, 3);
     assert.equal(stale.issues.every(issue => /missing fail/.test(issue)), true);
+    const deadLetterStale = findMissingWaypostCliDeadLetterApprovals({ scope: "user", project, env: environment });
+    assert.equal(deadLetterStale.required, true);
+    assert.equal(deadLetterStale.issues.length, 3);
+    assert.equal(deadLetterStale.issues.every(issue => /missing dead-letter/.test(issue)), true);
 
     fs.rmSync(manifestFile);
     fs.writeFileSync(paths.codexRules, "# Agentgear workflow - generated approval rules\n");
     fs.writeFileSync(paths.geminiPolicy, "# Agentgear workflow - generated policy rules\n");
     assert.equal(findMissingWaypostCliFailApprovals({ scope: "user", project, env: environment }).required, false);
+    assert.equal(findMissingWaypostCliDeadLetterApprovals({ scope: "user", project, env: environment }).required, false);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("permission migration detects Agy Waypost CLI approvals missing dead-letter", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-agy-waypost-migration-test-"));
+  const home = path.join(temporary, "home");
+  const agyHome = path.join(temporary, "agy-home");
+  const project = path.join(temporary, "project");
+  const environment = { HOME: home, AGENTGEAR_AGY_HOME: agyHome, PATH: "" };
+  const paths = permissionPaths("user", project, environment);
+  const command = "/opt/waypost";
+  const stateDir = "/opt/waypost-state";
+  const permission = action => `command(${shellCommand([command, "--state-dir", stateDir, action])})`;
+  const priorPermissions = [permission("read"), permission("list"), permission("fail")];
+  try {
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(path.dirname(paths.agySettings), { recursive: true });
+    fs.writeFileSync(paths.agySettings, `${JSON.stringify({ permissions: { allow: priorPermissions } }, null, 2)}\n`);
+    fs.writeFileSync(paths.agyClaims, `${JSON.stringify({
+      version: 1,
+      producer: "workflow",
+      permissions: priorPermissions
+    }, null, 2)}\n`);
+
+    const stale = findMissingWaypostCliDeadLetterApprovals({ scope: "user", project, env: environment });
+    assert.equal(stale.required, true);
+    assert.deepEqual(stale.issues, [`Agy Waypost CLI approvals are missing dead-letter: ${paths.agySettings}`]);
+    assert.equal(findMissingWaypostCliFailApprovals({ scope: "user", project, env: environment }).required, false);
+
+    fs.writeFileSync(paths.agyClaims, `${JSON.stringify({
+      version: 1,
+      producer: "workflow",
+      permissions: [...priorPermissions, permission("dead-letter")]
+    }, null, 2)}\n`);
+    const settingsOnlyStale = findMissingWaypostCliDeadLetterApprovals({ scope: "user", project, env: environment });
+    assert.equal(settingsOnlyStale.required, true);
+    assert.deepEqual(settingsOnlyStale.issues, [`Agy Waypost CLI approvals are missing dead-letter: ${paths.agySettings}`]);
+
+    const scopes = permissionMigrationScopes({ scope: "global", project }, environment);
+    assert.deepEqual(scopes.map(result => ({ scope: result.scope, reasons: result.reasons })), [
+      { scope: "user", reasons: ["missing-waypost-cli-dead-letter"] }
+    ]);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -418,9 +469,11 @@ test("user-scoped permission init and check cover all harnesses", () => {
     const stateDir = path.resolve(environment.WAYPOST_STATE_DIR);
     const quotedWaypostDoc = `command('${waypost}' doc)`;
     const quotedWaypostRead = `command('${waypost}' --state-dir '${stateDir}' read)`;
+    const quotedWaypostDeadLetter = `command('${waypost}' --state-dir '${stateDir}' dead-letter)`;
     const quotedLauncher = `command('${path.join(home, ".local", "bin", "agentgear")}' skill get)`;
     assert.equal(agy.permissions.allow.includes(quotedWaypostDoc), true);
     assert.equal(agy.permissions.allow.includes(quotedWaypostRead), true);
+    assert.equal(agy.permissions.allow.includes(quotedWaypostDeadLetter), true);
     assert.equal(agy.permissions.allow.includes(quotedLauncher), true);
     assert.equal(agy.permissions.allow.includes(`command(${waypost} doc)`), false);
     assert.equal(agy.permissions.allow.includes("command(waypost)"), false);
@@ -853,6 +906,8 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     const expectedReadWildcard = `${expectedRead.slice(0, -1)} *)`;
     const expectedFail = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} fail)`;
     const expectedFailWildcard = `${expectedFail.slice(0, -1)} *)`;
+    const expectedDeadLetter = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} dead-letter)`;
+    const expectedDeadLetterWildcard = `${expectedDeadLetter.slice(0, -1)} *)`;
     const expectedRenew = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} renew)`;
     const expectedRenewWildcard = `${expectedRenew.slice(0, -1)} *)`;
     const additionalActions = ["forward", "wait", "undefer", "group", "address"];
@@ -867,6 +922,8 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     assert.equal(claude.permissions.allow.includes(expectedReadWildcard), true);
     assert.equal(claude.permissions.allow.includes(expectedFail), true);
     assert.equal(claude.permissions.allow.includes(expectedFailWildcard), true);
+    assert.equal(claude.permissions.allow.includes(expectedDeadLetter), true);
+    assert.equal(claude.permissions.allow.includes(expectedDeadLetterWildcard), true);
     assert.equal(claude.permissions.allow.includes(expectedRenew), true);
     assert.equal(claude.permissions.allow.includes(expectedRenewWildcard), true);
     for (const permission of additionalPermissions) {
@@ -879,12 +936,13 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
 
     const manifest = JSON.parse(fs.readFileSync(path.join(project, ".claude", ".agentgear-workflow-permissions.json"), "utf8"));
     assert.equal(manifest.version, 4);
-    assert.equal(manifest.rules.length, 20);
+    assert.equal(manifest.rules.length, 22);
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));
 
     const codex = fs.readFileSync(path.join(project, ".codex", "rules", "agentgear-workflow.rules"), "utf8");
     assert.match(codex, new RegExp(escapeRegex(waypost)));
     assert.match(codex, /"fail"/);
+    assert.match(codex, /"dead-letter"/);
     assert.match(codex, /"renew"/);
     for (const action of additionalActions) assert.match(codex, new RegExp(`"${action}"`));
     assert.match(codex, new RegExp(`pattern = \\[${escapeRegex(JSON.stringify(fs.realpathSync(waypost)))}, "doc"\\]`));
@@ -894,6 +952,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     assert.match(gemini, /mcpName = "waypost"/);
     assert.match(gemini, new RegExp(escapeRegex(waypost)));
     assert.match(gemini, /"fail"/);
+    assert.match(gemini, /"dead-letter"/);
     assert.match(gemini, /"renew"/);
     for (const action of additionalActions) assert.match(gemini, new RegExp(`"${action}"`));
     assert.match(gemini, new RegExp(`commandPrefix = \\[${escapeRegex(JSON.stringify(fs.realpathSync(waypost)))}, "doc"\\]`));

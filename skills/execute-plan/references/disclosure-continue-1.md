@@ -29,6 +29,17 @@ Use this after direct, harness, or planner-owned fallback selection. The planner
 Planner-owned git writes, commits, review requests, and closeout are workflow-authorized for either executor.
 Ask the user only for real scope/tradeoff decisions, explicit human gates, dirty-worktree conflicts, or branch ownership blockers.
 
+## Closeout Routing
+
+- `work_accepted` for a task-lane review: Planner chooses the next action;
+  when closeout is selected, run `review-closeout`, then `planner-closeout`.
+- `work_accepted` for `integration_final` or `standalone`: Planner follows the
+  lane-specific next action.
+- `code_delivery_complete` with `Outcome: completed`: Planner runs
+  `planner-closeout` for a `skip` task.
+- `code_delivery_complete` with `Outcome: blocked`: Planner records the
+  blocker and retains the task, branch, workspace, and sessions.
+
 ## Decision Rules
 
 - `delegate-task` Selection-Only owns execution-surface selection; `delegate-code-task` owns only persistent Waypost code work

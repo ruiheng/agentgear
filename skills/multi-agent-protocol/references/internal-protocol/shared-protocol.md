@@ -125,13 +125,15 @@ On a wakeup nudge or explicit user message check:
 
 1. Call `waypost_recv` first.
 2. If no personal message is returned, report it; `no_message` ends this receive pass.
-3. Use `body` as the primary input and delivery metadata as routing authority. A message without an Action field is an ordinary personal message. An Action field selects its action skill; on lookup failure, do not infer a workflow.
+3. Use `body` as the primary input and delivery metadata as routing authority. A message without an Action field is an ordinary personal message. An Action field selects its action skill; an unknown, ambiguous, or otherwise invalid Action is a permanent routing failure, so do not infer or substitute a workflow.
 4. Settle each claimed delivery according to its current state:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
-   - `waypost_release` or `waypost_defer` only when the delivery itself cannot be handled now
-   - the reported Waypost CLI `fail` command when Action lookup or another routing step fails
-5. Use the available Waypost receive interface to process work, not to wait for work; repeat it when draining known pending work, but do not poll meaninglessly. One claim is not a global receive lock; do not hold an unprocessable delivery merely to preserve ordering.
+   - `waypost_release` or `waypost_defer` only when handling is temporarily unavailable and retry remains appropriate
+   - the reported Waypost CLI `dead-letter` command, using the `executable` and `resolved_state_dir` from `waypost_status` with `include_cli_context: true` and preserving each value as one argv argument, for an unknown, ambiguous, invalid, or otherwise permanently unroutable Action
+   - the reported Waypost CLI `fail` command only when processing failed but retry remains appropriate
+   - If the `dead-letter` command exits nonzero, parse its one JSON error object from stderr and preserve the permanent routing decision. Retry the identical command only when its `retryable` field is `true` and the claim's lease remains valid. For `false`, missing, malformed, or absent error output, report the claim unsettled immediately. Never replace it with `waypost_ack`, `waypost_release`, `waypost_defer`, the Waypost `fail` command, or a workflow. If a permitted retry still fails, report the claim unsettled and stop; do not claim completion.
+5. Use the available Waypost receive interface to process work, not to wait for work; repeat it when draining known pending work, but do not poll meaninglessly. Continue receiving other useful work when appropriate. One claim is not a global receive lock; do not hold an unprocessable delivery merely to preserve ordering.
 
 ## Natural End Gate
 
-Before ending, settle every delivery still claimed by this session. Queued, released, or deferred work may remain pending. If message context is lost, recover it with `waypost_read`.
+Before ending, settle every delivery still claimed by this session. Queued, released, or deferred work may remain pending. A claim whose terminal `dead-letter` settlement failed and cannot be safely retried is reported as unsettled rather than given a different settlement. If message context is lost, recover it with `waypost_read`.

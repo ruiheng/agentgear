@@ -7,6 +7,7 @@ const WAYPOST_CLI_ACTIONS = [
   { action: "read", stateScoped: true },
   { action: "list", stateScoped: true },
   { action: "fail", stateScoped: true },
+  { action: "dead-letter", stateScoped: true },
   { action: "forward", stateScoped: true },
   { action: "wait", stateScoped: true },
   { action: "undefer", stateScoped: true },

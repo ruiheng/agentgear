@@ -89,7 +89,7 @@ was deleted (full purge can remove that link).
 The workflow-orchestration features depend on
 [Waypost](https://github.com/ruiheng/waypost). Install Waypost separately and
 ensure its `waypost` command is available on `PATH` before using the workflow
-pack. The workflow requires Waypost 0.6.0 or newer. `agentgear doctor --pack
+pack. The workflow requires Waypost 0.8.0 or newer. `agentgear doctor --pack
 workflow` checks `waypost --version` and the declared session-host
 prerequisites; it does not probe MCP behavior. The wrapper lets Waypost own
 notification deadlines instead of imposing a default outer timeout that could

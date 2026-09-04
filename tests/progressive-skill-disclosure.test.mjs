@@ -601,6 +601,21 @@ test("route-waypost-action loads the registered instructions for an Action field
   assert.match(bootstrap, /Agentgear/);
   assert.match(bootstrap, /skill get/);
   assert.match(bootstrap, /action:<value>/);
+  const normalizedBootstrap = bootstrap.replace(/\s+/g, " ");
+  assert.match(normalizedBootstrap, /waypost_status/);
+  assert.match(normalizedBootstrap, /include_cli_context: true/);
+  assert.match(normalizedBootstrap, /argv values; keep every value as one argument/);
+  assert.match(normalizedBootstrap, /executable, "--state-dir", resolved_state_dir/);
+  assert.match(normalizedBootstrap, /"--delivery", delivery_id/);
+  assert.match(normalizedBootstrap, /"--lease-token", lease_token/);
+  assert.match(normalizedBootstrap, /"--reason", "unknown_action"/);
+  assert.match(normalizedBootstrap, /shell-quote every substituted value/);
+  assert.match(normalizedBootstrap, /parse the one JSON error object from stderr/);
+  assert.match(normalizedBootstrap, /Retry the identical dead-letter argv only when its `retryable` field is `true`/);
+  assert.match(normalizedBootstrap, /For `false`, missing, malformed, or absent error output, report the claim unsettled immediately/);
+  assert.match(normalizedBootstrap, /Never use `waypost_ack`, `waypost_release`, `waypost_defer`, the Waypost `fail` command, or a workflow as a fallback/);
+  assert.match(normalizedBootstrap, /report the claim unsettled and stop/);
+  assert.doesNotMatch(normalizedBootstrap, /\bwaypost dead-letter\b/);
   assert.doesNotMatch(bootstrap, /agentgear skill get route-waypost-action/);
 
   const result = command(["skill", "get", "route-waypost-action"]);
@@ -609,7 +624,10 @@ test("route-waypost-action loads the registered instructions for an Action field
   assert.match(result.stdout, /Agentgear/);
   assert.match(result.stdout, /skill get/);
   assert.match(result.stdout, /action:<value>/);
-  assert.doesNotMatch(result.stdout, /validat|malformed|case-insensitive/i);
+  assert.match(result.stdout.replace(/\s+/g, " "), /argv values; keep every value as one argument/);
+  assert.match(result.stdout.replace(/\s+/g, " "), /Retry the identical dead-letter argv only when its `retryable` field is `true`/);
+  assert.match(result.stdout.replace(/\s+/g, " "), /report the claim unsettled and stop/);
+  assert.doesNotMatch(result.stdout, /validat|case-insensitive/i);
   assert.doesNotMatch(result.stdout, /waypost_recv/);
 });
 
@@ -622,7 +640,15 @@ test("receiver and rejection handlers settle routing and authentication failures
     "internal-protocol",
     "shared-protocol.md"
   ), "utf8");
-  assert.match(receiver, /Action lookup or another routing step fails/);
+  assert.match(receiver, /dead-letter.*permanently unroutable Action/);
+  assert.match(receiver, /executable.*resolved_state_dir.*waypost_status/);
+  assert.match(receiver, /parse its one JSON error object from stderr.*preserve the permanent routing decision/);
+  assert.match(receiver, /Retry the identical command only when its `retryable` field is `true`/);
+  assert.match(receiver, /For `false`, missing, malformed, or absent error output, report the claim unsettled immediately/);
+  assert.match(receiver, /Never replace it with `waypost_ack`, `waypost_release`, `waypost_defer`, the Waypost `fail` command, or a workflow/);
+  assert.match(receiver, /report the claim unsettled and stop/);
+  assert.match(receiver, /fail.*retry remains appropriate/);
+  assert.match(receiver, /release.*temporarily unavailable/);
   assert.match(receiver, /Never invent, rename, or approximate an Action/);
   assert.match(receiver, /If\s+no specialized Action applies, use `Action: generic`/);
   assert.doesNotMatch(receiver, /malformed or unknown Action is rejected/);

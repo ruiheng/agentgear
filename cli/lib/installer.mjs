@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   findMissingWorkflowLauncherApprovals,
+  findMissingWaypostCliDeadLetterApprovals,
   findMissingWaypostCliFailApprovals,
   findRetiredPermissionApprovals
 } from "../../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
@@ -138,15 +139,17 @@ export function permissionMigrationScopes(options, env = process.env) {
       const retired = findRetiredPermissionApprovals({ ...candidate, env });
       const launcher = findMissingWorkflowLauncherApprovals({ ...candidate, env });
       const waypostFail = findMissingWaypostCliFailApprovals({ ...candidate, env });
+      const waypostDeadLetter = findMissingWaypostCliDeadLetterApprovals({ ...candidate, env });
       return {
         ...candidate,
-        required: retired.required || launcher.required || waypostFail.required,
+        required: retired.required || launcher.required || waypostFail.required || waypostDeadLetter.required,
         reasons: [
           ...(retired.required ? ["retired-approval"] : []),
           ...(launcher.required ? ["missing-workflow-launcher"] : []),
-          ...(waypostFail.required ? ["missing-waypost-cli-fail"] : [])
+          ...(waypostFail.required ? ["missing-waypost-cli-fail"] : []),
+          ...(waypostDeadLetter.required ? ["missing-waypost-cli-dead-letter"] : [])
         ],
-        issues: [...retired.issues, ...launcher.issues, ...waypostFail.issues]
+        issues: [...retired.issues, ...launcher.issues, ...waypostFail.issues, ...waypostDeadLetter.issues]
       };
     })
     .filter(result => result.required);
@@ -166,7 +169,8 @@ export function printPermissionMigrationRequirement({
     result.issues?.some(issue => /adwf-send-and-wake|review-tech-design/.test(issue)));
   const launcherMissing = detectedScopes.some(result => result.reasons?.includes("missing-workflow-launcher"));
   const waypostFailMissing = detectedScopes.some(result => result.reasons?.includes("missing-waypost-cli-fail"));
-  if (!commandRetired && !retiredDetected && !launcherMissing && !waypostFailMissing) return;
+  const waypostDeadLetterMissing = detectedScopes.some(result => result.reasons?.includes("missing-waypost-cli-dead-letter"));
+  if (!commandRetired && !retiredDetected && !launcherMissing && !waypostFailMissing && !waypostDeadLetterMissing) return;
   const retiredScopes = [...new Set(detectedScopes
     .filter(isRetiredResult)
     .map(result => result.scope))];
@@ -175,6 +179,9 @@ export function printPermissionMigrationRequirement({
     .map(result => result.scope))];
   const waypostFailScopes = [...new Set(detectedScopes
     .filter(result => result.reasons?.includes("missing-waypost-cli-fail"))
+    .map(result => result.scope))];
+  const waypostDeadLetterScopes = [...new Set(detectedScopes
+    .filter(result => result.reasons?.includes("missing-waypost-cli-dead-letter"))
     .map(result => result.scope))];
   if (retiredCommandApproval) {
     print("SECURITY ACTION REQUIRED: permission_migration_required command=adwf-send-and-wake");
@@ -188,6 +195,9 @@ export function printPermissionMigrationRequirement({
   if (waypostFailMissing) {
     print("SECURITY ACTION REQUIRED: permission_migration_required missing=waypost-cli-fail");
   }
+  if (waypostDeadLetterMissing) {
+    print("SECURITY ACTION REQUIRED: permission_migration_required missing=waypost-cli-dead-letter");
+  }
   if (retiredScopes.length > 0) {
     print(`Detected retired permission approvals in scope(s): ${retiredScopes.join(",")}`);
   }
@@ -196,6 +206,9 @@ export function printPermissionMigrationRequirement({
   }
   if (waypostFailScopes.length > 0) {
     print(`Detected outdated Waypost CLI approvals in scope(s): ${waypostFailScopes.join(",")}`);
+  }
+  if (waypostDeadLetterScopes.length > 0) {
+    print(`Detected outdated Waypost CLI approvals in scope(s): ${waypostDeadLetterScopes.join(",")}`);
   }
   print("Run: agentgear permissions init");
   print("For every project where workflow permissions were initialized, run: agentgear permissions init --scope project --project <path>");

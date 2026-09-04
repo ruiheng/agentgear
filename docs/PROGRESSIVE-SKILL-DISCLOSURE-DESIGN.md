@@ -174,7 +174,7 @@ This validation is static documentation and template consistency checking. The C
 
 route-waypost-action/SKILL.md is directly installed and fits within the 2 KiB bootstrap budget. Its discovery description defines an Action field as a line in the received Waypost message written `Action: <value>`, where `<value>` names registered Agentgear instructions. Message retrieval remains discoverable from the Waypost MCP and CLI and is not duplicated as an Agentgear skill.
 
-After loading, the skill retrieves `agentgear skill get action:<value>` and follows the returned owning selector. The Agentgear CLI owns selector validation and lookup errors. The prompt does not parse the value, define a token grammar, classify malformed fields, or implement a rejection protocol. If lookup fails, the router does not guess another workflow; the Receiver Contract fails any associated claim as a routing failure.
+After loading, the skill retrieves `agentgear skill get action:<value>` and follows the returned owning selector. The Agentgear CLI owns selector validation and lookup errors. The prompt does not parse the value or define a token grammar. If lookup reports an unknown, ambiguous, or otherwise invalid Action, the router does not guess another workflow: it calls `waypost_status` with `include_cli_context: true`, then invokes the reported executable with its resolved state directory and the `dead-letter --delivery ... --lease-token ... --reason "unknown_action" --json` argv values, preserving each dynamic value as one argument. The Receiver Contract treats that as a permanent routing failure; a nonzero dead-letter exit parses its stderr JSON and retries only that identical settlement when `retryable` is true and the lease remains valid, otherwise reporting the claim unsettled without an alternate settlement or workflow.
 
 ### Small installed entries
 
@@ -274,7 +274,7 @@ Selection behavior is exact:
 - An explicit-skill-only install remains additive.
 - A default or explicit-pack install, source-install, or update is authoritative for the selected targets and reconciles them to selectedInstallableSkills.
 
-Pack descriptions change so all means all maintained capabilities, not every skill directory exposed to a harness. Workflow and browser readiness requires Waypost 0.6.0 or newer and one alternative session host; upstream documentation is no longer a target-installation readiness requirement. `agentgear list --json` reports each skill's exposure; selector discovery belongs to `agentgear skill list` rather than treating aliases as skills.
+Pack descriptions change so all means all maintained capabilities, not every skill directory exposed to a harness. Workflow and browser readiness requires Waypost 0.8.0 or newer and one alternative session host; upstream documentation is no longer a target-installation readiness requirement. `agentgear list --json` reports each skill's exposure; selector discovery belongs to `agentgear skill list` rather than treating aliases as skills.
 
 Catalog schemaVersion remains 1 because exposure is an internal additive field consumed atomically by this release. The updated validator requires a valid exposure for every canonical skill. Selector aliases stay with canonical agent-facing slices rather than becoming catalog product metadata.
 
@@ -282,7 +282,7 @@ Catalog schemaVersion remains 1 because exposure is an internal additive field c
 
 `agentgear doctor` separates executable readiness from optional upstream documentation availability:
 
-- Required pack commands retain their existing `ok` or `missing` checks and affect exit status. For Waypost, doctor additionally runs `waypost --version` and requires a valid version of at least 0.6.0; it does not start MCP or probe behavior.
+- Required pack commands retain their existing `ok` or `missing` checks and affect exit status. For Waypost, doctor additionally runs `waypost --version` and requires a valid version of at least 0.8.0; it does not start MCP or probe behavior.
 - Each alternative session host prints only its external executable state, for example `ok      session host agent-deck (agent-deck)` or `unavailable session host agent-deck (agent-deck)`. At least one declared host must be available for workflow and browser readiness, exactly as today.
 - A host's catalog `upstream` field describes optional documentation for explicit skill retrieval; it no longer causes a lookup under any harness target and is not counted in the missing-requirement total. The separate `requirements.upstreams` loop is removed for this catalog because packs do not require an installed upstream skill.
 - For Agent Deck, doctor validates documentation without network access. It searches the current verified catalog digest first in `<data-root>/retrieved-skills/agent-deck/<digest-hex>/payload`, then in the current or retained immutable runtimes whose embedded catalog pin matches. It prints exactly one informational state: `ok      optional documentation agent-deck (verified local resource)`, `available optional documentation agent-deck (run: agentgear skill get agent-deck)`, or `warning optional documentation agent-deck (unverifiable local resource: <path>)`. `available` means no verified local copy is present and never triggers a fetch. `warning` reports corruption but does not make an otherwise ready host fail; explicit `skill get` and full purge retain their stricter validation behavior.
@@ -508,7 +508,8 @@ Later-round design review may use an ordinary diff between immutable design arti
 
 - Missing or corrupt selector content fails before workflow execution with an exact skill/selector or alias diagnostic. The agent does not guess.
 - An ordinary workflow message uses `Action: generic`; a received message without an Action field remains an ordinary personal message.
-- An unsupported action is not guessed or rejected by the router; the Receiver Contract fails any associated claim as a routing failure.
+- An unsupported action is not guessed or substituted by the router; the Receiver Contract dead-letters any associated claim as a permanent routing failure.
+- A failed dead-letter invocation preserves that permanent routing decision: parse the CLI error's `retryable` field and retry only the identical settlement when it is true and the lease remains valid; false, missing, malformed, or absent error output reports the claim unsettled without substituting another settlement.
 - A prompt-only skill explicitly exposed without a working launcher produces an actionable bootstrap error; --no-launcher warns during installation.
 - A failed authoritative update rolls back owned withdrawals, new writes, runtime publication, and installation state.
 - A recorded path that no longer matches its ownership record blocks ordinary withdrawal and is preserved. Only the separately invoked legacy migration may remove an exact whitelisted immediate child by name.

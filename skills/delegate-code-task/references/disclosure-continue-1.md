@@ -23,6 +23,18 @@ The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`,
 - Keep the recorded Branch Plan fixed for this dispatch. If the user requests a branch-plan change, do not send a review request; report it to planner for a new dispatch context.
 - Keep all such decisions and copy the accumulated list into the next review request or terminal handoff under `## User Decisions`; omit the section when no decision exists.
 - Follow workflow policy. After a delivery commit, run `review-request` when per-task review is required and reuse the recorded reviewer. The coder request does not need task background, goals, constraints, workflow policy, or other task-content description; reviewer gets them from planner context.
+
+## Completion Routing
+
+Read the recorded `Per-task review` policy before sending the terminal result.
+
+- `required`: commit and validate → send `review_requested` → end this turn;
+  resume only when a later `rework_required` arrives.
+- `skip`: commit and validate → `code_delivery_complete` with
+  `Outcome: completed` → Planner closeout.
+- blocker before review acceptance: `code_delivery_complete` with
+  `Outcome: blocked` → Planner handles the blocker and retains task state.
+
 - Send this terminal handoff after commit and validation when review is skipped, or on a blocker before an accepted task review:
 
 ```markdown

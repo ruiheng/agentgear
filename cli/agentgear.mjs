@@ -74,7 +74,7 @@ import { runCompactMemoryHook } from "../skills/multi-agent-protocol/scripts/com
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(path.dirname(thisFile), "..");
-const minimumWaypostVersion = [0, 6, 0];
+const minimumWaypostVersion = [0, 8, 0];
 const minimumWaypostVersionText = minimumWaypostVersion.join(".");
 
 function print(message = "") {
