@@ -790,7 +790,7 @@ function hooks(argumentsList) {
       "Usage: agentgear hooks install|uninstall|doctor",
       "",
       "Install or diagnose Agentgear's optional Codex hooks.",
-      "After installation, review and trust both Agentgear hooks with /hooks in Codex."
+      "After installation, review and trust all Agentgear hooks with /hooks in Codex."
     ].join("\n"));
     return;
   }
@@ -799,7 +799,7 @@ function hooks(argumentsList) {
   if (operation === "install") {
     const result = installCodexCompactMemory({ launcher });
     print(`Agentgear Codex hooks ${result.changed ? "installed" : "already installed"}: ${result.path}`);
-    print("Codex hook trust: review both Agentgear hooks with /hooks before use");
+    print("Codex hook trust: review all Agentgear hooks with /hooks before use");
     return;
   }
   if (operation === "uninstall") {
@@ -811,6 +811,7 @@ function hooks(argumentsList) {
     const result = doctorCodexCompactMemory({ launcher });
     print(`Agentgear Codex capture hook: ${result.missing.includes("PostToolUse") ? "missing" : "configured"}`);
     print(`Agentgear Codex recovery hook: ${result.missing.includes("SessionStart") ? "missing" : "configured"}`);
+    print(`Agentgear Codex upstream recovery hook: ${result.missing.includes("Stop") ? "missing" : "configured"}`);
     print(`Agentgear launcher: ${result.launcherUsable ? "available" : "unusable"}`);
     print("Codex hook trust: not checked; verify with /hooks in Codex");
     print(`Hooks file: ${result.path}`);
