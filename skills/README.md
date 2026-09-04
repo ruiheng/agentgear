@@ -208,7 +208,7 @@ flowchart TD
 - A received workflow message is executable work, not a notification to acknowledge and ignore
 - Let agents discover Waypost receipt through its MCP or CLI
 - Use `route-waypost-action` after receiving a Waypost message containing an `Action: <value>` field
-- cross-session progress is asynchronous; follow the shared Async sender rule after dispatch
+- cross-session progress is event-driven; follow the shared Message delivery and continuation rule after dispatch
 - Waypost Action bodies do not repeat transport `From` or `To`; replies use the claimed delivery's sender and recipient addresses, while action-specific identity fields remain only when workflow ownership or cleanup needs them
 - in a shared workspace, the active task worktree state is coder-owned until planner closeout begins; planner must not alter that workspace state while other agents may still be working there
 - when planner self-implements a trivial code task, it must create an explicit task branch from the planner-owned integration branch, commit without routine user confirmation, run any required review, close out the task, and still send `plan_report_delivered`

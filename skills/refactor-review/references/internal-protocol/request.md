@@ -144,4 +144,4 @@ Use the `waypost` MCP tools:
 - if reviewer continuity changes, resend full context
 - create new refactor-reviewer sessions through `session_create` with a verified requester parent
 - after the first create step, later workflow turns must reuse the real `refactor_reviewer_session_id`; do not fall back to `refactor_reviewer_session_ref`
-- follow the shared Async sender rule for the advisory report
+- follow the shared Message delivery and continuation rule for the advisory report

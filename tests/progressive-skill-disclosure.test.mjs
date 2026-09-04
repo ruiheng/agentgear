@@ -651,6 +651,11 @@ test("receiver and rejection handlers settle routing and authentication failures
   assert.match(receiver, /release.*temporarily unavailable/);
   assert.match(receiver, /Never invent, rename, or approximate an Action/);
   assert.match(receiver, /If\s+no specialized Action applies, use `Action: generic`/);
+  assert.match(receiver, /Message delivery and continuation/);
+  assert.match(receiver, /Coordination is push-based and event-driven/);
+  assert.match(receiver, /report only known state and event changes/);
+  assert.match(receiver, /do not poll\s+for replies or other participants' progress/);
+  assert.match(receiver, /repeat it only while draining known pending work/);
   assert.doesNotMatch(receiver, /malformed or unknown Action is rejected/);
 
   const rejected = command(["skill", "get", "action:message_rejected"]);

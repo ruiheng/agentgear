@@ -86,7 +86,8 @@ rejection uses `Input Kind: context-initial`, `Artifact: none`, and Round
 `context`. An author rationale may focus attention but does not limit the review
 or create a special finding protocol.
 
-Send valid reports, including the final round, then follow the Async sender rule.
+Send valid reports, including the final round, then follow the Message delivery
+and continuation rule.
 Send initial-context `NEEDS_INPUT` to the manifest author when that route
 authenticates; otherwise return it to the inbound requester as a lane-setup
 failure.

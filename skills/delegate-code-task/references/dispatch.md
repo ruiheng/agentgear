@@ -83,7 +83,7 @@ The wrapper owns active-task lock acquisition, reviewer-first ordering, and both
 
 After dispatch:
 
-- follow the shared Async sender rule
+- follow the shared Message delivery and continuation rule
 - treat the worker worktree as coder-owned until closeout, even when planner and worker paths are equal
 - successful planner closeout removes this task-scoped coder when the host cleanup adapter verifies it as disposable; explicitly reusable or guard-blocked sessions are preserved and reported
 - keep any reviewer under the planner parent and in the same worker workspace

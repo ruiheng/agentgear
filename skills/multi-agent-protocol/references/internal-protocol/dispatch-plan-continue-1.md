@@ -34,7 +34,7 @@ selector-summary: Apply the internal supervisor-to-planner dispatch protocol, pa
    - `to_address = <planner returned address>`
    - `subject = "plan dispatch: <plan_id>"`
    - `body = <execute-plan message body>`
-15. follow the shared Async sender rule for planner reports
+15. follow the shared Message delivery and continuation rule for planner reports
 
 Rules:
 - use `session_create` only when allocating a new planner lane; use `session_require` when resuming an existing planner session

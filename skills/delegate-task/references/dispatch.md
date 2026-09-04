@@ -36,6 +36,6 @@ Apply the `route-waypost-action` skill.
    - `ready`: reuse its returned host, real id, and address
    - `not_found`: resolve role `<worker_tool_role>`, then call `session_create` with the selected opaque launch candidate and `parent_session_id = <requester_session_id>`; it verifies the requester parent, so do not preflight that parent with `session_require`
    - record the returned real id and sole address, then call `waypost_send` from `waypost_status.default_sender` to that address, subject `delegate: <task_id> -> worker`
-   - follow the shared Async sender rule
+   - follow the shared Message delivery and continuation rule
 
 Until completion or explicit transfer, do not alter a worker-owned shared workspace; temporary cleanup is best-effort after terminal delivery.

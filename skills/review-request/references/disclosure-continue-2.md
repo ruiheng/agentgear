@@ -123,7 +123,7 @@ Rules:
 - do not duplicate `Checks Already Run` in a separate verification section; record coverage gaps inside `Checks Already Run`
 - delegated task reviewer is created by planner dispatch before coder work; create reviewers here only for other lanes
 - `waypost_send` may trigger a best-effort non-local reviewer nudge; correctness relies on Waypost message delivery
-- follow the shared Async sender rule for the review reply
+- follow the shared Message delivery and continuation rule for the review reply
 
 ## Quality Bar
 

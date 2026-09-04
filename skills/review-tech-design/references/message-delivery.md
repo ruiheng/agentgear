@@ -67,7 +67,7 @@ Send the complete form to the request `sender_address` from the bound reviewer
 address, subject `design-spec review report: <task_id> r<round>`. Keep
 `Action: design_spec_review_report` in the initial header. Draft-review's author
 records confirmed User Decision Deltas; committed-docs' requester records them.
-Record exact answers only. Follow the shared Async sender rule.
+Record exact answers only. Follow the shared Message delivery and continuation rule.
 
 Use `NEEDS_INPUT` only when the review request is incomplete, mismatched, or
 unreadable. If user input is needed, ask the user directly and wait before

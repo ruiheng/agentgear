@@ -66,7 +66,8 @@ send. If its nudge failed or is unknown, the wrapper checks that delivery and
 sends only the fixed session-host wake notice unless it is already leased or
 acknowledged. Failure to read delivery state does not block that one replay. Do
 not rerun the wrapper to repair a nudge.
-Report delivery ids and nudge outcomes, then follow the Async sender rule.
+Report delivery ids and nudge outcomes, then follow the Message delivery and
+continuation rule.
 
 ## Later User Decisions
 

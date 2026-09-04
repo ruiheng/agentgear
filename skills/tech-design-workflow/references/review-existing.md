@@ -54,4 +54,4 @@ Apply the `route-waypost-action` skill.
   - path/to/doc.md
 ```
 
-Let the reviewer derive the machine Git diff from exact commits. Send with subject `design-spec review: <task_id> r<round>` and follow the shared Async sender rule.
+Let the reviewer derive the machine Git diff from exact commits. Send with subject `design-spec review: <task_id> r<round>` and follow the shared Message delivery and continuation rule.

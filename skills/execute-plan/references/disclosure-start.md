@@ -63,7 +63,7 @@ Final-review continuation:
    - use `delegate-task` Selection-Only; never generic Dispatch
    - use Direct Planner Implementation only when its local gate passes; otherwise use a native harness when available, a justified persistent Waypost worker via `delegate-code-task` (pass `session_reason` and `Per-task review`), or Planner-Owned Nonpersistent Fallback
    - a direct user-led host session is outside this workflow-owned delivery lane
-6. cross-session work may take unbounded time; after sending it, follow the shared Async sender rule
+6. cross-session work may take unbounded time; after sending it, follow the shared Message delivery and continuation rule
    - for a persistent code worker, handle a later `code_delivery_complete` with `planner-closeout` before starting the next task; only skipped review may complete through it, while a blocker retains task state
 7. when the goal is complete:
    - if `Final integration review: required`, run `review-request` with `task_id = plan_id`, branch target `integration_branch`, `base_branch = review_base`, `requester_role = planner`, and `review_lane = integration_final`
