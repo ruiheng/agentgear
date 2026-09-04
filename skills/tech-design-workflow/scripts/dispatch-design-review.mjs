@@ -39,7 +39,7 @@ Optional:
   --pruner-baseline-artifact <workspace-relative-path>
                                   Last artifact that received MINIMAL
   --major-structure-change      Mark a material structural change since that baseline
-  --final-pruner-check          Send only the mandatory final pruner confirmation
+  --pruner-only                 Send this artifact only to the pruner
   --pruner-session-id <id>      Supply the lazy pruner when this dispatch requires it
   --pruner-to-address <address> Supply the lazy pruner when this dispatch requires it
   --content-type <type>         Default: text/markdown
@@ -158,11 +158,10 @@ function resolvePruner(manifest, options, evidence) {
     fail("--pruner-session-id and --pruner-to-address must be provided together");
   }
   if (manifest.pruner_policy === "never") {
-    if (supplied) fail("the lane explicitly disables pruning");
-    if (options.finalPrunerCheck) fail("the lane explicitly waives final pruner confirmation");
+    if (supplied || options.prunerOnly) fail("the lane explicitly disables pruning");
     return null;
   }
-  if (options.finalPrunerCheck) return requirePruner(manifest, options, "final confirmation");
+  if (options.prunerOnly) return requirePruner(manifest, options, "pruner-only dispatch");
 
   let reason = null;
   if (!evidence.baselineArtifact && manifest.pruner_policy === "always") {
@@ -202,7 +201,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       "--context-revision", "--pruner-session-id", "--pruner-to-address",
       "--content-type", "--schema-version", "--send-timeout-ms"
     ],
-    flags: ["--major-structure-change", "--final-pruner-check", "--json"],
+    flags: ["--major-structure-change", "--pruner-only", "--json"],
     defaults: {
       contentType: "text/markdown",
       schemaVersion: "1",
@@ -249,8 +248,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     if (options.previousArtifact !== expectedPrevious) fail(`--previous-artifact must equal ${expectedPrevious}`);
     resolveWorkspaceFile(workdir, options.previousArtifact, "previous artifact");
   }
-  if (options.finalPrunerCheck && (options.prunerBaselineArtifact || options.majorStructureChange)) {
-    fail("--final-pruner-check cannot be combined with baseline or structural-change options");
+  if (options.prunerOnly && (options.prunerBaselineArtifact || options.majorStructureChange)) {
+    fail("--pruner-only cannot be combined with baseline or structural-change options");
   }
 
   let baselineFile = null;
@@ -314,7 +313,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       runNudgeCommand: dependencies.runNudge
     });
   };
-  const reviewer = options.finalPrunerCheck ? null : send(
+  const reviewer = options.prunerOnly ? null : send(
     sendDesignSpecReviewRequestedMessage,
     manifest.reviewer_session_id,
     manifest.reviewer_to_address,
@@ -343,7 +342,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     added_lines_since_pruner: baselineFile ? growth.addedLines : null,
     added_chars_since_pruner: baselineFile ? growth.addedChars : null,
     major_structure_change: Boolean(options.majorStructureChange),
-    final_pruner_check: Boolean(options.finalPrunerCheck),
+    pruner_only: Boolean(options.prunerOnly),
     reviewer_requested: Boolean(reviewer),
     pruner_requested: Boolean(pruner),
     pruner_reason: pruner?.reason || null,
@@ -353,8 +352,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const prunerText = prunerResult
     ? ` pruner_delivery_id=${prunerResult.receipt.delivery_id} pruner_notify_status=${prunerResult.notification.status}`
     : "";
-  const textSummary = options.finalPrunerCheck
-    ? `Final pruner check dispatched: ${manifest.task_id} r${options.round}${prunerText}\n`
+  const textSummary = options.prunerOnly
+    ? `Pruner-only dispatch: ${manifest.task_id} r${options.round}${prunerText}\n`
     : `Design review dispatched: ${manifest.task_id} r${options.round} reviewer_delivery_id=${reviewer.receipt.delivery_id} reviewer_notify_status=${reviewer.notification.status}${prunerText}\n`;
   process.stdout.write(options.json
     ? `${JSON.stringify(summary)}\n`

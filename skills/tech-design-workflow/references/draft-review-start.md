@@ -15,7 +15,8 @@ Resolve `pruner_policy` once: explicit `always` creates the pruner now and skips
 the initial size threshold; explicit `never` uses no pruner, including at
 delivery; otherwise use `auto` and create it lazily at that threshold. After
 `MINIMAL`, enabled policies recheck only for author-declared major structural
-change, configured cumulative growth, or the exact final artifact.
+change or configured cumulative growth. When enabled, delivery requires
+correctness and pruning acceptance for the artifact being delivered.
 
 Resolve `architect_author`, `architect_reviewer`, and an explicitly enabled `design_pruner`
 through the shared Tool Resolution Contract with the target workdir. Keep launch

@@ -878,7 +878,7 @@ test("auto policy rechecks declared major structure without treating minor edits
   }
 });
 
-test("final pruner check forces exact-artifact pruning without repeating reviewer work", async () => {
+test("pruner-only dispatches exact-artifact pruning without reviewer work", async () => {
   const item = fixture();
   const records = [];
   try {
@@ -886,7 +886,7 @@ test("final pruner check forces exact-artifact pruning without repeating reviewe
     writeArtifact(item, 1, "# Small design\n");
     const summary = JSON.parse(await captureStdout(() => dispatchReview([
       ...reviewArgs(item),
-      "--final-pruner-check",
+      "--pruner-only",
       "--pruner-session-id", "pruner-1",
       "--pruner-to-address", "waypost/pruner-1"
     ], {
@@ -899,7 +899,7 @@ test("final pruner check forces exact-artifact pruning without repeating reviewe
     assert.deepEqual(records.map(record => actionFrom(record.body)), ["design_prune_requested"]);
     assert.equal(summary.reviewer_requested, false);
     assert.equal(summary.pruner_requested, true);
-    assert.equal(summary.pruner_reason, "final confirmation");
+    assert.equal(summary.pruner_reason, "pruner-only dispatch");
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }
@@ -1024,7 +1024,7 @@ test("always bypasses the initial size threshold without pruning every later rou
   }
 });
 
-test("never policy rejects a final pruner check", async () => {
+test("never policy rejects pruner-only dispatch", async () => {
   const item = fixture();
   try {
     await captureStdout(() => dispatchDraft([
@@ -1034,14 +1034,14 @@ test("never policy rejects a final pruner check", async () => {
     writeArtifact(item, 1, "# Design\n");
     await assert.rejects(dispatchReview([
       ...reviewArgs(item),
-      "--final-pruner-check"
+      "--pruner-only"
     ], {
       requireCommand() {},
       runWaypost: successfulWaypost([]),
       loadPolicy: () => ({
         maxLines: 1, maxChars: 1, recheckAddedLines: 1, recheckAddedChars: 1
       })
-    }), /explicitly waives final pruner confirmation/);
+    }), /explicitly disables pruning/);
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }

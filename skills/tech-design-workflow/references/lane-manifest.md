@@ -49,6 +49,6 @@ round is review evidence, a revision creates the next numbered snapshot.
 The dispatcher does not write workflow state. `auto` first prunes at
 `max_lines` or `max_chars`; `always` ignores that initial threshold. After
 `MINIMAL`, pass that snapshot as `--pruner-baseline-artifact`. Recheck only for
-`--major-structure-change`, cumulative growth reaching `recheck_added_lines` or
-`recheck_added_chars`, or `--final-pruner-check`. Final mode sends only to the
-pruner. `never` uses none.
+`--major-structure-change` or cumulative growth reaching `recheck_added_lines`
+or `recheck_added_chars`. Final mode sends only to the pruner when the
+delivered artifact has not yet received pruning acceptance. `never` uses none.

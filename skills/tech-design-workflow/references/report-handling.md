@@ -45,8 +45,7 @@ Revision before revision or delivery. Reuse an already recorded answer. Reflect
 the decision in the design when relevant. The next review dispatch carries the
 new revision; no separate context notification is needed.
 
-After active reports accept the artifact, follow `author-round`; its exact-final
-pruner check still applies unless policy is `never`.
+After active reports accept the artifact, follow `author-round` for delivery.
 Keep accepted caveats in the next artifact and final delivery, not in a shared
 progress database.
 For review-existing, retain the accepted commit at the design tip, rerun its path

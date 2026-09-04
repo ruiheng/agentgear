@@ -95,10 +95,11 @@ above when a product or scope choice blocks revision. Apply reviewer-collected
 answers through `report-handling`. `MINIMAL` establishes the reviewed artifact
 as the next pruner baseline.
 
-After correctness accepts the artifact, require `MINIMAL` for that exact
-artifact unless policy is `never`. If needed, dispatch the same snapshot with
-`--final-pruner-check` and the pruner identity, omitting baseline/structure
-options. It sends only to the pruner and keeps the round.
+Deliver after correctness accepts the artifact and, unless policy is `never`,
+the enabled pruner has accepted that same artifact with `MINIMAL`. When an
+accepted reviewer-only revision has no pruner report, request one for that
+snapshot with `--pruner-only` and the pruner identity, omitting
+baseline/structure options. It sends only to the pruner and keeps the round.
 
 ```markdown
 Task: <task_id>
