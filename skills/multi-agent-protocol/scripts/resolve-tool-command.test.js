@@ -1025,7 +1025,7 @@ test("explainer role prefers the configured agy command", () => {
   );
 });
 
-test("design pruner prefers agy with GPT-5.6 Sol medium as fallback", () => {
+test("design pruner prefers GPT-5.6 Sol with xhigh reasoning", () => {
   const config = loadToolConfig(
     path.resolve(__dirname, "../../../config/tool-profiles.toml"),
     []
@@ -1038,9 +1038,15 @@ test("design pruner prefers agy with GPT-5.6 Sol medium as fallback", () => {
   });
 
   assert.equal(resolved.tool_profile, "design_pruner_default");
-  assert.equal(resolved.resolved_tool_cmd, "agy");
-  assert.equal(resolved.tool_candidates[0].command, "agy");
-  assert.match(resolved.tool_candidates[1].command, /codex --model gpt-5\.6-sol -c model_reasoning_effort=medium/);
+  assert.match(
+    resolved.resolved_tool_cmd,
+    /codex --model gpt-5\.6-sol -c model_reasoning_effort=xhigh/
+  );
+  assert.match(
+    resolved.tool_candidates[0].command,
+    /codex --model gpt-5\.6-sol -c model_reasoning_effort=xhigh/
+  );
+  assert.equal(resolved.tool_candidates[1].command, "agy");
 });
 
 test("intent framer has an independent high-reasoning default profile", () => {
