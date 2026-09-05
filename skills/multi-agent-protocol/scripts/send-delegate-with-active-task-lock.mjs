@@ -157,6 +157,7 @@ ${workspaceHandoff(options)}
 # Review Contract
 - Treat the planner Task Contract as task authority; apply later User Decisions
 - Wait for the matching \`review_requested\`; do not review code from this message
+- `.agent-artifacts/active-task.lock/lock.json` contains addresses for the task's collaborating agents. Read the relevant role field when needed; never infer an address from a session id. If delivery metadata is missing, recover routes from this lock.
 - Workflow policy: ${options.workflowPolicy}
 `;
   return messageWithTaskContract(reviewTaskContextMessage, before, after, brief, footer);
@@ -188,6 +189,7 @@ function coderBody(options, brief) {
 ${branchPlan(options)}
 
 ## Execution Guardrails
+- `.agent-artifacts/active-task.lock/lock.json` contains addresses for the task's collaborating agents. Read the relevant role field when needed; never infer an address from a session id. If delivery metadata is missing, recover routes from this lock.
 - Work on the recorded task branch; create or attach it from the integration branch if needed. Never commit detached HEAD.
 - Own investigation, decomposition, implementation choices, and validation within this scope
 - Make the smallest complete change; keep unrelated work out
@@ -376,7 +378,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (options.reviewContext === "required") {
       mutateLock(lockFile, lock => {
         lock.reviewer_session_id = options.reviewerSessionId;
-        lock.reviewer_to_address = options.reviewerToAddress;
+        lock.reviewer_address = options.reviewerToAddress;
         lock.reviewer_subject = options.reviewerSubject;
       });
       process.stderr.write("sending reviewer...\n");

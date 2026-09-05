@@ -522,9 +522,9 @@ test("interrupted reviewer send retains the reviewer route", async () => {
     assert.equal(lock.state, "send_interrupted_unknown");
     assert.equal(lock.send_stage, "reviewer");
     assert.equal(lock.reviewer_session_id, "reviewer-1");
-    assert.equal(lock.reviewer_to_address, "agent-deck/reviewer-1");
+    assert.equal(lock.reviewer_address, "agent-deck/reviewer-1");
     assert.equal(lock.reviewer_subject, "task context: 20260810-review-context -> reviewer");
-    assert.equal(lock.to_address, "agent-deck/coder-1");
+    assert.equal(lock.coder_address, "agent-deck/coder-1");
     assert.equal(lock.subject, "delegate code: 20260810-review-context -> coder");
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
