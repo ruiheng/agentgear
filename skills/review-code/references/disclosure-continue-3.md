@@ -14,7 +14,7 @@ Execution flow in multi-agent mode:
      further coder/reviewer iteration is required. Send it according to the
      lane-aware routing rules below; it does not require closeout.
    - `abort_iteration` when the current coder/reviewer iteration must stop
-     without accepting the work, such as non-convergence, a hard stop, or an
+     without accepting the work, such as non-convergence or an
      unresolved prerequisite. Send it according to the lane-aware routing rules
      below.
    - `browser_check_requested` when code review is acceptable so far but runtime

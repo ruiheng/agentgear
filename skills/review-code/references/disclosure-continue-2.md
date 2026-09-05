@@ -64,7 +64,12 @@ Default policy when missing:
 - `auto_accept_if_no_must_fix = true`
 - `ui_manual_confirmation = "skip"`
 - `review_round_convergence_check_threshold = 3`
-- `review_round_hard_stop_threshold = 5`
+- `review_round_checkpoint = 5`
+
+The checkpoint adds a deeper convergence review; it is not an automatic stop.
+An isolated actionable defect at round 5 or later remains `rework_required`.
+Use `abort_iteration` only for evidenced non-convergence or an unresolved
+prerequisite.
 
 ## Continue
 

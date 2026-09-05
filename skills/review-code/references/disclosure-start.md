@@ -99,7 +99,7 @@ Recommend a focused follow-up review only when one risk area is important, evide
 
 Use these thresholds unless overridden by `workflow_policy`:
 - `review_round_convergence_check_threshold = 3`
-- `review_round_hard_stop_threshold = 5`
+- `review_round_checkpoint = 5`
 
 When `round >= review_round_convergence_check_threshold`, check for non-convergence:
 - the same issue or invariant break reappears after being "fixed"
@@ -119,7 +119,7 @@ If non-convergence is visible:
 - use `Design Concerns` to call out likely design failure, not just the latest local defect
 - recommend `code-health-review` or equivalent structural follow-up when a local fix is unlikely to converge
 - if repeated rounds appear to be preserving unnecessary self-imposed constraints, say so explicitly and challenge those constraints directly
-- if `round >= review_round_hard_stop_threshold` and the work is still not converging, stop iterating with coder and escalate to the user instead of sending another normal rework loop
+- At or above `review_round_checkpoint`, inspect convergence more deeply. Abort only with concrete evidence of non-convergence or an unresolved prerequisite. Round count alone is never a reason to abort. An isolated, actionable defect still uses `rework_required`.
 
 ## Review Focus
 
