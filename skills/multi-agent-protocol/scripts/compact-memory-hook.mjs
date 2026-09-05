@@ -10,13 +10,6 @@ import { hasStickyTaskContextMarker } from "./compact-memory-shared.mjs";
 
 export const STICKY_MESSAGE_LIMIT = 8;
 export const SKILL_GET_LIMIT = 32;
-// Add newly observed, stable error messages here. Matching is case-insensitive.
-export const RECOVERABLE_STOP_PATTERNS = Object.freeze([
-  /exceeded retry limit,?\s*last status:\s*429\s+too many requests/iu
-]);
-export const RECOVERY_INITIAL_DELAY_SECONDS = 10;
-export const RECOVERY_MAX_DELAY_SECONDS = 5 * 60;
-export const RECOVERY_MAX_ATTEMPTS = 6;
 const ERROR_DETAIL_LIMIT = 500;
 
 function stateHome(env) {
@@ -51,113 +44,6 @@ function writeJsonAtomic(filePath, value) {
     }
     try { fs.rmSync(temporary, { force: true }); } catch {}
   }
-}
-
-function blockingSleep(milliseconds) {
-  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return;
-  const signal = new Int32Array(new SharedArrayBuffer(4));
-  Atomics.wait(signal, 0, 0, Math.ceil(milliseconds));
-}
-
-function recoveryStateFile(root) {
-  return path.join(root, "recovery-state.json");
-}
-
-function readRecoveryState(root) {
-  const existing = readJson(recoveryStateFile(root));
-  if (existing === undefined) return { schema_version: 1, consecutive_errors: 0, exhausted: false };
-  if (!isPlainObject(existing) || existing.schema_version !== 1
-    || !Number.isSafeInteger(existing.consecutive_errors) || existing.consecutive_errors < 0
-    || (existing.exhausted !== undefined && typeof existing.exhausted !== "boolean")) {
-    throw new Error(`Invalid recovery state schema: ${recoveryStateFile(root)}`);
-  }
-  return {
-    schema_version: 1,
-    consecutive_errors: existing.consecutive_errors,
-    exhausted: existing.exhausted === true
-  };
-}
-
-function writeRecoveryState(root, state) {
-  writeJsonAtomic(recoveryStateFile(root), {
-    schema_version: 1,
-    consecutive_errors: state.consecutive_errors,
-    exhausted: state.exhausted === true
-  });
-}
-
-export function recoverableStopMatch(message, patterns = RECOVERABLE_STOP_PATTERNS) {
-  if (typeof message !== "string") return null;
-  for (const [index, pattern] of patterns.entries()) {
-    if (!(pattern instanceof RegExp)) throw new TypeError(`Recoverable stop pattern ${index} must be a RegExp`);
-    pattern.lastIndex = 0;
-    if (pattern.test(message)) return index;
-  }
-  return null;
-}
-
-export function recoveryDelaySeconds(consecutiveErrors) {
-  if (!Number.isSafeInteger(consecutiveErrors) || consecutiveErrors < 1) return 0;
-  return Math.min(
-    RECOVERY_MAX_DELAY_SECONDS,
-    RECOVERY_INITIAL_DELAY_SECONDS * (2 ** (consecutiveErrors - 1))
-  );
-}
-
-function recoveryMessage(delaySeconds) {
-  return `Agentgear 检测到可恢复的上游错误，将在 ${delaySeconds} 秒后继续（发送 go on）；不会并行重试。`;
-}
-
-function recoveryExhaustedMessage() {
-  return `Agentgear 已连续自动恢复 ${RECOVERY_MAX_ATTEMPTS} 次，停止继续重试；请稍后重新提交任务。`;
-}
-
-function handleStop(input, {
-  env = process.env,
-  sleep = blockingSleep,
-  patterns = RECOVERABLE_STOP_PATTERNS
-} = {}) {
-  const root = sessionMemoryDirectory(input.session_id, env);
-  const state = readRecoveryState(root);
-
-  // Once this continuation chain has exhausted Agentgear's budget, abstain
-  // from later decisions. Other Stop hooks retain control of continuation.
-  if (input.stop_hook_active === true && state.exhausted === true) {
-    return null;
-  }
-
-  // A non-continuation Stop starts a new recovery chain. This prevents a
-  // later user turn from inheriting the previous turn's retry budget.
-  if (input.stop_hook_active !== true && (state.consecutive_errors !== 0 || state.exhausted)) {
-    state.consecutive_errors = 0;
-    state.exhausted = false;
-    writeRecoveryState(root, state);
-  }
-
-  const match = recoverableStopMatch(input.last_assistant_message, patterns);
-  if (match === null) {
-    if (input.stop_hook_active !== true
-      && (state.consecutive_errors !== 0 || state.exhausted)) {
-      writeRecoveryState(root, { consecutive_errors: 0, exhausted: false });
-    }
-    return null;
-  }
-  const consecutiveErrors = state.consecutive_errors + 1;
-  if (input.stop_hook_active === true && consecutiveErrors > RECOVERY_MAX_ATTEMPTS) {
-    writeRecoveryState(root, {
-      consecutive_errors: state.consecutive_errors,
-      exhausted: true
-    });
-    return { systemMessage: recoveryExhaustedMessage() };
-  }
-  const delaySeconds = recoveryDelaySeconds(consecutiveErrors);
-  writeRecoveryState(root, { consecutive_errors: consecutiveErrors, exhausted: false });
-  sleep(delaySeconds * 1000);
-  return {
-    decision: "block",
-    reason: "go on",
-    systemMessage: recoveryMessage(delaySeconds)
-  };
 }
 
 function readJson(filePath) {
@@ -458,13 +344,6 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
 
 export function handleHook(input, options = {}) {
   if (!isPlainObject(input)) throw new Error("Codex hook input must be a JSON object");
-  if (input.hook_event_name === "Stop") {
-    try {
-      return handleStop(input, options);
-    } catch (error) {
-      return memoryFailureOutput("recorded recovery state", error);
-    }
-  }
   if (input.hook_event_name === "PostToolUse") {
     try {
       handlePostToolUse(input, options);

@@ -6,11 +6,9 @@ import path from "node:path";
 const DESCRIPTION_PREFIX = "Agentgear Codex compact memory";
 const MANAGED_DESCRIPTIONS = Object.freeze({
   SessionStart: `${DESCRIPTION_PREFIX} recovery`,
-  PostToolUse: `${DESCRIPTION_PREFIX} capture`,
-  Stop: `${DESCRIPTION_PREFIX} upstream recovery`
+  PostToolUse: `${DESCRIPTION_PREFIX} capture`
 });
 const HOOK_TIMEOUT_SECONDS = 5;
-const RECOVERY_HOOK_TIMEOUT_SECONDS = 305;
 
 function codexHome(env) {
   if (typeof env.CODEX_HOME === "string" && env.CODEX_HOME.trim()) return path.resolve(env.CODEX_HOME);
@@ -140,13 +138,6 @@ function desiredGroups(commands) {
       description: MANAGED_DESCRIPTIONS.PostToolUse,
       matcher: "^(?:Bash|mcp__waypost__waypost_(?:recv|read)|waypost_(?:recv|read))$",
       hooks: [handler(commands)]
-    },
-    Stop: {
-      description: MANAGED_DESCRIPTIONS.Stop,
-      hooks: [handler(commands, {
-        timeout: RECOVERY_HOOK_TIMEOUT_SECONDS,
-        statusMessage: "Waiting before recovering from upstream rate limit"
-      })]
     }
   };
 }

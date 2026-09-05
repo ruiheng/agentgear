@@ -108,7 +108,7 @@ agentgear action list
 
 ### Codex hooks
 
-Agentgear can install optional user-level [Codex
+Agentgear can install an optional pair of user-level [Codex
 hooks](https://learn.chatgpt.com/docs/hooks):
 
 ~~~bash
@@ -117,13 +117,8 @@ agentgear hooks doctor
 agentgear hooks uninstall
 ~~~
 
-After installation, use `/hooks` in Codex to review and trust all Agentgear
-hooks. Installation preserves hook groups it does not own. The Stop hook
-recognizes configured recoverable upstream-error patterns (currently
-`exceeded retry limit, last status: 429 Too Many Requests`), waits with capped
-exponential backoff (10 seconds, doubling to a five-minute maximum), and asks
-Codex to continue with `go on`. It allows at most six automatic recoveries for
-one continuation chain, then abstains from further recovery decisions.
+After installation, use `/hooks` in Codex to review and trust both Agentgear
+hooks. Installation preserves hook groups it does not own.
 Later `agentgear install`, `update`, and `agentgear-source-install` runs refresh
 the Agentgear-owned groups when they are already present; they never enable the
 hooks for a user who has not explicitly installed them.

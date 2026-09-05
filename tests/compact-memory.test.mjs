@@ -9,12 +9,8 @@ import {
   agentgearSkillGetArgv,
   compactAdditionalContext,
   handleHook,
-  recoverableStopMatch,
-  recoveryDelaySeconds,
   sessionMemoryDirectory,
-  STICKY_MESSAGE_LIMIT,
-  RECOVERY_MAX_DELAY_SECONDS,
-  RECOVERY_MAX_ATTEMPTS
+  STICKY_MESSAGE_LIMIT
 } from "../skills/multi-agent-protocol/scripts/compact-memory-hook.mjs";
 import {
   appendStickyTaskContextMarker,
@@ -85,128 +81,6 @@ test("sticky task marker is one idempotent final non-empty line", () => {
   assert.equal(hasStickyTaskContextMarker(`${STICKY_TASK_CONTEXT_MARKER}\nmore`), false);
   assert.equal(hasStickyTaskContextMarker(` ${STICKY_TASK_CONTEXT_MARKER}`), false);
   assert.equal(hasStickyTaskContextMarker(`${STICKY_TASK_CONTEXT_MARKER} `), false);
-});
-
-test("recoverable Stop patterns use capped exponential backoff", () => {
-  const message = "exceeded retry limit, last status: 429 Too Many Requests";
-  assert.equal(recoverableStopMatch(message), 0);
-  assert.equal(recoverableStopMatch("ordinary completion"), null);
-  assert.deepEqual(
-    [1, 2, 3, 4, 5, 6, 7].map(recoveryDelaySeconds),
-    [10, 20, 40, 80, 160, 300, 300]
-  );
-  assert.equal(recoveryDelaySeconds(100), RECOVERY_MAX_DELAY_SECONDS);
-});
-
-test("recoverable Stop emits go on continuation and records bounded state", () => {
-  const item = fixture();
-  try {
-    const input = {
-      hook_event_name: "Stop",
-      session_id: "thread-recovery",
-      turn_id: "turn-1",
-      model: "model-test",
-      stop_hook_active: false,
-      last_assistant_message: "exceeded retry limit, last status: 429 Too Many Requests"
-    };
-    const waits = [];
-    const first = handleHook(input, { env: item.env, sleep: milliseconds => waits.push(milliseconds) });
-    assert.equal(first.decision, "block");
-    assert.equal(first.reason, "go on");
-    assert.deepEqual(waits, [10_000]);
-
-    const second = handleHook({ ...input, turn_id: "turn-2", stop_hook_active: true }, {
-      env: item.env,
-      sleep: milliseconds => waits.push(milliseconds)
-    });
-    assert.equal(second.reason, "go on");
-    assert.deepEqual(waits, [10_000, 20_000]);
-
-    const root = sessionMemoryDirectory(input.session_id, item.env);
-    const state = JSON.parse(fs.readFileSync(path.join(root, "recovery-state.json"), "utf8"));
-    assert.equal(state.consecutive_errors, 2);
-
-    assert.equal(handleHook({
-      ...input,
-      turn_id: "turn-other-hook",
-      stop_hook_active: true,
-      last_assistant_message: "another Stop hook continued"
-    }, { env: item.env, sleep: () => { throw new Error("must not sleep"); } }), null);
-    const third = handleHook({
-      ...input,
-      turn_id: "turn-3",
-      stop_hook_active: true
-    }, { env: item.env, sleep: milliseconds => waits.push(milliseconds) });
-    assert.equal(third.reason, "go on");
-    assert.deepEqual(waits, [10_000, 20_000, 40_000]);
-
-    assert.equal(handleHook({
-      ...input,
-      turn_id: "turn-success",
-      last_assistant_message: "completed successfully"
-    }, { env: item.env, sleep: () => { throw new Error("must not sleep"); } }), null);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, "recovery-state.json"), "utf8")).consecutive_errors, 0);
-  } finally {
-    fs.rmSync(item.temporary, { recursive: true, force: true });
-  }
-});
-
-test("recoverable Stop stops automatic continuation after the retry budget", () => {
-  const item = fixture();
-  try {
-    const waits = [];
-    const base = {
-      hook_event_name: "Stop",
-      session_id: "thread-recovery-budget",
-      model: "model-test",
-      last_assistant_message: "exceeded retry limit, last status: 429 Too Many Requests"
-    };
-    for (let attempt = 1; attempt <= RECOVERY_MAX_ATTEMPTS; attempt += 1) {
-      const output = handleHook({
-        ...base,
-        turn_id: `turn-${attempt}`,
-        stop_hook_active: attempt > 1
-      }, { env: item.env, sleep: milliseconds => waits.push(milliseconds) });
-      assert.equal(output.decision, "block");
-    }
-    assert.deepEqual(waits, [10_000, 20_000, 40_000, 80_000, 160_000, 300_000]);
-
-    const exhausted = handleHook({
-      ...base,
-      turn_id: "turn-exhausted",
-      stop_hook_active: true
-    }, { env: item.env, sleep: () => { throw new Error("must not sleep"); } });
-    assert.equal(exhausted.decision, undefined);
-    assert.match(exhausted.systemMessage, /停止继续重试/);
-
-    const root = sessionMemoryDirectory(base.session_id, item.env);
-    const exhaustedState = JSON.parse(fs.readFileSync(path.join(root, "recovery-state.json"), "utf8"));
-    assert.equal(exhaustedState.consecutive_errors, RECOVERY_MAX_ATTEMPTS);
-    assert.equal(exhaustedState.exhausted, true);
-
-    // A different Stop hook may continue the same turn. Agentgear must
-    // abstain without restarting its own recovery budget.
-    for (const lastAssistantMessage of [base.last_assistant_message, "another hook continued"]) {
-      const continued = handleHook({
-        ...base,
-        turn_id: "turn-other-hook",
-        stop_hook_active: true,
-        last_assistant_message: lastAssistantMessage
-      }, { env: item.env, sleep: () => { throw new Error("must not sleep"); } });
-      assert.equal(continued, null);
-    }
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, "recovery-state.json"), "utf8")).exhausted, true);
-
-    const newTurn = handleHook({
-      ...base,
-      turn_id: "new-turn",
-      stop_hook_active: false
-    }, { env: item.env, sleep: () => {} });
-    assert.equal(newTurn.decision, "block");
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, "recovery-state.json"), "utf8")).exhausted, false);
-  } finally {
-    fs.rmSync(item.temporary, { recursive: true, force: true });
-  }
 });
 
 test("declared task-context actions are sticky while later review notifications are not", () => {
@@ -470,8 +344,6 @@ test("Codex compact-memory installer is idempotent and preserves unrelated hooks
     assert.equal(document.hooks.PreToolUse[0].hooks[0].command, "keep");
     assert.equal(document.hooks.PostToolUse.length, 1);
     assert.equal(document.hooks.SessionStart.length, 1);
-    assert.equal(document.hooks.Stop.length, 1);
-    assert.equal(document.hooks.Stop[0].hooks[0].timeout, 305);
     assert.equal(document.hooks.SessionStart[0].hooks[0].async, false);
     assert.equal(
       document.hooks.PostToolUse[0].hooks[0].commandWindows,
@@ -704,7 +576,6 @@ test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
     assert.equal(doctor.status, 0, doctor.stderr);
     assert.match(doctor.stdout, /capture hook: configured/);
     assert.match(doctor.stdout, /recovery hook: configured/);
-    assert.match(doctor.stdout, /upstream recovery hook: configured/);
 
     const legacy = invoke(["compact-memory", "doctor"]);
     assert.equal(legacy.status, 0, legacy.stderr);
