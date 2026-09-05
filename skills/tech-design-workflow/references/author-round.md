@@ -69,11 +69,10 @@ Checkpoint continuation does not change the Canonical Contract or Context Revisi
 
 ## Review Dispatch
 
-After the artifact is complete, run:
+After the artifact is complete, run from the author workspace:
 
 ```bash
 agentgear run tech-design-workflow dispatch-design-review.mjs \
-  --workdir "<current workspace>" \
   --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
   --artifact ".agent-artifacts/design-spec/<author_session_id>/rNNN.md" \
   --previous-artifact ".agent-artifacts/design-spec/<author_session_id>/rMMM.md" \

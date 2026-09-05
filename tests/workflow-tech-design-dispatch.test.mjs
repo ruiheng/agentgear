@@ -152,7 +152,6 @@ function failedNudge(records) {
 
 function reviewArgs(item, round = 1) {
   return [
-    "--workdir", item.workdir,
     "--lane-manifest", item.manifestRelative,
     "--artifact", expectedArtifactPath("author-1", round),
     ...(round > 1 ? ["--previous-artifact", expectedArtifactPath("author-1", round - 1)] : []),
@@ -305,6 +304,7 @@ test("schema-1 lanes are rejected as an explicit hard cut", async () => {
     }), /must use schema 2/);
     writeArtifact(item, 1, "# Design\n");
     await assert.rejects(dispatchReview(reviewArgs(item), {
+      cwd: item.workdir,
       requireCommand() {}, loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
     }), /must use schema 2/);
     await assert.rejects(advanceReviewCheckpoint([
@@ -726,6 +726,7 @@ test("below-threshold review dispatch sends only reviewer and never changes mani
     writeArtifact(item, 1, "# Small design\n\nDo one thing.\n");
     const before = fs.readFileSync(item.manifestFile, "utf8");
     const stdout = await captureStdout(() => dispatchReview(reviewArgs(item), {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost(records),
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
@@ -761,6 +762,7 @@ test("auto policy blocks before sending until an oversized design has a lazy pru
     const before = fs.readFileSync(item.manifestFile, "utf8");
     const blocked = [];
     await assert.rejects(dispatchReview(reviewArgs(item), {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost(blocked),
       loadPolicy: () => ({ maxLines: 3, maxChars: 1000 })
@@ -774,6 +776,7 @@ test("auto policy blocks before sending until an oversized design has a lazy pru
       "--pruner-session-id", "pruner-1",
       "--pruner-to-address", "waypost/pruner-1"
     ], {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost(records),
       loadPolicy: () => ({ maxLines: 3, maxChars: 1000 })
@@ -805,6 +808,7 @@ test("auto policy skips pruner for minor fixes and rechecks cumulative growth fr
       "--pruner-session-id", "pruner-1",
       "--pruner-to-address", "waypost/pruner-1"
     ], {
+      cwd: item.workdir,
       requireCommand() {}, runWaypost: successfulWaypost([]), loadPolicy: () => policy
     }));
 
@@ -814,6 +818,7 @@ test("auto policy skips pruner for minor fixes and rechecks cumulative growth fr
       ...reviewArgs(item, 2),
       "--pruner-baseline-artifact", baseline.relative
     ], {
+      cwd: item.workdir,
       requireCommand() {}, runWaypost: successfulWaypost(minorRecords), loadPolicy: () => policy
     })));
     assert.deepEqual(minorRecords.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
@@ -827,6 +832,7 @@ test("auto policy skips pruner for minor fixes and rechecks cumulative growth fr
       "--pruner-baseline-artifact", baseline.relative
     ];
     await assert.rejects(dispatchReview(growthArgs, {
+      cwd: item.workdir,
       requireCommand() {}, runWaypost: successfulWaypost(blocked), loadPolicy: () => policy
     }), error => error.prefix === "PRUNER_REQUIRED" && /cumulative content growth/.test(error.message));
     assert.deepEqual(blocked, []);
@@ -837,6 +843,7 @@ test("auto policy skips pruner for minor fixes and rechecks cumulative growth fr
       "--pruner-session-id", "pruner-1",
       "--pruner-to-address", "waypost/pruner-1"
     ], {
+      cwd: item.workdir,
       requireCommand() {}, runWaypost: successfulWaypost(growthRecords), loadPolicy: () => policy
     })));
     assert.deepEqual(growthRecords.map(record => actionFrom(record.body)), [
@@ -863,6 +870,7 @@ test("auto policy rechecks declared major structure without treating minor edits
       "--pruner-session-id", "pruner-1",
       "--pruner-to-address", "waypost/pruner-1"
     ], {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost(records),
       loadPolicy: () => ({
@@ -890,6 +898,7 @@ test("pruner-only dispatches exact-artifact pruning without reviewer work", asyn
       "--pruner-session-id", "pruner-1",
       "--pruner-to-address", "waypost/pruner-1"
     ], {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost(records),
       loadPolicy: () => ({
@@ -915,6 +924,7 @@ test("review dispatch retries a failed nudge inside the same invocation", async 
     const sends = [];
     const nudges = [];
     const result = JSON.parse(await captureStdout(() => dispatchReview(reviewArgs(item), {
+      cwd: item.workdir,
       requireCommand() {},
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 }),
       runWaypost(command, args, options) {
@@ -958,7 +968,8 @@ test("always and never policies deterministically override the threshold", async
       }));
       writeArtifact(item, 1, "# Design\n");
       await captureStdout(() => dispatchReview(reviewArgs(item), {
-        requireCommand() {},
+        cwd: item.workdir,
+      requireCommand() {},
         runWaypost: successfulWaypost(records),
         loadPolicy: () => ({ maxLines: 1, maxChars: 1 })
       }));
@@ -990,6 +1001,7 @@ test("always bypasses the initial size threshold without pruning every later rou
     const baseline = writeArtifact(item, 1, "# Small design\n\nOne.\n");
     const initialRecords = [];
     const initial = JSON.parse(await captureStdout(() => dispatchReview(reviewArgs(item), {
+      cwd: item.workdir,
       requireCommand() {}, runWaypost: successfulWaypost(initialRecords), loadPolicy: () => policy
     })));
     assert.deepEqual(initialRecords.map(record => actionFrom(record.body)), [
@@ -1003,6 +1015,7 @@ test("always bypasses the initial size threshold without pruning every later rou
       ...reviewArgs(item, 2),
       "--pruner-baseline-artifact", baseline.relative
     ], {
+      cwd: item.workdir,
       requireCommand() {}, runWaypost: successfulWaypost(minorRecords), loadPolicy: () => policy
     }));
     assert.deepEqual(minorRecords.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
@@ -1014,6 +1027,7 @@ test("always bypasses the initial size threshold without pruning every later rou
       "--pruner-baseline-artifact", baseline.relative,
       "--major-structure-change"
     ], {
+      cwd: item.workdir,
       requireCommand() {}, runWaypost: successfulWaypost(structuralRecords), loadPolicy: () => policy
     }));
     assert.deepEqual(structuralRecords.map(record => actionFrom(record.body)), [
@@ -1036,6 +1050,7 @@ test("never policy rejects pruner-only dispatch", async () => {
       ...reviewArgs(item),
       "--pruner-only"
     ], {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost([]),
       loadPolicy: () => ({
@@ -1065,7 +1080,8 @@ test("review text output reports an enabled pruner nudge failure", async () => {
     const stdout = await captureStdout(() => dispatchReview(
       reviewArgs(item).filter(argument => argument !== "--json"),
       {
-        requireCommand() {},
+        cwd: item.workdir,
+      requireCommand() {},
         loadPolicy: () => ({ maxLines: 250, maxChars: 20000 }),
         runWaypost: waypostWithFailedPrunerNudge(sends),
         runWaypostRead: waypostReadState("queued"),
@@ -1092,17 +1108,20 @@ test("review dispatch validates exact round, previous artifact, and contract rev
     const wrongPrevious = reviewArgs(item, 2);
     wrongPrevious[wrongPrevious.indexOf("--previous-artifact") + 1] = expectedArtifactPath("author-1", 0);
     await assert.rejects(dispatchReview(wrongPrevious, {
+      cwd: item.workdir,
       requireCommand() {}, loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
     }), /--previous-artifact must equal/);
 
     const wrongRevision = reviewArgs(item, 2);
     wrongRevision[wrongRevision.indexOf("--context-revision") + 1] = "2";
     await assert.rejects(dispatchReview(wrongRevision, {
+      cwd: item.workdir,
       requireCommand() {}, loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
     }), /does not match the Canonical Contract/);
 
     const records = [];
     await captureStdout(() => dispatchReview(reviewArgs(item, 2), {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost(records),
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
@@ -1123,6 +1142,7 @@ test("continued review schedules checkpoints every two rounds", async () => {
     writeArtifact(item, 8, "# Round eight\n");
     const blocked = [];
     await assert.rejects(dispatchReview(reviewArgs(item, 6), {
+      cwd: item.workdir,
       requireCommand() {},
       runWaypost: successfulWaypost(blocked),
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
@@ -1144,7 +1164,8 @@ test("continued review schedules checkpoints every two rounds", async () => {
     const reviews = [];
     for (const round of [6, 7]) {
       await captureStdout(() => dispatchReview(reviewArgs(item, round), {
-        requireCommand() {},
+        cwd: item.workdir,
+      requireCommand() {},
         runWaypost: successfulWaypost(reviews),
         loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
       }));
@@ -1155,6 +1176,7 @@ test("continued review schedules checkpoints every two rounds", async () => {
 
     const nextBlocked = reviewArgs(item, 8);
     await assert.rejects(dispatchReview(nextBlocked, {
+      cwd: item.workdir,
       requireCommand() {},
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
     }), error => error.prefix === "USER_CHECKPOINT_REQUIRED");
@@ -1197,7 +1219,8 @@ test("review dispatch rejects symlinked manifest and artifact parents", async ()
       fs.renameSync(source, moved);
       fs.symlinkSync(moved, source, "dir");
       await assert.rejects(dispatchReview(reviewArgs(item), {
-        requireCommand() {}, loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+        cwd: item.workdir,
+      requireCommand() {}, loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
       }), /must not contain symlink components/);
     } finally {
       fs.rmSync(item.workdir, { recursive: true, force: true });

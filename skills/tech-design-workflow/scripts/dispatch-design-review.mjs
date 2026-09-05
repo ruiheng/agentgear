@@ -28,7 +28,6 @@ import { loadWorkflowPolicy } from "./workflow-policy.mjs";
 const usage = `Measure one design artifact and dispatch its review without changing lane data.
 
 Required:
-  --workdir <path>
   --lane-manifest <workspace-relative-path>
   --artifact <workspace-relative-path>
   --round <positive-integer>
@@ -48,6 +47,7 @@ Optional:
   --json
   -h, --help
 
+Run from the author workspace. Paths resolve from the current directory.
 The program reads the stable lane manifest and layered TOML policy, measures the
 artifact and cumulative growth since the last MINIMAL baseline, then sends the
 required review requests. It never writes workflow state.`;
@@ -80,7 +80,7 @@ function safeRegularFile(filePath, label) {
 function resolveWorkspaceFile(workdir, relativePath, label) {
   if (path.isAbsolute(relativePath)) fail(`${label} must be workspace-relative`);
   const filePath = path.resolve(workdir, relativePath);
-  if (!pathInside(workdir, filePath)) fail(`${label} escapes --workdir`);
+  if (!pathInside(workdir, filePath)) fail(`${label} escapes the current workspace`);
   requireSymlinkFreeContainedPath(workdir, path.dirname(filePath), `${label} parent`);
   safeRegularFile(filePath, label);
   return filePath;
@@ -197,7 +197,7 @@ function reviewMessage(factory, manifest, options) {
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const options = parseArgs(argv, {
     values: [
-      "--workdir", "--lane-manifest", "--artifact", "--previous-artifact", "--pruner-baseline-artifact", "--round",
+      "--lane-manifest", "--artifact", "--previous-artifact", "--pruner-baseline-artifact", "--round",
       "--context-revision", "--pruner-session-id", "--pruner-to-address",
       "--content-type", "--schema-version", "--send-timeout-ms"
     ],
@@ -214,7 +214,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     return;
   }
   for (const [field, label] of [
-    ["workdir", "--workdir"], ["laneManifest", "--lane-manifest"], ["artifact", "--artifact"],
+    ["laneManifest", "--lane-manifest"], ["artifact", "--artifact"],
     ["round", "--round"], ["contextRevision", "--context-revision"]
   ]) if (!options[field]) fail(`${label} is required`);
   options.round = positiveInteger(options.round, "--round");
@@ -222,11 +222,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   options.sendTimeoutMs = nonNegativeInteger(options.sendTimeoutMs, "--send-timeout-ms");
   (dependencies.requireCommand || requireCommand)("waypost");
 
-  const requestedWorkdir = path.resolve(options.workdir);
-  if (!fs.statSync(requestedWorkdir, { throwIfNoEntry: false })?.isDirectory()) {
-    fail(`workdir does not exist: ${requestedWorkdir}`);
-  }
-  const workdir = fs.realpathSync(requestedWorkdir);
+  const workdir = fs.realpathSync(dependencies.cwd || process.cwd());
   const manifestFile = resolveWorkspaceFile(workdir, options.laneManifest, "lane manifest");
   const manifest = readJson(manifestFile);
   validateManifest(manifest);
