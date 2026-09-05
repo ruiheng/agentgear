@@ -233,7 +233,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   if (options.round > manifest.review_checkpoint) {
     fail(
       `round ${options.round} crosses the user checkpoint at ${manifest.review_checkpoint}; `
-        + `ask the user whether to stop, redirect, or continue, then advance the checkpoint`,
+        + `analyze and report structural risks and affected outcomes to the user, then stop, redirect, or continue and advance the checkpoint`,
       3,
       "USER_CHECKPOINT_REQUIRED"
     );

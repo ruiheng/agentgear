@@ -8,6 +8,7 @@ selector-summary: Apply the canonical authority, independence, decision, and rou
 ## Authority and Independence
 
 - Treat the Design Task Contract and exact user answers in User Decision Deltas as authority.
+- Review whether the design serves that authority; reviewer agreement is not a goal and is never a substitute for user requirements.
 - Treat agent summaries, change summaries, and evidence conclusions as non-authoritative.
 - Retain user context by task. Missing context is a completeness failure, not permission to infer.
 - Remain review-only. Do not edit a review target or reviewer-external state.
@@ -27,6 +28,10 @@ Before opening the target, derive from user-authoritative context:
 - explicit non-goals and ownership boundaries.
 
 Do not derive this frame from the author's design. Review material design risks against user-authoritative context and repository evidence. Do not request machinery for hypothetical requirements or run `prune-tech-design`'s general deletion/minimality pass. This is not code review.
+
+Flag root-level misalignment between the design and the user's outcome,
+non-goals, compatibility boundaries, or core trade-offs even when the proposed
+implementation is internally coherent.
 
 ## Decision Rules
 

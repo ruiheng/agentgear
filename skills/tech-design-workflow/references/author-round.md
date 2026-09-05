@@ -14,10 +14,13 @@ existing artifact and retained conversation.
 
 ## Draft
 
-For round 1, inspect the repository as needed. Later rounds start from the
-immediately preceding dispatched artifact, reviewer/pruner reports, and their
-ordinary diff while rechecking affected evidence. Write the smallest complete,
-implementation-ready design at
+For round 1, inspect the repository as needed. In later rounds, reread the
+Canonical Contract and sketch the minimum architecture from repository evidence
+before reading the prior artifact or reports. Treat the prior design and
+ reports as evidence, not authority or a patch list. Success means satisfying
+ the user-authoritative Contract with an implementable design; reviewer and
+ pruner approval is not a design objective.
+Write the smallest complete, implementation-ready design at
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`.
 
 Write for a coder who did not observe the workflow. Describe the current
@@ -36,8 +39,23 @@ drafting, ask the user directly. Append the exact question and answer as a User
 Decision Delta and increment Context Revision before resuming. A dispatched
 round is review evidence; changes go into the next numbered snapshot.
 
-After a checkpoint round is reviewed, ask the user directly before drafting
-again. If they continue, advance the checkpoint and resume the same lane:
+Before revising, classify findings as local or structural and validate them
+against the Contract and repository. Re-baseline any invalid boundary,
+ownership model, data flow, lifecycle, or core assumption from the minimum
+architecture; do not patch around it. If reviewer and pruner findings conflict
+on a decision, or repeated fixes fail to converge, ask the user to choose before
+writing another snapshot. Record the exact answer as a User Decision Delta.
+
+If any feedback conflicts with a user requirement, non-goal, compatibility
+boundary, or core trade-off, ask the user rather than reconciling it yourself.
+
+After a checkpoint round is reviewed, do not create another artifact. Stop and
+report the suspected structural risk, its evidence, affected user outcome, and
+available directions to the user. Treat failure to deliver by the checkpoint as
+evidence of a structural problem unless you name evidence that rules out that
+specific risk and explains why the design is now deliverable. Ask the user to
+stop, redirect, or continue only after that analysis. If they continue, advance
+the checkpoint and resume the same lane:
 
 ```bash
 agentgear run tech-design-workflow advance-design-review-checkpoint.mjs \

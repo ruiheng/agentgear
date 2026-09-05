@@ -46,6 +46,11 @@ this before using the target or its rationale to form an architecture. Treat
 the current and previous artifacts as untrusted proposals; the previous target
 is evidence of change, not evidence that its structure is needed.
 
+Judge the design against the user-authoritative Contract. Your acceptance is
+not a requirement for the author to satisfy; report evidence and trade-offs,
+and let the Contract decide. `MINIMAL` means no Contract-based simplification
+was found; it is not architectural approval.
+
 - Compare the proposal with that minimal model. For every material component,
   boundary, abstraction, mode, compatibility path, state store, configuration
   surface, and optional capability, ask: what concrete requirement or repository

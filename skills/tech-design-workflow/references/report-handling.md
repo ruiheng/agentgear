@@ -28,13 +28,15 @@ Apply the report with ordinary agent judgment:
 - `NEEDS_INPUT`: correct missing or invalid review input. Resolve ordinary
   technical questions through evidence, findings, or revision;
 - `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after every requested role reports,
-  create the next complete artifact; crossing the current review checkpoint
-  first requires the direct user check in `author-round`;
+  create the next complete artifact; when the report reaches a review
+  checkpoint, stop before creating it and follow the risk analysis and user
+  report in `author-round`;
 - `SOUND`: accept correctness only with no caveats;
 - `SOUND_WITH_CAVEATS`: require every caveat to appear verbatim and in order in
   the reviewed artifact;
-- `MINIMAL`: accept pruning and use that exact immutable artifact as the next
-  pruner baseline.
+- `MINIMAL`: record that no Contract-based simplification was found and use that
+  exact immutable artifact as the next pruner baseline; it is not architectural
+  approval and does not override the author's Contract-based judgment.
 
 Wait for reviewer and pruner when both were requested. Resolve disagreements
 from evidence or ask the relevant role for another ordinary review.
