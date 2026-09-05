@@ -157,7 +157,7 @@ ${workspaceHandoff(options)}
 # Review Contract
 - Treat the planner Task Contract as task authority; apply later User Decisions
 - Wait for the matching \`review_requested\`; do not review code from this message
-- `.agent-artifacts/active-task.lock/lock.json` contains addresses for the task's collaborating agents. Read the relevant role field when needed; never infer an address from a session id. If delivery metadata is missing, recover routes from this lock.
+- \`.agent-artifacts/active-task.lock/lock.json\` contains addresses for the task's collaborating agents. Read the relevant role field when needed; never infer an address from a session id. If delivery metadata is missing, recover routes from this lock.
 - Workflow policy: ${options.workflowPolicy}
 `;
   return messageWithTaskContract(reviewTaskContextMessage, before, after, brief, footer);
@@ -189,7 +189,7 @@ function coderBody(options, brief) {
 ${branchPlan(options)}
 
 ## Execution Guardrails
-- `.agent-artifacts/active-task.lock/lock.json` contains addresses for the task's collaborating agents. Read the relevant role field when needed; never infer an address from a session id. If delivery metadata is missing, recover routes from this lock.
+- \`.agent-artifacts/active-task.lock/lock.json\` contains addresses for the task's collaborating agents. Read the relevant role field when needed; never infer an address from a session id. If delivery metadata is missing, recover routes from this lock.
 - Work on the recorded task branch; create or attach it from the integration branch if needed. Never commit detached HEAD.
 - Own investigation, decomposition, implementation choices, and validation within this scope
 - Make the smallest complete change; keep unrelated work out
@@ -268,8 +268,12 @@ function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, mes
     } catch {}
     return { status: "interrupted", signal: send.signal || "SIGTERM", timedOut: send.timedOut };
   }
-  if (send.error) return { status: "failed", detail: send.error.message };
-  if (send.status !== 0) return { status: "failed", detail: (send.stderr || send.stdout).trim() || `exit code ${send.status}` };
+  if (send.error) return { status: "failed", detail: `waypost send --notify could not start: ${send.error.message}` };
+  if (send.status !== 0) {
+    const stream = send.stderr.trim() ? "stderr" : "stdout";
+    const detail = (send.stderr || send.stdout).trim() || `exit code ${send.status}`;
+    return { status: "failed", detail: `waypost send --notify exited ${send.status} (${stream}): ${detail}` };
+  }
   const raw = send.stdout + send.stderr;
   let parsed;
   try {
