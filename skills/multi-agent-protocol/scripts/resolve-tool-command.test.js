@@ -1040,7 +1040,7 @@ test("design pruner prefers GPT-5.6 Sol with xhigh reasoning", () => {
   assert.equal(resolved.tool_profile, "design_pruner_default");
   assert.match(
     resolved.resolved_tool_cmd,
-    /codex --model gpt-5\.6-sol -c model_reasoning_effort=xhigh/
+    /codex --model gpt-6-astra -c model_reasoning_effort=medium/
   );
   assert.match(
     resolved.tool_candidates[0].command,
