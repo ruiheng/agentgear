@@ -32,7 +32,9 @@ Ask the user only for real scope/tradeoff decisions, explicit human gates, dirty
 ## Closeout Routing
 
 - `work_accepted` for a task-lane review: Planner chooses the next action;
-  when closeout is selected, run `review-closeout`, then `planner-closeout`.
+  the coder has already delivered its commit and review handoff; do not wait
+  for a second `code_delivery_complete`. When closeout is selected, run
+  `review-closeout`, then `planner-closeout`.
 - `work_accepted` for `integration_final` or `standalone`: Planner follows the
   lane-specific next action.
 - `code_delivery_complete` with `Outcome: completed`: Planner runs

@@ -7,6 +7,8 @@ selector-aliases: planner-closeout/start, action:closeout_delivered, action:code
 # Planner Closeout
 
 Handle accepted-review `closeout_delivered` or coder `code_delivery_complete`.
+For a required-review task, `work_accepted` leads to `closeout_delivered`; do
+not wait for an additional coder delivery message.
 
 Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
