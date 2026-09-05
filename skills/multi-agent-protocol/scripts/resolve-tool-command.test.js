@@ -1025,7 +1025,7 @@ test("explainer role prefers the configured agy command", () => {
   );
 });
 
-test("design pruner prefers GPT-5.6 Sol with xhigh reasoning", () => {
+test("design pruner uses GPT-6 Astra with medium reasoning", () => {
   const config = loadToolConfig(
     path.resolve(__dirname, "../../../config/tool-profiles.toml"),
     []
@@ -1044,7 +1044,7 @@ test("design pruner prefers GPT-5.6 Sol with xhigh reasoning", () => {
   );
   assert.match(
     resolved.tool_candidates[0].command,
-    /codex --model gpt-5\.6-sol -c model_reasoning_effort=xhigh/
+    /codex --model gpt-6-astra -c model_reasoning_effort=medium/
   );
   assert.equal(resolved.tool_candidates[1].command, "agy");
 });
