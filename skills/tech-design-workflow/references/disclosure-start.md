@@ -36,7 +36,7 @@ For a new request, choose draft-review when no defensible committed specificatio
 - Store that contract once under `.agent-artifacts/message/` and reference it from `.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`. Keep the manifest and contract through closeout.
 - Store complete draft rounds under `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. A dispatched round is review evidence, so revisions use the next numbered snapshot.
 - Keep drafting read-only with respect to Git state and workspace ownership.
-- Review checkpoints are risk signals. If the design is not deliverable at round 5 or a later checkpoint, assume a structural problem unless contrary evidence is recorded; the author must analyze and report the risk and affected outcome to the user before continuing. NEEDS_INPUT and same-snapshot review do not increment the round.
+- Review checkpoints are author-only risk signals. If the design is not deliverable at round 5 or a later checkpoint, the author must analyze and report the risk and affected outcome to the user before continuing. NEEDS_INPUT and same-snapshot review do not increment the round.
 - On round 2 and later, include the immediately preceding dispatched snapshot. Use diff-first evidence after that snapshot completed review; otherwise review the current artifact in full and use the diff for navigation.
 - Review from repository evidence and exact artifacts; use author summaries only for navigation.
 - Treat Waypost sends as fire-and-forget. Retry only while troubleshooting an unclear delivery.

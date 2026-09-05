@@ -29,7 +29,6 @@ is workflow state, not a delta; retain the reviewer and history.
 Task: <task_id>
 Action: design_spec_review_requested
 Round: <round>
-Review Checkpoint: <review_checkpoint>
 
 Apply the `route-waypost-action` skill.
 

@@ -28,9 +28,8 @@ Apply the report with ordinary agent judgment:
 - `NEEDS_INPUT`: correct missing or invalid review input. Resolve ordinary
   technical questions through evidence, findings, or revision;
 - `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after every requested role reports,
-  create the next complete artifact; when the report reaches a review
-  checkpoint, stop before creating it and follow the risk analysis and user
-  report in `author-round`;
+  apply the author-round continuation gate before creating the next complete
+  artifact.
 - `SOUND`: accept correctness only with no caveats;
 - `SOUND_WITH_CAVEATS`: require every caveat to appear verbatim and in order in
   the reviewed artifact;
