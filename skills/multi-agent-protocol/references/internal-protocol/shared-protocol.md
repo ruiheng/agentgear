@@ -139,6 +139,8 @@ On a wakeup nudge or explicit user message check:
    useful work when appropriate. One claim is not a global receive lock; do not
    hold an unprocessable delivery merely to preserve ordering.
 
+User corrections steer the task; apply and continue. New task only for explicit scope change. Recover context via `waypost_read` and the artifact.
+
 ## Natural End Gate
 
 Before ending, settle every delivery still claimed by this session. Queued, released, or deferred work may remain pending. A claim whose terminal `dead-letter` settlement failed and cannot be safely retried is reported as unsettled rather than given a different settlement. If message context is lost, recover it with `waypost_read`.
