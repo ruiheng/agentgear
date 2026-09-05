@@ -211,6 +211,12 @@ export function sendWaypost(sendMessage, options, toAddress, subject, message, r
     runCommand
   });
   if (sent.timedOut || sent.signal) {
+    // The transport can persist the Waypost delivery before the notify phase
+    // exceeds the diagnostic timeout. Keep any receipt present in stdout.
+    try {
+      const parsed = sendOutputFrom(sent.stdout || "");
+      if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
+    } catch {}
     return { status: "interrupted", signal: sent.signal || "SIGTERM", timedOut: sent.timedOut };
   }
   if (sent.error) return { status: "failed", detail: sent.error.message };

@@ -257,7 +257,15 @@ function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, mes
     schemaVersion: options.schemaVersion,
     sendTimeoutMs: options.sendTimeoutMs
   });
-  if (send.timedOut || send.signal) return { status: "interrupted", signal: send.signal || "SIGTERM", timedOut: send.timedOut };
+  // spawnSync may report a timeout after Waypost persisted the send. Preserve
+  // a receipt that was already written to stdout instead of discarding it.
+  if (send.timedOut || send.signal) {
+    try {
+      const parsed = sendOutputFrom(send.stdout || "");
+      if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
+    } catch {}
+    return { status: "interrupted", signal: send.signal || "SIGTERM", timedOut: send.timedOut };
+  }
   if (send.error) return { status: "failed", detail: send.error.message };
   if (send.status !== 0) return { status: "failed", detail: (send.stderr || send.stdout).trim() || `exit code ${send.status}` };
   const raw = send.stdout + send.stderr;
