@@ -8,6 +8,13 @@ selector-aliases: action:execute_delegate_task
 
 Retrieve `agentgear skill get multi-agent-protocol/shared-protocol`.
 
+You are the delegated **Coder** for this task. The planner has already created
+or selected this coder session and is waiting for your implementation result.
+Execute the received code task in this session; do not create, select, or
+dispatch another coder (or another worker) for it. If the task needs work
+outside the recorded code scope, report that to the planner instead of
+delegating it.
+
 On `Action: execute_delegate_task`, retain the delivery's actual `sender_address`
 as planner reply route and `recipient_address` as the only reply sender; resolve
 `coder_session_id` from the current bound session. Treat the body as the
