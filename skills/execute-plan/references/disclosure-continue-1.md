@@ -16,7 +16,7 @@ Use this after direct, harness, or planner-owned fallback selection. The planner
    - planner: make the change in `worker_workspace`
    - harness: give it the recorded task branch, workspace, objective, and acceptance criteria; it may edit and validate, but must not switch branches or commit. Do not alter the shared workspace until it returns.
 4. if a harness ran, confirm the recorded `task_branch` is still checked out
-5. verify the result with the narrowest meaningful checks
+5. verify acceptance criteria with the narrowest meaningful checks and complete required project checks; reuse current executor evidence, and broaden or repeat checks only for new changes, failures, or a concrete unresolved risk
 6. stage and commit the task change without asking the user for routine commit confirmation
 7. if `Per-task review: required`:
    - run `review-request` with `requester_role = planner`, `review_lane = task`, the recorded branch plan, workspace handoff (`worker_workspace`, `task_dir = worker_workspace`, `workspace_lifecycle = shared; cleanup=none`), and the delivery commit or task branch as scope

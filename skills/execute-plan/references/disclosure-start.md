@@ -20,13 +20,14 @@ Provide `execute_plan`, or a matching `integration_final` result plus plan conte
 - this planner lane owns one session, workspace lifecycle, integration branch, review base, and internal task decomposition; tasks execute serially in one workspace
 - workspace reservation records are prepared per task and released by closeout; planner-lane exclusivity comes from this serial execution contract, not from keeping a record across task gaps
 - planner default role is coordinator, not coder
-- the planner should auto-advance whenever the next step is clear
+- the planner resolves routine decomposition and technical choices from the goal and repository evidence, then auto-advances through the required delivery steps
 - if a blocker cannot be resolved locally, stop and ask the user directly
 - do not send routine blocker message to supervisor
 - select code tasks through `delegate-task` Selection-Only; persistent Waypost code work uses `delegate-code-task`
 - code-changing tasks are complete only after commit, any required review, closeout merge, and progress recording
 - claiming `execute_plan` does not require planner to implement code personally; dispatch, review, closeout, and final report still count as completing the workflow
 - planner is not done when implementation is done; planner is done only after one final `plan_report_delivered` message is successfully sent to supervisor
+- unattended workflow continues through implementation, inspection, repair, review, and closeout without progress reports between steps; report only blockers, explicit decision gates, and final delivery
 
 ## Multi-Agent Mode
 

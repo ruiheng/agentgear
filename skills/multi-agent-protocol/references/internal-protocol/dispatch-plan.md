@@ -91,6 +91,7 @@ Apply the `route-waypost-action` skill.
 - Planner-local execution and any later delegated work both stay in the one workspace recorded above
 - Any self-implemented code change still requires workspace prep, explicit task branch from `integration_branch`, commit, any required review, closeout merge, and final supervisor report
 - Routine branch, commit, review-request, closeout, and final-report actions are workflow-authorized; ask the user only for real scope/tradeoff decisions or explicit human gates
+- In unattended mode, execute those authorized phases continuously; do not stop for a progress report after each action. The first implementation is not completion when inspection, repair, review, or closeout remains.
 - Ask the user directly if the goal cannot be completed without a real scope or tradeoff decision
 
 ## Special Requirements

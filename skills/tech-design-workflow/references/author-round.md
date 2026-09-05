@@ -14,6 +14,13 @@ existing artifact and retained conversation.
 
 ## Draft
 
+When the lane policy is unattended, continue from drafting through required
+review-report handling, revision, acceptance, and delivery in the same active
+workflow. Treat a draft or first review request as an intermediate artifact;
+do not pause for a progress report. Pause only when the Contract requires a
+user decision, a configured review checkpoint requires user direction, or a
+concrete blocker prevents the next authorized action.
+
 For round 1, inspect the repository as needed. In later rounds, reread the
 Canonical Contract and sketch the minimum architecture from repository evidence
 before reading the prior artifact or reports. Treat the prior design and

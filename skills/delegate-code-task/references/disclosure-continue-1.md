@@ -19,10 +19,28 @@ The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`,
 - Before acting, verify that the task's intended deliverable requires a repository change. If not, stop and report this to the planner.
 - Attach the recorded task branch before editing or committing; create it from the recorded integration branch only when absent. Never commit detached HEAD.
 - Coder git writes and the delivery commit are pre-authorized for this delegated task.
-- If a material scope change or uncertainty appears, ask the user immediately and wait before applying or committing it. A user instruction that resolves it is the decision.
+- Resolve technical uncertainty by inspecting the repository and task evidence; choose routine implementation details within the contract and continue through Completion Routing. Ask the user when a missing decision would change scope, required behavior, compatibility, permissions, or a material product tradeoff, and wait before applying or committing that decision. A user instruction that resolves it is the decision.
 - Keep the recorded Branch Plan fixed for this dispatch. If the user requests a branch-plan change, do not send a review request; report it to planner for a new dispatch context.
 - Keep all such decisions and copy the accumulated list into the next review request or terminal handoff under `## User Decisions`; omit the section when no decision exists.
 - Follow workflow policy. After a delivery commit, run `review-request` when per-task review is required and reuse the recorded reviewer. The coder request does not need task background, goals, constraints, workflow policy, or other task-content description; reviewer gets them from planner context.
+
+## Verification
+
+Validate the acceptance criteria with checks proportional to the change and run
+required project checks. Add tests when they establish meaningful behavior or
+catch a regression; a low-impact text or style edit need not introduce new tests.
+Once checks pass, proceed to Completion Routing. Broaden or repeat checks only
+for new changes, failures, or a concrete unresolved risk. Record commands,
+results, and verification gaps; keep explicitly expected checkpoint failures
+distinct from unplanned failures.
+
+## Persistence
+
+Treat the first implementation as intermediate when inspection, repair, review,
+or delivery remains. Continue through that work in the same turn. In unattended
+workflow, do not send progress updates or ask for review between these steps;
+stop only for a material user decision, blocker, explicit checkpoint, or the
+terminal handoff.
 
 ## Completion Routing
 

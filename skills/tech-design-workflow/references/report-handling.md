@@ -25,6 +25,11 @@ manifest.
 
 Apply the report with ordinary agent judgment:
 
+In unattended mode, a received report is input to the next lane action, not a
+reason to return a status update and wait. Continue revision, re-dispatch, or
+delivery while the Contract and checkpoint policy permit it; stop only for a
+material user decision or the explicit checkpoint/blocker rules below.
+
 - `NEEDS_INPUT`: correct missing or invalid review input. Resolve ordinary
   technical questions through evidence, findings, or revision;
 - `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after every requested role reports,

@@ -196,6 +196,58 @@ Candidate-specific advice.
 - never create external state such as a CodeGraph index merely to make a candidate ready
 - do not write fallback tool names into the base selector unless the behavior genuinely requires that named tool
 
+### 16. Make autonomy and completion explicit across models
+
+Maintain one complete behavioral contract for GPT-6 Astra and GPT-5.6. Prefer
+clarifying the shared prompt over model detection or parallel prompt variants.
+
+- State the outcome, material boundaries, and observable completion condition.
+- Let the executing role resolve routine technical choices from evidence and
+  continue authorized work. Name the scope, product, permission, or ownership
+  decisions that require user input; uncertainty alone is not a stop condition.
+- Keep required fields, exact protocol tokens, serialized actions, human gates,
+  and async handoffs explicit. Shortening a prompt must not erase these rules.
+- Distinguish requirements from recommendations. Apply relevant skill guidance
+  within the user's authorized scope and the harness instruction hierarchy;
+  do not turn a guideline into a new approval gate. When a rule blocks work,
+  identify its source and the concrete conflict.
+- Describe when delegation pays off and who owns integration in the skill that
+  selects execution surfaces. Preserve serial workspace and review policies.
+- Bound verification by acceptance criteria, change risk, and required project
+  checks. Further checks need new evidence or an unresolved risk; passing checks
+  should lead to the next required delivery step.
+- Separate user-facing style from machine-facing output contracts. Prefer a
+  concise outcome and actionable evidence for the user; preserve required report
+  fields and enough detail for another role to act.
+
+Model guidance motivates an audit, not a blanket rewrite. Keep reasoning/model
+configuration in the existing resolver profiles, outside runtime prose.
+
+### 17. Define persistence before the first implementation
+
+GPT-6 Astra may return after a first implementation when inspection, repair, or
+delivery remains. Put those activities in the completion contract before work
+starts, and name what to explore and where to stop. Do not insert a review stop
+after the first implementation unless review is an actual decision point. In
+unattended mode, continue through reversible implementation, inspection, repair,
+and required checks; report only at a blocker, authorization gate, checkpoint,
+or final delivery.
+
+## Cross-Model Validation
+
+For behavioral prompt changes, compare the previous and revised prompts on the
+same representative tasks with GPT-6 Astra and the deployed GPT-5.6 variants.
+Hold tools, context, and each model's configuration constant between prompt
+versions. Include routine ambiguity, a real user decision, missing required
+workflow identity, a small change, and an async handoff. Check task completion,
+unnecessary questions, unauthorized assumptions, verification scope, output
+contracts, and tool cost. Report untested models explicitly; build and static
+checks establish packaging correctness, not behavioral compatibility.
+
+Reference for this audit:
+- [OpenAI GPT-6 Astra prompting best practices](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6-astra), accessed 2026-09-05.
+- [PrompTessor prompting guide](https://promptessor.com/blog/gpt-6-astra-prompting-guide), secondary practical examples, accessed 2026-09-05.
+
 ## Common Failure Modes
 
 Before landing a prompt change, check for these:

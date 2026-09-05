@@ -34,11 +34,14 @@ Policy rules:
 - Usually reuse recorded lint, build/link, compile/type-check, and test results instead of rerunning the same slow checks
 - Rerun only when the recorded evidence is missing, stale, too broad, too narrow, suspicious, or does not answer the actual review risk
 - When rerunning is necessary, prefer the narrowest command that answers the open question
+- Once evidence answers the material review risks and required checks are satisfied, issue the review result; do not expand verification merely to add coverage or repeat successful checks without a new reason
 
 ## Output Format
 
 Use this structure as the full review report. Use exactly one of these result lines: `Action: rework_required`, `Action: abort_iteration`, or `Action: work_accepted`.
 Omit `### User Decision Summary` when no user scope decision exists.
+Keep each finding actionable and state its evidence once. Retain required fields;
+use `None` for empty finding sections instead of inventing issues to fill them.
 
 ```markdown
 Task: <task_id>
