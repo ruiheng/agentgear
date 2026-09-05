@@ -45,6 +45,8 @@ dispatched artifacts.
 Write complete rounds as
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. Because a dispatched
 round is review evidence, a revision creates the next numbered snapshot.
+Dispatched snapshots are immutable: never modify or overwrite them; every
+revision uses the next number and a new review dispatch.
 
 The dispatcher does not write workflow state. `auto` first prunes at
 `max_lines` or `max_chars`; `always` ignores that initial threshold. After

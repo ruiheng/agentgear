@@ -25,6 +25,10 @@ manifest.
 
 Apply the report with ordinary agent judgment:
 
+The reviewed snapshot is immutable. Apply accepted changes only by creating the
+next numbered `rNNN.md`; never patch the reviewed file in place, even for a
+minor wording change.
+
 In unattended mode, a received report is input to the next lane action, not a
 reason to return a status update and wait. Continue revision, re-dispatch, or
 delivery while the Contract and checkpoint policy permit it; stop only for a

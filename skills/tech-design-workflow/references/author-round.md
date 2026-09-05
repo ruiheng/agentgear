@@ -30,6 +30,13 @@ before reading the prior artifact or reports. Treat the prior design and
 Write the smallest complete, implementation-ready design at
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`.
 
+**IMMUTABILITY INVARIANT:** Once an `rNNN.md` snapshot has been dispatched,
+committed, or included in a review request, it is immutable. Never edit,
+overwrite, append to, or reformat that path. Any revision, including a wording
+fix, must be written to the next numbered snapshot (`rNNN+1.md`) and the new
+snapshot must be dispatched as a separate artifact. Review reports and
+closeout must refer to the exact snapshot that was reviewed.
+
 Write for a coder who did not observe the workflow. Describe the current
 intended change and only the decisions, boundaries, and consequences material
 to safe implementation. Include rationale only for non-obvious choices.
