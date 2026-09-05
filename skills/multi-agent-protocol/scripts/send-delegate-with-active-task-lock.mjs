@@ -149,7 +149,10 @@ function reviewerBody(options, brief) {
     { name: "Workspace lifecycle", value: options.workspaceLifecycle },
     { name: "Round", value: "context" }
   ];
-  const footer = `# Review Frame
+  const footer = `# Role
+You are the Reviewer for this task. Review the implementation in this session; do not dispatch another reviewer.
+
+# Review Frame
 ${branchPlan(options)}
 
 ${workspaceHandoff(options)}
@@ -182,7 +185,10 @@ function coderBody(options, brief) {
 - Reviewer routing: ref=${options.reviewerSessionRef}; id=${options.reviewerSessionId}`
     : `- Per-task review: skip
 - After commit and validation, send \`code_delivery_complete\` to planner`;
-  const footer = `# Execution Contract
+  const footer = `# Role
+You are the Coder for this task. Implement the task in this session; do not dispatch another coder.
+
+# Execution Contract
 ## Session Contract
 - Why persistent session: ${options.sessionReason}
 
