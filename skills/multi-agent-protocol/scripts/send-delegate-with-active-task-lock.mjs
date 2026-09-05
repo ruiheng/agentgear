@@ -266,6 +266,14 @@ function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, mes
       const parsed = sendOutputFrom(send.stdout || "");
       if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
     } catch {}
+    const receipt = receiptFrom(send.stdout || "");
+    if (receipt.delivery_id) {
+      return {
+        status: "sent",
+        receipt,
+        notification: { status: "unknown", scheme: null, detail: null, error: "Waypost receipt recovered after interruption" }
+      };
+    }
     return { status: "interrupted", signal: send.signal || "SIGTERM", timedOut: send.timedOut };
   }
   if (send.error) return { status: "failed", detail: `waypost send --notify could not start: ${send.error.message}` };
@@ -279,7 +287,10 @@ function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, mes
   try {
     parsed = sendOutputFrom(send.stdout);
   } catch {
-    return { status: "receipt_unknown", raw };
+    const receipt = receiptFrom(send.stdout);
+    return receipt.delivery_id
+      ? { status: "sent", receipt, notification: { status: "unknown", scheme: null, detail: null, error: "Waypost receipt used legacy text parsing" } }
+      : { status: "receipt_unknown", raw };
   }
   return parsed.receipt.delivery_id ? { status: "sent", ...parsed } : { status: "receipt_unknown", raw };
 }
