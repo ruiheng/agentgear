@@ -35,6 +35,9 @@ Ask the user only for real scope/tradeoff decisions, explicit human gates, dirty
   the coder has already delivered its commit and review handoff; do not wait
   for a second `code_delivery_complete`. When closeout is selected, run
   `review-closeout`, then `planner-closeout`.
+- A matching `work_accepted` forwarded by the recorded Coder is a routing
+  recovery, not a new review result; accept it when the task, round, reviewer,
+  and unchanged report identity match the active review.
 - `work_accepted` for `integration_final` or `standalone`: Planner follows the
   lane-specific next action.
 - `code_delivery_complete` with `Outcome: completed`: Planner runs

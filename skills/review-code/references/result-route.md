@@ -15,8 +15,11 @@ After that gate passes, route `rework_required` to the recorded requester for
 every lane. Route `abort_iteration` and `work_accepted` to the recorded Planner
 for `task` / `integration_final`, or to the recorded requester for
 `standalone`. The planner decides whether to close out, request another review,
-or take another workflow action. The reviewer never runs closeout as part of
-reporting its verdict. This is a declared discriminator route; retrieve the
-complete review contract in order:
+or take another workflow action. If a result is misrouted to the Coder, the
+Coder forwards the unchanged report to the Planner using the task lock route;
+the Planner may accept that recovery when task, round, reviewer, and report
+identity match. The reviewer never runs closeout as part of reporting its
+verdict. This is a declared discriminator route; retrieve the complete review
+contract in order:
 
 `agentgear skill get review-code/review review-code/continue-1 review-code/continue-2 review-code/continue-3`

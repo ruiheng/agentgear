@@ -21,6 +21,11 @@ as planner reply route and `recipient_address` as the only reply sender; resolve
 code-task contract. Own the recorded branch, implementation, validation, and
 commit; keep the session legible for user steering.
 
+If a review result (`work_accepted` or `abort_iteration`) is accidentally sent
+to this Coder, forward the unchanged report to the Planner address recorded in
+the task lock, then acknowledge the mistaken delivery. Do not treat it as a
+new coder task or wait for another coder delivery.
+
 The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`, workflow policy, and complete Branch Plan. Required review also requires the reviewer id. If any required field is missing, report a blocker instead of inferring it.
 
 - Before acting, verify that the task's intended deliverable requires a repository change. If not, stop and report this to the planner.
