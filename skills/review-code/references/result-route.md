@@ -6,19 +6,15 @@ selector-aliases: action:rework_required, action:abort_iteration, action:work_ac
 
 # Review Result Route
 
-Before acting on a review decision, match Action, Task, Review lane, Round, and
-both transport endpoints to the active review: recorded reviewer -> requester.
-Missing authority defers; a mismatch is rejected without advancing rework,
-acceptance, or closeout. A Reviewer header never supplies a route.
+Retrieve `agentgear skill get multi-agent-protocol/shared-protocol` for sender
+validation and routing recovery. Match Action, Task, Review lane, and Round to
+the active review before acting.
 
 After that gate passes, route `rework_required` to the recorded requester for
 every lane. Route `abort_iteration` and `work_accepted` to the recorded Planner
 for `task` / `integration_final`, or to the recorded requester for
 `standalone`. The planner decides whether to close out, request another review,
-or take another workflow action. If a result is misrouted to the Coder, the
-Coder forwards the unchanged report to the Planner using the task lock route;
-the Planner may accept that recovery when task, round, reviewer, and report
-identity match. The reviewer never runs closeout as part of reporting its
+or take another workflow action. The reviewer never runs closeout as part of reporting its
 verdict. This is a declared discriminator route; retrieve the complete review
 contract in order:
 

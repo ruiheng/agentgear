@@ -5,6 +5,11 @@ description: Use the shared protocol for multi-agent collaboration.
 
 Follow the remembered guidance from `agentgear skill get multi-agent-protocol`. Run it only if you no longer remember the guidance or have evidence it changed.
 
+Explore technical solutions through hypotheses and evidence. Follow roles,
+Actions, recipients, and handoffs from the owning skill and task records;
+look up missing guidance rather than guessing. Use shared-protocol for routing
+recovery; a misdirected request is still work to resolve.
+
 In unattended workflows, a message send is transport, not a review stop:
 continue authorized implementation, inspection, repair, review, and closeout
 without progress reports. Pause only for a material decision, checkpoint,

@@ -5,8 +5,7 @@ selector-summary: Apply shared message envelopes, receiver claims, and workflow 
 
 # Multi-Agent Collaboration Protocol
 
-Use this contract for session identity, message boundaries, and delivery lifecycle.
-Action skills own role behavior; companion references own shared execution policy.
+This contract owns message identity and lifecycle; action skills own role behavior.
 
 ## Multi-Agent Mode Detection
 
@@ -37,12 +36,10 @@ Enter multi-agent mode when any condition matches:
 
 ## Message Envelope
 
-Every workflow message has:
+Every message has `subject` (triage summary) and `body` (action input).
 
-- `subject`: one-line triage summary
-- `body`: the action-specific input
-
-A workflow may put common requester-owned context in one workspace file when every recipient has the same verified workdir. Send the workspace-relative path instead of copying that context into each message, and keep the file available through workflow closeout.
+With a shared verified workdir, keep common requester context in one file;
+send its relative path and retain it through closeout.
 
 Use the smallest header that selects the action and correlates its work:
 
@@ -61,31 +58,36 @@ it adds no specialized workflow behavior.
 its exact templates begin with Action and Original Delivery.
 
 `Action:` is a stable token. The action skill owns its meaning and any extra fields.
-Do not copy transport routing into body `From` or `To` headers. The claimed
-delivery's `sender_address` and `recipient_address` are authoritative. Reply to
-the received `sender_address` from the current `recipient_address`; carry a
-role, session id, host, or workspace in the body only when the action uses it
-as task data rather than as a send route.
+Do not put transport routes in body `From` or `To` headers. Use actual delivery
+addresses; action-specific destinations come from task records. A forwarding
+collaborator does not replace the original author or the action's reply route.
 
-Do not use the envelope as a second workflow-state store. When an action names
-a shared workspace state file, keep mutable task, participant, round, limit,
-and artifact state there. The message only identifies the action, task, shared
-state file, and any immutable event correlation needed to reject stale work.
+Keep mutable task, participant, round, limit, and artifact state in the action's
+shared state file. Messages identify the action, task, state file, and immutable
+event correlation; do not duplicate mutable state in the envelope.
 
 ## Expected Sender Gate
 
-Before a claimed result causes merge, acceptance, cleanup, code changes, or
-another workflow transition, match its Task and action-specific correlation to
-the active request or lane. Require the actual `sender_address` to be that
-lane's expected worker and `recipient_address` to be its recorded return route.
-Do not substitute body identity fields. Missing authority defers; an endpoint or
-lane mismatch is rejected without acting on the result. An authenticated older
-round or generation is a stale no-op, not a routing failure.
+Before a workflow transition, match Task, lane, round/generation, and other
+action correlation to the active request. Accept the expected sender or an
+unchanged forward from a recorded task collaborator with matching original
+author and request context. Resolve roles and routes from task records, not
+body identity claims alone. Stale messages do not advance the workflow.
 
 Advisory-only reports do not require exact sent-history recovery. Match a known
 active reviewer when available; otherwise present the report as unsolicited and
 do not infer a workflow transition. Local same-turn continuations do not use
 this gate.
+
+## Routing Recovery
+
+A valid Action does not assign its receiver a new role. If misdirected, use
+the owning skill and task records to forward it unchanged to the intended
+recipient, then notify the sender; ack the mistaken delivery only after both
+sends succeed. On a correction, fix the route and resume the pending handoff;
+do not resend an already forwarded message. If the route is unknown, ask the sender; ack
+only after that request succeeds. Never silently consume actionable work as
+a notification. Missing task context requires clarification, not guessed action.
 
 ## Waypost Host Permission Boundary
 
