@@ -109,9 +109,9 @@ is unresolved.
 ## Message delivery and continuation
 
 - `waypost_send` completes delivery; replies are later inbound work.
-- Coordination is push-based and event-driven: after sending, continue
-  independent work and report only known state and event changes; do not poll
-  for replies or other participants' progress.
+- Push coordination: continue after sending; keep routine state internal.
+  Send only required handoffs, blockers, checkpoints, or terminal results; do
+  not poll.
 - Keep target execution receiver-owned. A failed or unverified wake does not
   reverse durable delivery and may be a false negative. A workflow whose fixed,
   non-assertive wake notice is explicitly replayable may replay it once in the

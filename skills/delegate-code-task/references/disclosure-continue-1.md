@@ -50,9 +50,8 @@ distinct from unplanned failures.
 
 Treat the first implementation as intermediate when inspection, repair, review,
 or delivery remains. Continue through that work in the same turn. In unattended
-workflow, do not send progress updates or ask for review between these steps;
-stop only for a material user decision, blocker, explicit checkpoint, or the
-terminal handoff.
+workflow, keep intermediate state internal; send only required review handoff,
+blocker, checkpoint, or terminal handoff.
 
 ## Completion Routing
 
