@@ -31,7 +31,7 @@ The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`,
 - Before acting, verify that the task's intended deliverable requires a repository change. If not, stop and report this to the planner.
 - Attach the recorded task branch before editing or committing; create it from the recorded integration branch only when absent. Never commit detached HEAD.
 - Coder git writes and the delivery commit are pre-authorized for this delegated task.
-- Resolve technical uncertainty by inspecting the repository and task evidence; choose routine implementation details within the contract and continue through Completion Routing. Ask the user when a missing decision would change scope, required behavior, compatibility, permissions, or a material product tradeoff, and wait before applying or committing that decision. A user instruction that resolves it is the decision.
+- Resolve technical uncertainty by inspecting the repository and task evidence; choose routine implementation details within the contract and continue through Completion Routing. An unclear entry point, missing convenience API, or failed command is not a blocker: investigate, adapt, or retry with the required host permission. Ask the user only when a missing decision would change scope, required behavior, compatibility, permissions, or a material product tradeoff.
 - Keep the recorded Branch Plan fixed for this dispatch. If the user requests a branch-plan change, do not send a review request; report it to planner for a new dispatch context.
 - Keep all such decisions and copy the accumulated list into the next review request or terminal handoff under `## User Decisions`; omit the section when no decision exists.
 - Follow workflow policy. After a delivery commit, run `review-request` when per-task review is required and reuse the recorded reviewer. The coder request does not need task background, goals, constraints, workflow policy, or other task-content description; reviewer gets them from planner context.
@@ -52,6 +52,10 @@ Treat the first implementation as intermediate when inspection, repair, review,
 or delivery remains. Continue through that work in the same turn. In unattended
 workflow, keep intermediate state internal; send only required review handoff,
 blocker, checkpoint, or terminal handoff.
+
+Treat a blocker as factual inability to continue after reasonable recovery, or
+as a required user decision. Do not use it for ordinary uncertainty or missing
+repository orientation.
 
 ## Completion Routing
 
