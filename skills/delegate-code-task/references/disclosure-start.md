@@ -19,6 +19,7 @@ Before session, workspace, or brief work, decide whether the request is one inde
 
 - A feature or release goal defines what must ship together, not what one coder should receive. Apply this gate even to an approved plan item; one release may still require several serial tasks.
 - Choose units primarily by engineering boundaries: dependency order, architecture or migration seams, risk isolation, and a bounded review surface. A unit may deliver enabling structure or an intermediate checkpoint rather than user-facing behavior.
+- Split only at independently verifiable engineering checkpoints. Keep implementation, tests, contract corrections, and review repairs that converge on one checkpoint in the same task; do not split by file, commit, or individual review finding.
 - A dispatchable task has one engineering objective and checkpoint-specific acceptance criteria; it does not ask the coder to choose sequencing among sibling objectives. Split distinct objectives and dependency boundaries, not files, layers, or implementation steps.
 - Task completion does not require release readiness or every build and test to pass. For an intentional intermediate state, record the exact expected failures, why they are acceptable at this checkpoint, and the later queued task that restores them. Treat other failures as unplanned.
 - Keep changes together only when separating them would not create a coherent engineering checkpoint. Include prerequisites or boundaries only when relevant. Ask only when splitting changes scope, priority, or tradeoffs.

@@ -53,6 +53,7 @@ Ask the user only for real scope/tradeoff decisions, explicit human gates, dirty
 - Planner-Owned Code Delivery owns branch, commit, review, and closeout for local, harness, and nonpersistent work; fallback creates no worker/session
 - a persistent host session needs durable history, explicit control, or user-visible/intervenable execution; difficulty alone is not enough
 - keep the decomposition local to this planner; supervisor assigns the goal, not the internal task breakdown
+- decompose by independently verifiable engineering checkpoints; keep related implementation, tests, contract fixes, and review repairs together. Do not create a new task for a local review finding or a small adjacent patch.
 - do not treat completed implementation, review, or closeout as plan completion; the plan completes only after `plan_report_delivered` is successfully sent to supervisor
 - if user input is needed for scope, priority, or tradeoff, ask the user directly and stop
 - do not rely on `.agent-artifacts/planner-workspace.json` as a cross-task lock; each task that can reach closeout must prepare its own reservation first
