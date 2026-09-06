@@ -29,7 +29,7 @@ new coder task or wait for another coder delivery.
 The contract must include `Worker workspace`, `Task dir`, `Workspace lifecycle`, workflow policy, and complete Branch Plan. Required review also requires the reviewer id. If any required field is missing, report a blocker instead of inferring it.
 
 - Before acting, verify that the task's intended deliverable requires a repository change. If not, stop and report this to the planner.
-- Attach the recorded task branch before editing or committing; create it from the recorded integration branch only when absent. Never commit detached HEAD.
+- Verify that dispatch attached the recorded task branch before editing or committing. Never commit detached HEAD or create a different task branch.
 - Coder git writes and the delivery commit are pre-authorized for this delegated task.
 - Resolve technical uncertainty by inspecting the repository and task evidence; choose routine implementation details within the contract and continue through Completion Routing. An unclear entry point, missing convenience API, or failed command is not a blocker: investigate, adapt, or retry with the required host permission. Ask the user only when a missing decision would change scope, required behavior, compatibility, permissions, or a material product tradeoff.
 - Keep the recorded Branch Plan fixed for this dispatch. If the user requests a branch-plan change, do not send a review request; report it to planner for a new dispatch context.

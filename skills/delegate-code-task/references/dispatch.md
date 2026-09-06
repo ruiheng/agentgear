@@ -36,6 +36,9 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 
 3. Send the canonical brief through the lock-owning wrapper. It publishes the planner task contract to reviewer first, then dispatches coder only after reviewer delivery returns an id:
 
+   The wrapper also creates or attaches the recorded task branch from the
+   integration branch before sending. Run it with host permission.
+
    ```bash
    agentgear run multi-agent-protocol send-delegate-with-active-task-lock.mjs \
      --workdir "<worker_workspace>" \

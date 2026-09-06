@@ -319,6 +319,25 @@ function requireReviewRoute(options) {
   }
 }
 
+function prepareTaskBranch(workdir, integrationBranch, taskBranch) {
+  const trackedChanges = run("git", ["-C", workdir, "diff", "--quiet"]);
+  const stagedChanges = run("git", ["-C", workdir, "diff", "--cached", "--quiet"]);
+  if (trackedChanges.status !== 0 || stagedChanges.status !== 0) {
+    fail(`worker workspace is dirty; commit or stash existing changes before preparing task branch '${taskBranch}'`);
+  }
+  const current = run("git", ["-C", workdir, "symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (current.status === 0 && current.stdout.trim() !== integrationBranch && current.stdout.trim() !== taskBranch) {
+    fail(`worker workspace is on unexpected branch '${current.stdout.trim()}', expected '${integrationBranch}' or '${taskBranch}'`);
+  }
+  const exists = run("git", ["-C", workdir, "rev-parse", "--verify", `refs/heads/${taskBranch}`]);
+  if (exists.status !== 0) {
+    const created = run("git", ["-C", workdir, "branch", taskBranch, integrationBranch]);
+    if (created.status !== 0) fail(`failed to create task branch '${taskBranch}' from '${integrationBranch}': ${(created.stderr || created.stdout).trim()}`);
+  }
+  const switched = run("git", ["-C", workdir, "switch", taskBranch]);
+  if (switched.status !== 0) fail(`failed to attach task branch '${taskBranch}': ${(switched.stderr || switched.stdout).trim()}`);
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv, {
     values: ["--workdir", "--task-id", "--start-branch", "--integration-branch", "--task-branch", "--planner-session-id", "--coder-session-id", "--coder-session-ref", "--reviewer-session-id", "--reviewer-session-ref", "--session-host", "--planner-workspace", "--worker-workspace", "--task-dir", "--workspace-lifecycle", "--session-reason", "--from-address", "--to-address", "--reviewer-to-address", "--subject", "--reviewer-subject", "--brief-file", "--review-context", "--workflow-policy", "--artifact-root", "--content-type", "--schema-version", "--send-timeout-ms"],
@@ -396,6 +415,7 @@ export async function main(argv = process.argv.slice(2)) {
   };
 
   try {
+    prepareTaskBranch(options.workdir, options.integrationBranch, options.taskBranch);
     if (options.reviewContext === "required") {
       mutateLock(lockFile, lock => {
         lock.reviewer_session_id = options.reviewerSessionId;
