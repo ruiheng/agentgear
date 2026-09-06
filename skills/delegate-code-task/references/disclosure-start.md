@@ -31,6 +31,7 @@ Delegate the outcome, not a solution recipe.
 
 - Give the coder only decision-relevant context: parent goal when it affects local choices, hard boundaries, established evidence, non-obvious fixed decisions with source, and checkpoint-specific acceptance criteria.
 - Let the coder investigate, decompose implementation within the selected task unit, choose the implementation, and validate it.
+- The brief must define the outcome, boundaries, and acceptance evidence; it need not name an exact implementation hook. Discovering the relevant entry point is part of the coder's task.
 - Optimize for the smallest conflict surface that still completes the task; exclude unrelated refactors, renames, moves, and cleanup.
 - List only required reading and useful references. Omit empty optional sections rather than inventing context. Do not pin a commit unless an exact historical snapshot is explicitly required.
 - Treat an unusually long brief as a framing smell. Remove detail that does not change the outcome, boundary, risk, or acceptance criteria.

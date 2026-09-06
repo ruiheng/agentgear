@@ -57,6 +57,12 @@ Treat a blocker as factual inability to continue after reasonable recovery, or
 as a required user decision. Do not use it for ordinary uncertainty or missing
 repository orientation.
 
+Continue the original task after local correction or recovered environment
+state unless the user explicitly changes its scope. A failed command, unclear
+entry point, or failed check is work to resolve, not completion. A blocker
+report must state what was inspected, what recovery was attempted, and why the
+remaining issue requires the user or cannot be resolved within the task.
+
 ## Completion Routing
 
 Read the recorded `Per-task review` policy before sending the terminal result.
