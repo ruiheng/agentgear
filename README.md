@@ -291,14 +291,21 @@ permissions Agentgear actually introduced:
 
 ```bash
 agentgear permissions preset list
+agentgear permissions preset add git
 agentgear permissions preset add go
 agentgear permissions preset add node typescript frontend vue
 agentgear permissions preset add python --target codex,claude
 agentgear permissions preset add node typescript --scope user --target codex,claude,agy
 ```
 
-Built-ins cover Go, Haskell, Node.js, JavaScript, TypeScript, frontend tools,
-Vue, React, Svelte, Python, and Rust. To copy and customize a small preset file:
+Built-ins cover Git, Go, Haskell, Node.js, JavaScript, TypeScript, frontend tools,
+Vue, React, Svelte, Python, and Rust. The `git` preset covers inspection, staging,
+commits, branches, fetching, and worktree listing/creation. Rules match command
+prefixes, including their options (for example, `commit --amend`, `branch -D`,
+and `switch --discard-changes`). It does not grant a bare `git` prefix or include
+push, reset, clean, checkout, restore, merge, rebase, or stash commands.
+
+To copy and customize a small preset file:
 
 ```bash
 agentgear permissions preset show vue

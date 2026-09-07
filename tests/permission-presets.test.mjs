@@ -58,7 +58,7 @@ function spawnPresetShow(name, cwd, env) {
 test("development permission presets are independently cataloged", () => {
   const names = listPermissionPresets().map(preset => preset.name);
   assert.deepEqual(names, [
-    "go", "haskell", "node", "javascript", "typescript", "frontend",
+    "git", "go", "haskell", "node", "javascript", "typescript", "frontend",
     "vue", "react", "svelte", "python", "rust"
   ]);
 });

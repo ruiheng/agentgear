@@ -32,6 +32,9 @@
     "yq": {}
   },
   "permissionPresets": {
+    "git": {
+      "file": "catalog/permission-presets/git.json"
+    },
     "go": {
       "file": "catalog/permission-presets/go.json"
     },

@@ -1,0 +1,20 @@
+{
+  "name": "git",
+  "description": "Common Git inspection, staging, commit, branch, and fetch commands.",
+  "rules": [
+    { "command": ["git", "status"], "justification": "Inspect the working tree and staging area." },
+    { "command": ["git", "diff"], "justification": "Inspect Git changes." },
+    { "command": ["git", "log"], "justification": "Inspect commit history." },
+    { "command": ["git", "show"], "justification": "Inspect Git objects and commits." },
+    { "command": ["git", "blame"], "justification": "Inspect line history." },
+    { "command": ["git", "ls-files"], "justification": "List files in the index and working tree." },
+    { "command": ["git", "rev-parse"], "justification": "Resolve Git revisions and repository paths." },
+    { "command": ["git", "add"], "justification": "Stage project changes." },
+    { "command": ["git", "commit"], "justification": "Commit staged changes." },
+    { "command": ["git", "branch"], "justification": "Inspect and manage local branches." },
+    { "command": ["git", "switch"], "justification": "Switch or create working branches." },
+    { "command": ["git", "fetch"], "justification": "Fetch remote objects and references." },
+    { "command": ["git", "worktree", "list"], "justification": "List repository worktrees." },
+    { "command": ["git", "worktree", "add"], "justification": "Create a working tree for a branch." }
+  ]
+}

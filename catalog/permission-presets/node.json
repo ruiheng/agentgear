@@ -20,9 +20,15 @@
     { "command": ["yarn", "check"], "justification": "Run project validation with Yarn." },
     { "command": ["yarn", "build"], "justification": "Build the project with Yarn." },
     { "command": ["bun", "test"], "justification": "Run tests with Bun." },
+    { "command": ["bun", "--bun", "test"], "justification": "Run tests with Bun." },
+    { "command": ["bun", "--bun", "run", "test"], "justification": "Run the test script with Bun." },
     { "command": ["bun", "run", "lint"], "justification": "Run lint with Bun." },
+    { "command": ["bun", "--bun", "run", "lint"], "justification": "Run lint with Bun." },
     { "command": ["bun", "run", "typecheck"], "justification": "Run type checking with Bun." },
+    { "command": ["bun", "--bun", "run", "typecheck"], "justification": "Run type checking with Bun." },
     { "command": ["bun", "run", "check"], "justification": "Run project validation with Bun." },
-    { "command": ["bun", "run", "build"], "justification": "Build the project with Bun." }
+    { "command": ["bun", "--bun", "run", "check"], "justification": "Run project validation with Bun." },
+    { "command": ["bun", "run", "build"], "justification": "Build the project with Bun." },
+    { "command": ["bun", "--bun", "run", "build"], "justification": "Build the project with Bun." }
   ]
 }
