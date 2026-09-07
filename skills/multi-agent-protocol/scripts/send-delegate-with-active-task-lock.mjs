@@ -78,7 +78,7 @@ function optionalOutputString(value) {
 }
 
 export function sendOutputFrom(output) {
-  const payload = JSON.parse(output);
+  const payload = JSON.parse(output.trim().split(/\r?\n/, 1)[0]);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("waypost send returned a non-object JSON payload");
   }

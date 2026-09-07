@@ -215,6 +215,6 @@ function sendDeclaredActionMessage(declaration, message, {
     "--schema-version", schemaVersion,
     "--body-file", "-",
     "--notify",
-    "--json"
+    "--ndjson"
   ], { input: actionMessageBody(message), timeoutMs: sendTimeoutMs });
 }
