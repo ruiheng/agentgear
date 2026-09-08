@@ -1017,11 +1017,11 @@ test("explainer role prefers the configured agy command", () => {
   });
 
   assert.equal(resolved.tool_profile, "explainer_default");
-  assert.equal(resolved.resolved_tool_cmd, "agy --model gemini-3.6-flash-high");
+  assert.equal(resolved.resolved_tool_cmd, "agy --model gemini-3.8-flash-high");
   assert.equal(resolved.resolution_source, "role_default_profile");
   assert.equal(
     resolved.tool_candidates[0].command,
-    "agy --model gemini-3.6-flash-high"
+    "agy --model gemini-3.8-flash-high"
   );
 });
 
