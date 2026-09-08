@@ -5,6 +5,8 @@ description: Use the shared protocol for multi-agent collaboration.
 
 Follow the remembered guidance from `agentgear skill get multi-agent-protocol`. Run it only if you no longer remember the guidance or have evidence it changed.
 
+When dispatching or retrying Waypost work, check for an existing delivery with matching task/action and round before sending. Duplicate content may be an intentional fallback, but avoid repeat sends when the existing delivery already covers the work.
+
 Explore technical solutions through hypotheses and evidence. Follow roles,
 Actions, recipients, and handoffs from the owning skill and task records;
 look up missing guidance rather than guessing. Use shared-protocol for routing

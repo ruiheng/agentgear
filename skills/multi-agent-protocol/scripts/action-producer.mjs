@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fail, run } from "./workflow-lib.mjs";
+import { fail, run, runWaypostSendStreaming } from "./workflow-lib.mjs";
 import { appendStickyTaskContextMarker } from "./compact-memory-shared.mjs";
 
 const ACTION_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
@@ -207,7 +207,7 @@ function sendDeclaredActionMessage(declaration, message, {
   if (messageDeclaration !== declaration) {
     fail("Waypost Action message does not match its declared producer route");
   }
-  return runCommand("waypost", [
+  const commandArgs = [
     "send", "--to", toAddress,
     "--from", fromAddress,
     "--subject", subject,
@@ -216,5 +216,9 @@ function sendDeclaredActionMessage(declaration, message, {
     "--body-file", "-",
     "--notify",
     "--ndjson"
-  ], { input: actionMessageBody(message), timeoutMs: sendTimeoutMs });
+  ];
+  if (runCommand === run) {
+    return runWaypostSendStreaming(commandArgs, { input: actionMessageBody(message), timeoutMs: sendTimeoutMs });
+  }
+  return runCommand("waypost", commandArgs, { input: actionMessageBody(message), timeoutMs: sendTimeoutMs });
 }

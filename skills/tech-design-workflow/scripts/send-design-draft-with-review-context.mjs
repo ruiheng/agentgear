@@ -210,28 +210,31 @@ export function sendWaypost(sendMessage, options, toAddress, subject, message, r
     sendTimeoutMs: options.sendTimeoutMs,
     runCommand
   });
-  if (sent.timedOut || sent.signal) {
-    // The transport can persist the Waypost delivery before the notify phase
-    // exceeds the diagnostic timeout. Keep any receipt present in stdout.
+  const processResult = (sent) => {
+    if (sent.timedOut || sent.signal) {
+      // The transport can persist the Waypost delivery before the notify phase
+      // exceeds the diagnostic timeout. Keep any receipt present in stdout.
+      try {
+        const parsed = sendOutputFrom(sent.stdout || "");
+        if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
+      } catch {}
+      return { status: "interrupted", signal: sent.signal || "SIGTERM", timedOut: sent.timedOut };
+    }
+    if (sent.error) return { status: "failed", detail: sent.error.message };
+    if (sent.status !== 0) {
+      return { status: "failed", detail: (sent.stderr || sent.stdout).trim() || `exit code ${sent.status}` };
+    }
+    let parsed;
     try {
-      const parsed = sendOutputFrom(sent.stdout || "");
-      if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
-    } catch {}
-    return { status: "interrupted", signal: sent.signal || "SIGTERM", timedOut: sent.timedOut };
-  }
-  if (sent.error) return { status: "failed", detail: sent.error.message };
-  if (sent.status !== 0) {
-    return { status: "failed", detail: (sent.stderr || sent.stdout).trim() || `exit code ${sent.status}` };
-  }
-  let parsed;
-  try {
-    parsed = sendOutputFrom(sent.stdout);
-  } catch {
-    return { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
-  }
-  return parsed.receipt.delivery_id
-    ? { status: "sent", ...parsed }
-    : { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
+      parsed = sendOutputFrom(sent.stdout);
+    } catch {
+      return { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
+    }
+    return parsed.receipt.delivery_id
+      ? { status: "sent", ...parsed }
+      : { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
+  };
+  return sent && typeof sent.then === "function" ? sent.then(processResult) : processResult(sent);
 }
 
 export function failDelivery(label, result) {
@@ -305,7 +308,7 @@ function retryNudge(result, sessionHost, sessionId, readDeliveryCommand, runNudg
   };
 }
 
-export function sendWaypostWithNudgeRetry({
+export async function sendWaypostWithNudgeRetry({
   label,
   sessionHost,
   sessionId,
@@ -318,7 +321,7 @@ export function sendWaypostWithNudgeRetry({
   readDeliveryCommand = run,
   runNudgeCommand = run
 }) {
-  const sent = sendWaypost(sender, sendOptions, toAddress, subject, message, runCommand);
+  const sent = await sendWaypost(sender, sendOptions, toAddress, subject, message, runCommand);
   if (sent.status !== "sent") failDelivery(label, sent);
   return retryNudge(sent, sessionHost, sessionId, readDeliveryCommand, runNudgeCommand);
 }
@@ -518,7 +521,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     }
   }
 
-  const send = (sender, sessionId, address, subject, body, label) => {
+  const send = async (sender, sessionId, address, subject, body, label) => {
     return sendWaypostWithNudgeRetry({
       label,
       sessionHost: options.sessionHost,
@@ -534,7 +537,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     });
   };
 
-  const reviewer = send(
+  const reviewer = await send(
     sendDesignSpecReviewContextMessage,
     options.reviewerSessionId,
     options.reviewerToAddress,
@@ -544,7 +547,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   );
   let pruner = null;
   if (options.prunerSessionId) {
-    pruner = send(
+    pruner = await send(
       sendDesignPruneContextMessage,
       options.prunerSessionId,
       options.prunerToAddress,
@@ -554,7 +557,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     );
   }
 
-  const author = send(
+  const author = await send(
     sendDesignSpecDraftRequestedMessage,
     options.authorSessionId,
     options.authorToAddress,

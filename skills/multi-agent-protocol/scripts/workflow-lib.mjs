@@ -117,6 +117,16 @@ function spawnCommand(command, args, options = {}) {
   return childProcess.spawnSync(resolved, args, options);
 }
 
+function spawnCommandAsync(command, args, options = {}) {
+  const resolved = resolveCommand(command) || command;
+  const useCmd = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved);
+  if (useCmd) {
+    const line = [resolved, ...args].map(quoteWindowsArgument).join(" ");
+    return childProcess.spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], options);
+  }
+  return childProcess.spawn(resolved, args, options);
+}
+
 export function run(command, args = [], { cwd, input, env, stdio = "pipe", timeoutMs = 0, killSignal = "SIGTERM" } = {}) {
   const result = spawnCommand(command, args, {
     cwd,
@@ -135,6 +145,46 @@ export function run(command, args = [], { cwd, input, env, stdio = "pipe", timeo
     signal: result.signal || null,
     timedOut: result.error?.code === "ETIMEDOUT"
   };
+}
+
+export function runWaypostSendStreaming(args, { cwd, input, env, timeoutMs = 0 } = {}) {
+  return new Promise((resolve) => {
+    const child = spawnCommandAsync("waypost", args, {
+      cwd,
+      env: env ? { ...process.env, ...env } : process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timer = null;
+    const finish = (value, { keepTimer = false } = {}) => {
+      if (settled) return;
+      settled = true;
+      if (timer && !keepTimer) clearTimeout(timer);
+      resolve(value);
+    };
+    const maybeReceipt = () => {
+      const line = stdout.split(/\r?\n/, 1)[0];
+      if (!line) return;
+      try {
+        const payload = JSON.parse(line);
+        if (payload?.delivery_id) finish({ status: 0, stdout: `${line}\n`, stderr: "", error: null, signal: null, timedOut: false }, { keepTimer: true });
+      } catch {}
+    };
+    child.stdout.on("data", chunk => { stdout += chunk.toString(); maybeReceipt(); });
+    child.stderr.on("data", chunk => { stderr += chunk.toString(); });
+    child.stdin.on("error", error => finish({ status: 1, stdout, stderr, error, signal: null, timedOut: false }));
+    child.on("error", error => finish({ status: 1, stdout, stderr, error, signal: null, timedOut: false }));
+    child.on("close", (status, signal) => {
+      if (timer) clearTimeout(timer);
+      if (!settled) finish({ status: status ?? 1, stdout, stderr, error: null, signal, timedOut: false });
+    });
+    if (timeoutMs > 0) timer = setTimeout(() => { child.kill("SIGTERM"); finish({ status: 1, stdout, stderr, error: null, signal: "SIGTERM", timedOut: true }); }, timeoutMs);
+    if (input !== undefined) child.stdin.end(input);
+    else child.stdin.end();
+  });
 }
 
 export function runChecked(command, args = [], options = {}, description = command) {

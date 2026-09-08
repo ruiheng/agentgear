@@ -256,8 +256,8 @@ export function readDelegateBody(bodyFile, { stdinIsTTY = Boolean(process.stdin.
   }
 }
 
-function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, message) {
-  const send = sendMessage(message, {
+async function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, message) {
+  const send = await sendMessage(message, {
     toAddress,
     fromAddress: options.fromAddress,
     subject,
@@ -423,7 +423,7 @@ export async function main(argv = process.argv.slice(2)) {
         lock.reviewer_subject = options.reviewerSubject;
       });
       process.stderr.write("sending reviewer...\n");
-      const reviewSent = sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
+      const reviewSent = await sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
       if (reviewSent.status === "interrupted") {
         retainInterrupted("reviewer", reviewSent);
         fail("reviewer context send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
@@ -446,7 +446,7 @@ export async function main(argv = process.argv.slice(2)) {
     }
 
     process.stderr.write("sending coder...\n");
-    const coderSent = sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief));
+    const coderSent = await sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief));
     if (coderSent.status === "interrupted") {
       retainInterrupted("coder", coderSent);
       fail("coder send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");

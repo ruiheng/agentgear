@@ -294,7 +294,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     schemaVersion: options.schemaVersion,
     sendTimeoutMs: options.sendTimeoutMs
   };
-  const send = (sender, sessionId, address, subject, body, label) => {
+  const send = async (sender, sessionId, address, subject, body, label) => {
     return sendWaypostWithNudgeRetry({
       label,
       sessionHost: manifest.session_host,
@@ -309,7 +309,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       runNudgeCommand: dependencies.runNudge
     });
   };
-  const reviewer = options.prunerOnly ? null : send(
+  const reviewer = options.prunerOnly ? null : await send(
     sendDesignSpecReviewRequestedMessage,
     manifest.reviewer_session_id,
     manifest.reviewer_to_address,
@@ -319,7 +319,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   );
   let prunerResult = null;
   if (pruner) {
-    prunerResult = send(
+    prunerResult = await send(
       sendDesignPruneRequestedMessage,
       pruner.sessionId,
       pruner.address,
