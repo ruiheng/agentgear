@@ -216,7 +216,12 @@ export function sendWaypost(sendMessage, options, toAddress, subject, message, r
       // exceeds the diagnostic timeout. Keep any receipt present in stdout.
       try {
         const parsed = sendOutputFrom(sent.stdout || "");
-        if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
+        if (parsed.receipt.delivery_id) {
+          return {
+            status: "sent",
+            ...parsed,
+          };
+        }
       } catch {}
       return { status: "interrupted", signal: sent.signal || "SIGTERM", timedOut: sent.timedOut };
     }

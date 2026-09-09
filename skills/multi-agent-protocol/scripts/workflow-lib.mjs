@@ -159,29 +159,55 @@ export function runWaypostSendStreaming(args, { cwd, input, env, timeoutMs = 0 }
     let stderr = "";
     let settled = false;
     let timer = null;
+    let receiptPayload = null;
     const finish = (value, { keepTimer = false } = {}) => {
       if (settled) return;
       settled = true;
       if (timer && !keepTimer) clearTimeout(timer);
       resolve(value);
     };
-    const maybeReceipt = () => {
-      const line = stdout.split(/\r?\n/, 1)[0];
-      if (!line) return;
-      try {
-        const payload = JSON.parse(line);
-        if (payload?.delivery_id) finish({ status: 0, stdout: `${line}\n`, stderr: "", error: null, signal: null, timedOut: false }, { keepTimer: true });
-      } catch {}
+    let pendingOutput = "";
+    const maybeComplete = () => {
+      const lines = pendingOutput.split(/\r?\n/);
+      pendingOutput = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const payload = JSON.parse(line);
+          if (payload?.delivery_id) receiptPayload = payload;
+          if (receiptPayload?.delivery_id && payload?.notify_status) {
+            finish({
+              status: 0,
+              stdout: `${JSON.stringify({ ...receiptPayload, ...payload })}\n`,
+              stderr: "",
+              error: null,
+              signal: null,
+              timedOut: false
+            }, { keepTimer: true });
+            return;
+          }
+        } catch {}
+      }
     };
-    child.stdout.on("data", chunk => { stdout += chunk.toString(); maybeReceipt(); });
+    child.stdout.on("data", chunk => { const text = chunk.toString(); stdout += text; pendingOutput += text; maybeComplete(); });
     child.stderr.on("data", chunk => { stderr += chunk.toString(); });
-    child.stdin.on("error", error => finish({ status: 1, stdout, stderr, error, signal: null, timedOut: false }));
-    child.on("error", error => finish({ status: 1, stdout, stderr, error, signal: null, timedOut: false }));
+    child.stdin.on("error", error => {
+      const result = { status: 1, stdout, stderr, error, signal: null, timedOut: false };
+      finish(result);
+    });
+    child.on("error", error => {
+      const result = { status: 1, stdout, stderr, error, signal: null, timedOut: false };
+      finish(result);
+    });
     child.on("close", (status, signal) => {
       if (timer) clearTimeout(timer);
       if (!settled) finish({ status: status ?? 1, stdout, stderr, error: null, signal, timedOut: false });
     });
-    if (timeoutMs > 0) timer = setTimeout(() => { child.kill("SIGTERM"); finish({ status: 1, stdout, stderr, error: null, signal: "SIGTERM", timedOut: true }); }, timeoutMs);
+    if (timeoutMs > 0) timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      const timedOut = { status: 1, stdout, stderr, error: null, signal: "SIGTERM", timedOut: true };
+      finish(timedOut);
+    }, timeoutMs);
     if (input !== undefined) child.stdin.end(input);
     else child.stdin.end();
   });
