@@ -924,6 +924,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     assert.equal(claude.permissions.allow.includes(expectedFailWildcard), true);
     assert.equal(claude.permissions.allow.includes(expectedDeadLetter), true);
     assert.equal(claude.permissions.allow.includes(expectedDeadLetterWildcard), true);
+    assert.equal(claude.permissions.allow.includes(`Bash(${fs.realpathSync(waypost)} dead-letter)`), true);
     assert.equal(claude.permissions.allow.includes(expectedRenew), true);
     assert.equal(claude.permissions.allow.includes(expectedRenewWildcard), true);
     for (const permission of additionalPermissions) {
@@ -936,7 +937,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
 
     const manifest = JSON.parse(fs.readFileSync(path.join(project, ".claude", ".agentgear-workflow-permissions.json"), "utf8"));
     assert.equal(manifest.version, 4);
-    assert.equal(manifest.rules.length, 22);
+    assert.equal(manifest.rules.length, 24);
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));
 
     const codex = fs.readFileSync(path.join(project, ".codex", "rules", "agentgear-workflow.rules"), "utf8");

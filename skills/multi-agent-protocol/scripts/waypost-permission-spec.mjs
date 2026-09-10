@@ -17,9 +17,10 @@ const WAYPOST_CLI_ACTIONS = [
   { action: "doc", stateScoped: false }
 ];
 const WAYPOST_CLI_ACTIONS_BY_NAME = new Map(WAYPOST_CLI_ACTIONS.map(item => [item.action, item]));
-// At most two command forms, two state-directory forms, and exact/wildcard variants.
+// At most two command forms, two state-directory forms, one implicit default
+// state-directory form for dead-letter, and exact/wildcard variants.
 const MAX_WAYPOST_RULES = 2 * WAYPOST_CLI_ACTIONS.reduce(
-  (count, item) => count + (item.stateScoped ? 4 : 2),
+  (count, item) => count + (item.stateScoped ? (item.action === "dead-letter" ? 6 : 4) : 2),
   0
 );
 const MANIFEST_VERSION = 4;
@@ -247,7 +248,10 @@ export function resolveWaypostPermissionContext({
   const rules = [];
   for (const command of commandForms) {
     for (const item of WAYPOST_CLI_ACTIONS) {
-      for (const ruleStateDir of item.stateScoped ? stateForms : [undefined]) {
+      const stateDirForms = item.stateScoped
+        ? (item.action === "dead-letter" ? [undefined, ...stateForms] : stateForms)
+        : [undefined];
+      for (const ruleStateDir of stateDirForms) {
         const baseRule = {
           command,
           ...(ruleStateDir === undefined ? {} : { stateDir: ruleStateDir }),
@@ -287,6 +291,12 @@ function normalizedRule(rule) {
     }
     return { command: rule.command, action: rule.action, wildcard: rule.wildcard };
   }
+  if (stateDir === undefined || stateDir === null) {
+    if (rule.action !== "dead-letter") {
+      throw new Error("Waypost state directory is required for this action");
+    }
+    return { command: rule.command, action: rule.action, wildcard: rule.wildcard };
+  }
   if (hasUnsafeControlCharacters(stateDir)
     || !(stateDir === "~" || path.isAbsolute(stateDir) || stateDir.startsWith("~/"))) {
     throw new Error("Waypost ownership state directory must be absolute or home-relative");
@@ -306,7 +316,7 @@ export function claudeWaypostPermission(rule) {
 
 function stableRules(rules, { allowGlobalActions = true } = {}) {
   const normalized = rules.map(normalizedRule);
-  if (!allowGlobalActions && normalized.some(rule => rule.stateDir === undefined)) {
+  if (!allowGlobalActions && normalized.some(rule => rule.stateDir === undefined && rule.action !== "dead-letter")) {
     throw new Error("invalid Waypost ownership rule action for manifest version");
   }
   const identities = normalized.map(rule => JSON.stringify(rule));

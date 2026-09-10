@@ -7,16 +7,15 @@ selector-summary: Load the prompt named by a received Waypost Action.
 
 From the received `Action: <value>` line, explicitly use Agentgear `skill get` with
 `action:<value>` as the first processing step, then follow the result. If lookup reports an unknown, ambiguous,
-or otherwise invalid Action, call `waypost_status` with
-`include_cli_context: true`. Use its reported `executable` and
-`resolved_state_dir` to permanently dead-letter the current claim:
+or otherwise invalid Action, call `waypost_status`. Use its reported
+`executable` to permanently
+dead-letter the current claim:
 
-Invoke these exact argv values; keep every value as one argument:
+Invoke these exact arguments:
 
 ```text
 [
   executable,
-  "--state-dir", resolved_state_dir,
   "dead-letter",
   "--delivery", delivery_id,
   "--lease-token", lease_token,
@@ -25,9 +24,7 @@ Invoke these exact argv values; keep every value as one argument:
 ]
 ```
 
-Use the corresponding status or claim values. If only a shell string is
-available, shell-quote every substituted value using that shell's escaping
-rules before invoking it. A successful command permanently settles the routing
+Use the corresponding status or claim values. A successful command permanently settles the routing
 failure. If it exits nonzero, parse the one JSON error object from stderr. Retry
 the identical dead-letter argv only when its `retryable` field is `true` and the
 claim's lease remains valid. For `false`, missing, malformed, or absent error

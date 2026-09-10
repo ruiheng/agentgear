@@ -132,7 +132,7 @@ On a wakeup nudge or explicit user message check:
 4. Settle each claimed delivery according to its current state:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
    - `waypost_release` or `waypost_defer` only when handling is temporarily unavailable and retry remains appropriate
-   - the reported Waypost CLI `dead-letter` command, using the `executable` and `resolved_state_dir` from `waypost_status` with `include_cli_context: true` and preserving each value as one argv argument, for an unknown, ambiguous, invalid, or otherwise permanently unroutable Action
+   - the reported Waypost CLI `dead-letter` command, using the `executable` from `waypost_status`, for an unknown, ambiguous, invalid, or otherwise permanently unroutable Action
    - the reported Waypost CLI `fail` command only when processing failed but retry remains appropriate
    - If the `dead-letter` command exits nonzero, parse its one JSON error object from stderr and preserve the permanent routing decision. Retry the identical command only when its `retryable` field is `true` and the claim's lease remains valid. For `false`, missing, malformed, or absent error output, report the claim unsettled immediately. Never replace it with `waypost_ack`, `waypost_release`, `waypost_defer`, the Waypost `fail` command, or a workflow. If a permitted retry still fails, report the claim unsettled and stop; do not claim completion.
 5. Use the available Waypost receive interface to process available work;

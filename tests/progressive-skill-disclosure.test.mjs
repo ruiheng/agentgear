@@ -603,13 +603,13 @@ test("route-waypost-action loads the registered instructions for an Action field
   assert.match(bootstrap, /action:<value>/);
   const normalizedBootstrap = bootstrap.replace(/\s+/g, " ");
   assert.match(normalizedBootstrap, /waypost_status/);
-  assert.match(normalizedBootstrap, /include_cli_context: true/);
-  assert.match(normalizedBootstrap, /argv values; keep every value as one argument/);
-  assert.match(normalizedBootstrap, /executable, "--state-dir", resolved_state_dir/);
+  assert.doesNotMatch(normalizedBootstrap, /include_cli_context/);
+  assert.match(normalizedBootstrap, /Invoke these exact arguments/);
+  assert.match(normalizedBootstrap, /executable,\s+"dead-letter"/);
   assert.match(normalizedBootstrap, /"--delivery", delivery_id/);
   assert.match(normalizedBootstrap, /"--lease-token", lease_token/);
   assert.match(normalizedBootstrap, /"--reason", "unknown_action"/);
-  assert.match(normalizedBootstrap, /shell-quote every substituted value/);
+  assert.doesNotMatch(normalizedBootstrap, /shell-quote every substituted value/);
   assert.match(normalizedBootstrap, /parse the one JSON error object from stderr/);
   assert.match(normalizedBootstrap, /Retry the identical dead-letter argv only when its `retryable` field is `true`/);
   assert.match(normalizedBootstrap, /For `false`, missing, malformed, or absent error output, report the claim unsettled immediately/);
@@ -624,7 +624,7 @@ test("route-waypost-action loads the registered instructions for an Action field
   assert.match(result.stdout, /Agentgear/);
   assert.match(result.stdout, /skill get/);
   assert.match(result.stdout, /action:<value>/);
-  assert.match(result.stdout.replace(/\s+/g, " "), /argv values; keep every value as one argument/);
+  assert.match(result.stdout.replace(/\s+/g, " "), /Invoke these exact arguments/);
   assert.match(result.stdout.replace(/\s+/g, " "), /Retry the identical dead-letter argv only when its `retryable` field is `true`/);
   assert.match(result.stdout.replace(/\s+/g, " "), /report the claim unsettled and stop/);
   assert.doesNotMatch(result.stdout, /validat|case-insensitive/i);
@@ -641,7 +641,8 @@ test("receiver and rejection handlers settle routing and authentication failures
     "shared-protocol.md"
   ), "utf8");
   assert.match(receiver, /dead-letter.*permanently unroutable Action/);
-  assert.match(receiver, /executable.*resolved_state_dir.*waypost_status/);
+  assert.match(receiver, /executable.*waypost_status/);
+  assert.doesNotMatch(receiver, /resolved_state_dir/);
   assert.match(receiver, /parse its one JSON error object from stderr.*preserve the permanent routing decision/);
   assert.match(receiver, /Retry the identical command only when its `retryable` field is `true`/);
   assert.match(receiver, /For `false`, missing, malformed, or absent error output, report the claim unsettled immediately/);
