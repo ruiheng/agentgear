@@ -81,13 +81,12 @@ this gate.
 
 ## Routing Recovery
 
-A valid Action does not assign its receiver a new role. If misdirected, use
-the owning skill and task records to forward it unchanged to the intended
-recipient, then notify the sender; ack the mistaken delivery only after both
-sends succeed. On a correction, fix the route and resume the pending handoff;
-do not resend an already forwarded message. If the route is unknown, ask the sender; ack
-only after that request succeeds. Never silently consume actionable work as
-a notification. Missing task context requires clarification, not guessed action.
+A valid Action does not assign its receiver a role. Compare declared target and
+current task/session role before executing. On mismatch, do not execute or
+forward it: tell the sender it went to the wrong recipient and name the target
+role, then ack after that notice succeeds. The sender owns route correction.
+If the target role is unknown, ask the sender and ack only after that succeeds.
+Never silently consume actionable work.
 
 ## Waypost Host Permission Boundary
 
@@ -129,7 +128,7 @@ On a wakeup nudge or explicit user message check:
 
 1. Call `waypost_recv` first.
 2. If no personal message is returned, report it; `no_message` ends this receive pass.
-3. Use `body` as the primary input and delivery metadata as routing authority. A message without an Action field is an ordinary personal message. An Action field selects its action skill; an unknown, ambiguous, or otherwise invalid Action is a permanent routing failure, so do not infer or substitute a workflow.
+3. Use `body` as the primary input and delivery metadata as routing authority. A message without an Action field is an ordinary personal message. An Action field selects its action skill; an unknown, ambiguous, or otherwise invalid Action is a permanent routing failure, so do not infer or substitute a workflow. Apply Routing Recovery before the action's business logic.
 4. Settle each claimed delivery according to its current state:
    - `waypost_ack` when its immediate required action is complete, including handing a required decision to the user
    - `waypost_release` or `waypost_defer` only when handling is temporarily unavailable and retry remains appropriate
