@@ -656,6 +656,10 @@ test("receiver and rejection handlers settle routing and authentication failures
   assert.match(receiver, /Push coordination/);
   assert.match(receiver, /keep routine state internal/);
   assert.match(receiver, /do\s+not poll/);
+  assert.match(receiver, /Never create, delegate, or keep\s+a subagent/);
+  assert.match(receiver, /background\s+task, timer, or repeated `waypost_recv`/);
+  assert.match(receiver, /that\s+is polling too/);
+  assert.match(receiver, /receive only on a later\s+wakeup/);
   assert.match(receiver, /repeat it only while draining known pending work/);
   assert.doesNotMatch(receiver, /malformed or unknown Action is rejected/);
 

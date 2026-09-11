@@ -109,18 +109,20 @@ is unresolved.
 
 ## Message delivery and continuation
 
-- `waypost_send` completes delivery; replies are later inbound work.
-- Push coordination: continue after sending; keep routine state internal.
-  Send only required handoffs, blockers, checkpoints, or terminal results; do
-  not poll.
-- Keep target execution receiver-owned. A failed or unverified wake does not
-  reverse durable delivery and may be a false negative. A workflow whose fixed,
-  non-assertive wake notice is explicitly replayable may replay it once in the
-  same wrapper invocation; it may skip the replay for a just-created delivery
-  already leased or acknowledged, but a failed state check does not block the
-  replay. Never resend the Waypost message or replay from a later wrapper run.
-  Otherwise do not press Enter, restart, inspect, or repair the target unless
-  the user explicitly authorizes troubleshooting that specific session.
+- Push coordination: `waypost_send` completes delivery; continue after sending,
+  keep routine state internal, and send only required handoffs, blockers,
+  checkpoints, or terminal results; do not poll.
+- Do not wait for replies. Never create, delegate, or keep a subagent, background
+  task, timer, or repeated `waypost_recv` just to await or check future Waypost
+  work (including sleeping); that is polling too. After sending, continue;
+  receive only on a later wakeup. Loop only to drain known pending work.
+- Keep execution receiver-owned. A failed/unverified wake may be false; it never
+  undoes durable delivery. Replay an explicitly replayable fixed wake at most
+  once in the same wrapper; a failed state check does not block it (skip if the
+  new delivery is leased/acknowledged).
+  Never resend the message or replay from a later run. Otherwise do not press
+  Enter, restart, inspect, or repair the target without explicit user
+  authorization for that session.
 
 ## Receiver Contract
 
