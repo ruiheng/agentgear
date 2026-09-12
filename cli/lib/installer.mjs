@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { devinConfigHome } from "../../skills/multi-agent-protocol/scripts/devin-paths.mjs";
 import {
   findMissingWorkflowLauncherApprovals,
   findMissingWaypostCliDeadLetterApprovals,
@@ -226,6 +227,12 @@ export function selectedInstallableSkills(catalog, selection) {
   return [...selection.exposedSkills];
 }
 
+// Global roots whose location follows a harness-specific env/platform
+// resolution rather than a fixed home-relative path.
+const globalTargetResolvers = {
+  devin: env => path.join(devinConfigHome(env), "skills")
+};
+
 export function resolveTargetRoots(catalog, options, env = process.env) {
   const names = options.targets.length === 0
     ? (options.destination ? ["general"] : DEFAULT_TARGETS)
@@ -236,10 +243,15 @@ export function resolveTargetRoots(catalog, options, env = process.env) {
   const roots = names.map(name => {
     const target = catalog.targets.targets[name];
     if (!target) fail("Unknown target: " + name);
+    const resolver = options.scope === "global" && !options.destination
+      ? globalTargetResolvers[name]
+      : null;
     const configuredPath = options.destination || target[options.scope];
-    const root = options.scope === "global"
-      ? path.resolve(expandHome(configuredPath, env))
-      : path.resolve(options.project, configuredPath);
+    const root = resolver
+      ? path.resolve(resolver(env))
+      : options.scope === "global"
+        ? path.resolve(expandHome(configuredPath, env))
+        : path.resolve(options.project, configuredPath);
     return { name, root };
   });
   const seen = new Set();

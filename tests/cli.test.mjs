@@ -493,6 +493,46 @@ test("general, Gemini, Agy, and Claude are the default skill targets", () => {
   }
 });
 
+test("the devin global target follows XDG_CONFIG_HOME and the project scope stays .devin/skills", () => {
+  const fixture = environmentFixture();
+  try {
+    const catalog = loadCatalog(rootDir);
+    assert.deepEqual(
+      resolveTargetRoots(catalog, parseOptions(["--target", "devin"]), fixture.environment),
+      [{ name: "devin", root: path.join(fixture.home, ".config", "devin", "skills") }]
+    );
+    const xdgConfig = path.join(fixture.temporary, "xdg-config");
+    assert.deepEqual(
+      resolveTargetRoots(
+        catalog,
+        parseOptions(["--target", "devin"]),
+        { ...fixture.environment, XDG_CONFIG_HOME: xdgConfig }
+      ),
+      [{ name: "devin", root: path.join(xdgConfig, "devin", "skills") }]
+    );
+    const project = path.join(fixture.temporary, "project");
+    assert.deepEqual(
+      resolveTargetRoots(
+        catalog,
+        parseOptions(["--target", "devin", "--scope", "project", "--project", project]),
+        fixture.environment
+      ),
+      [{ name: "devin", root: path.join(project, ".devin", "skills") }]
+    );
+    const customRoot = path.join(fixture.temporary, "custom-skills");
+    assert.deepEqual(
+      resolveTargetRoots(
+        catalog,
+        parseOptions(["--target", "devin", "--dest", customRoot]),
+        { ...fixture.environment, XDG_CONFIG_HOME: xdgConfig }
+      ),
+      [{ name: "devin", root: customRoot }]
+    );
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 test("skill prefixes validate conflicts, syntax, and actual generated names", () => {
   const fixture = environmentFixture();
   const install = prefix => run([

@@ -14,7 +14,8 @@ installed only once. Normal installation does not maintain
 its own `.kiro/skills` location, so it remains the optional `kiro` target.
 Devin CLI discovers `.agents/skills` natively, so `general` already covers it;
 the optional `devin` target installs to Devin's own `~/.config/devin/skills`
-and `.devin/skills` directories instead. Use
+and `.devin/skills` directories instead. The global directory follows
+`$XDG_CONFIG_HOME` (and `%APPDATA%` on Windows), matching Devin's config home. Use
 an explicit `--target` list to narrow the defaults; use `--target general,kiro`
 when both generic and Kiro locations are needed.
 
