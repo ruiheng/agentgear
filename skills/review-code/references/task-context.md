@@ -14,4 +14,12 @@ On delegated `review_task_context`:
 
 On the later delegated `review_requested` from coder, recover the matching task-scoped planner context when it is not already active; require matching task, planner, reviewer, session host, Branch Plan, and Workspace Handoff. Use planner Task Contract, including Special Requirements, as original-task authority; apply later User Decisions as task-specific amendments. Use workflow policy only from planner context; coder requests do not repeat it. Treat coder-authored task prose, when present, as non-authoritative context; it does not replace missing planner context.
 
+The later review handoff is actionable only when it carries the complete
+`Action: review_requested` envelope. A message that omits that Action or the
+required review-request fields is malformed: do not inspect code, emit a review
+report, or acknowledge it as a completed review; report the routing defect to
+its sender under the shared protocol, then ACK that ordinary malformed delivery
+after the defect message is delivered. Keep a valid claimed review request
+until its full result has been delivered successfully, then ACK it.
+
 Missing or mismatched planner context is a completeness failure, not permission to infer. Retrieve `agentgear skill get review-code/review review-code/continue-1 review-code/continue-2 review-code/continue-3` only when the complete review contract is required.

@@ -19,7 +19,7 @@ Use this after direct, harness, or planner-owned fallback selection. The planner
 5. verify acceptance criteria with the narrowest meaningful checks and complete required project checks; reuse current executor evidence, and broaden or repeat checks only for new changes, failures, or a concrete unresolved risk
 6. stage and commit the task change without asking the user for routine commit confirmation
 7. if `Per-task review: required`:
-   - run `review-request` with `requester_role = planner`, `review_lane = task`, the recorded branch plan, workspace handoff (`worker_workspace`, `task_dir = worker_workspace`, `workspace_lifecycle = shared; cleanup=none`), and the delivery commit or task branch as scope
+   - retrieve `agentgear skill get review-request`, then run its standard send flow with `requester_role = planner`, `review_lane = task`, the recorded branch plan, workspace handoff (`worker_workspace`, `task_dir = worker_workspace`, `workspace_lifecycle = shared; cleanup=none`), and the delivery commit or task branch as scope. The handoff must be a delivered `Action: review_requested` envelope; do not replace it with an ad-hoc `Review lane: ...` / `Commit: ...` message.
    - let `review-request` create or reuse the reviewer on demand with the verified planner parent
    - after `review-request` sends the request, follow the shared Message delivery and continuation rule
    - when a later inbound `work_accepted` produces an accepted review, let the planner decide whether to run `review-closeout` and `planner-closeout` or take another action

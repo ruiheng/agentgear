@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,16 @@ function writeExecutable(directory, source) {
   fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(executable, `#!${process.execPath}\n${source}\n`);
   fs.chmodSync(executable, 0o755);
+}
+
+function initializeGitWorkspace(workdir, branch = "main") {
+  fs.mkdirSync(workdir, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", branch], { cwd: workdir });
+  execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd: workdir });
+  execFileSync("git", ["config", "user.name", "Agentgear Test"], { cwd: workdir });
+  fs.writeFileSync(path.join(workdir, ".gitkeep"), "");
+  execFileSync("git", ["add", ".gitkeep"], { cwd: workdir });
+  execFileSync("git", ["commit", "-q", "-m", "fixture"], { cwd: workdir });
 }
 
 function writeBrief(temporary) {
@@ -77,7 +88,9 @@ async function withEnvironment(environment, action) {
   const original = {};
   for (const [key, value] of Object.entries(environment)) {
     original[key] = process.env[key];
-    process.env[key] = value;
+    process.env[key] = key === "PATH" && original[key]
+      ? `${value}${path.delimiter}${original[key]}`
+      : value;
   }
   try {
     return await action();
@@ -90,33 +103,27 @@ async function withEnvironment(environment, action) {
 }
 
 async function captureStdout(action) {
-  const originalWrite = process.stdout.write;
   let output = "";
-  process.stdout.write = chunk => {
-    output += String(chunk);
-    return true;
+  const stdout = {
+    write(chunk) {
+      output += String(chunk);
+      return true;
+    }
   };
-  try {
-    await action();
-    return output;
-  } finally {
-    process.stdout.write = originalWrite;
-  }
+  await action(stdout);
+  return output;
 }
 
 async function captureStderr(action) {
-  const originalWrite = process.stderr.write;
   let output = "";
-  process.stderr.write = chunk => {
-    output += String(chunk);
-    return true;
+  const stderr = {
+    write(chunk) {
+      output += String(chunk);
+      return true;
+    }
   };
-  try {
-    await action();
-    return output;
-  } finally {
-    process.stderr.write = originalWrite;
-  }
+  await action(stderr);
+  return output;
 }
 
 const loggingWaypost = `
@@ -179,7 +186,7 @@ test("missing brief fails before active-task lock", async () => {
   const artifactRoot = path.join(workdir, ".agent-artifacts");
   const bin = path.join(temporary, "bin");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, "process.exit(0);");
     await withEnvironment({ PATH: bin }, async () => {
       await assert.rejects(() => sendDelegate(args(temporary, artifactRoot, path.join(temporary, "missing.md"))), /brief file not found/);
@@ -196,7 +203,7 @@ test("delegated-code dispatch rejects CR, LF, and NUL header injection before ac
   const artifactRoot = path.join(workdir, ".agent-artifacts");
   const bin = path.join(temporary, "bin");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, "process.exit(0);");
     const brief = writeBrief(temporary);
     for (const control of ["\r", "\n", "\0"]) {
@@ -220,7 +227,7 @@ test("delegated-code dispatch preserves opaque non-newline routes and Git refs",
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir, "release+safe");
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" }, async () => {
@@ -258,7 +265,7 @@ test("delegated-code dispatch emits exactly one declared Action in the initial e
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" }, async () => {
@@ -279,20 +286,20 @@ test("required review sends one opaque task contract to reviewer then coder", as
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const briefFile = writeBrief(temporary);
     const brief = fs.readFileSync(briefFile, "utf8");
     const policy = "human; auto_accept_if_no_must_fix=false";
-    const progress = await captureStderr(() => withEnvironment(
+    const progress = await captureStderr(stderr => withEnvironment(
       { PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" },
-      () => sendDelegate(args(temporary, artifactRoot, briefFile, "required", ["--workflow-policy", policy]))
+      () => sendDelegate(args(temporary, artifactRoot, briefFile, "required", ["--workflow-policy", policy]), { stderr })
     ));
     const records = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
     assert.equal(records.length, 2);
     assert.equal(progress, "sending reviewer...\nsending coder...\n");
     for (const [index, record] of records.entries()) {
-      assert.deepEqual(record.args.slice(-2), ["--notify", "--json"]);
+      assert.deepEqual(record.args.slice(-2), ["--notify", "--ndjson"]);
       assert.deepEqual(
         record.body.split("\n\n", 1)[0].match(/^action:.*$/gim),
         [index === 0 ? "Action: review_task_context" : "Action: execute_delegate_task"]
@@ -300,6 +307,11 @@ test("required review sends one opaque task contract to reviewer then coder", as
     }
     assert.match(records[0].body, /Action: review_task_context/);
     assert.match(records[1].body, /Action: execute_delegate_task/);
+    assert.match(records[0].body, /Coder: coder-1/);
+    assert.match(records[0].body, /declared `Action: review_requested` envelope/);
+    assert.match(records[0].body, /Route `rework_required` to the recorded requester/);
+    assert.match(records[1].body, /retrieve `agentgear skill get review-request`/);
+    assert.match(records[1].body, /delivered `Action: review_requested` envelope/);
     assert.equal(hasStickyTaskContextMarker(records[0].body), true);
     assert.equal(hasStickyTaskContextMarker(records[1].body), true);
     assert.ok(records[0].body.includes(`# Task Contract\n${brief}`));
@@ -333,14 +345,14 @@ test("unconfirmed notification detail is preserved in the lock and summary", asy
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
-    const output = await captureStdout(() => withEnvironment({
+    const output = await captureStdout(stdout => withEnvironment({
       PATH: bin,
       WAYPOST_LOG: log,
       WAYPOST_MODE: "notify-unconfirmed"
-    }, () => sendDelegate(args(temporary, artifactRoot, brief, "required", ["--json"]))));
+    }, () => sendDelegate(args(temporary, artifactRoot, brief, "required", ["--json"]), { stdout })));
 
     const summary = JSON.parse(output);
     assert.equal(summary.review_context_notify_status, "unconfirmed");
@@ -363,14 +375,14 @@ test("notification failure preserves both durable deliveries and reports each wa
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
-    const output = await captureStdout(() => withEnvironment({
+    const output = await captureStdout(stdout => withEnvironment({
       PATH: bin,
       WAYPOST_LOG: log,
       WAYPOST_MODE: "notify-fail-all"
-    }, () => sendDelegate(args(temporary, artifactRoot, brief, "required", ["--json"]))));
+    }, () => sendDelegate(args(temporary, artifactRoot, brief, "required", ["--json"]), { stdout })));
 
     const records = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
     assert.equal(records.length, 2);
@@ -403,7 +415,7 @@ test("reviewer send failure prevents coder dispatch and removes the pending lock
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "fail-review" }, async () => {
@@ -423,7 +435,7 @@ test("coder failure after reviewer delivery retains a partial-dispatch lock", as
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "fail-coder" }, async () => {
@@ -446,7 +458,7 @@ test("skipped review sends coder only", async () => {
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" }, async () => {
@@ -469,7 +481,7 @@ test("interrupted send retains a lock with the affected stage", async () => {
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "timeout" }, async () => {
@@ -490,7 +502,7 @@ test("zero send timeout waits for Waypost to return the durable receipt", async 
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "slow-success" }, async () => {
@@ -512,7 +524,7 @@ test("interrupted reviewer send retains the reviewer route", async () => {
   const bin = path.join(temporary, "bin");
   const log = path.join(temporary, "waypost.log");
   try {
-    fs.mkdirSync(workdir, { recursive: true });
+    initializeGitWorkspace(workdir);
     writeExecutable(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "timeout" }, async () => {

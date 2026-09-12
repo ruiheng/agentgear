@@ -67,7 +67,7 @@ Final-review continuation:
 6. cross-session work may take unbounded time; after sending it, follow the shared Message delivery and continuation rule
    - for a persistent code worker, handle a later `code_delivery_complete` with `planner-closeout` before starting the next task; only skipped review may complete through it, while a blocker retains task state
 7. when the goal is complete:
-   - if `Final integration review: required`, run `review-request` with `task_id = plan_id`, branch target `integration_branch`, `base_branch = review_base`, `requester_role = planner`, and `review_lane = integration_final`
+   - if `Final integration review: required`, retrieve `agentgear skill get review-request` and run its standard send flow with `task_id = plan_id`, branch target `integration_branch`, `base_branch = review_base`, `requester_role = planner`, and `review_lane = integration_final`; require the delivered body to contain the declared `Action: review_requested` envelope.
    - if that final review returns serious issues, decide whether to fix locally or spawn a new task; prefer a new task for non-trivial fixes
    - resume on its later result: `rework_required` returns to task selection; `work_accepted` or `abort_iteration` returns to planner decision-making
 8. send one final `plan_report_delivered` message to supervisor; do not treat the plan as complete before this message send succeeds

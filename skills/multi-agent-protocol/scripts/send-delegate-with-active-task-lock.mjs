@@ -142,6 +142,7 @@ function reviewerBody(options, brief) {
   const before = [{ name: "Task", value: options.taskId }];
   const after = [
     { name: "Planner", value: options.plannerSessionId },
+    { name: "Coder", value: options.coderSessionId },
     { name: "Session host", value: options.sessionHost },
     { name: "Planner workspace", value: options.plannerWorkspace },
     { name: "Worker workspace", value: options.workerWorkspace },
@@ -162,6 +163,10 @@ ${workspaceHandoff(options)}
 - Wait for the matching \`review_requested\`; do not review code from this message
 - \`.agent-artifacts/active-task.lock/lock.json\` contains addresses for the task's collaborating agents. Read the relevant role field when needed; never infer an address from a session id. If delivery metadata is missing, recover routes from this lock.
 - Workflow policy: ${options.workflowPolicy}
+
+# Review Entry and Result Routing
+- This context delivery is not a review request. A later request is actionable only when its body has the declared \`Action: review_requested\` envelope and complete review-request fields; an ad-hoc body such as \`Review lane: ...\` / \`Commit: ...\` is malformed. Do not inspect code, produce findings, or acknowledge it as a completed review; report the malformed route to its sender using the shared protocol, then acknowledge that ordinary malformed delivery after the defect message is delivered.
+- Before judging code, retrieve \`agentgear skill get review-code/review review-code/continue-1 review-code/continue-2 review-code/continue-3\` and follow that contract. Route \`rework_required\` to the recorded requester (normally the Coder); route only \`work_accepted\` or \`abort_iteration\` to the Planner. Acknowledge the claimed review request only after the full result is delivered.
 `;
   return messageWithTaskContract(reviewTaskContextMessage, before, after, brief, footer);
 }
@@ -179,7 +184,8 @@ function coderBody(options, brief) {
   ];
   const review = options.reviewContext === "required"
     ? `- Per-task review: required
-- After commit and validation, run \`review-request\` with \`review_lane = task\`
+- After commit and validation, retrieve \`agentgear skill get review-request\` and use its standard send flow with \`review_lane = task\`
+- The handoff must be a delivered \`Action: review_requested\` envelope; an ad-hoc review or progress message does not start review
 - The review request does not need to mention task content or workflow policy; reviewer already has the planner context
 - Preserve User Decisions, Branch Plan, and Workspace Handoff
 - Reviewer routing: ref=${options.reviewerSessionRef}; id=${options.reviewerSessionId}`
@@ -338,14 +344,14 @@ function prepareTaskBranch(workdir, integrationBranch, taskBranch) {
   if (switched.status !== 0) fail(`failed to attach task branch '${taskBranch}': ${(switched.stderr || switched.stdout).trim()}`);
 }
 
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr } = {}) {
   const options = parseArgs(argv, {
     values: ["--workdir", "--task-id", "--start-branch", "--integration-branch", "--task-branch", "--planner-session-id", "--coder-session-id", "--coder-session-ref", "--reviewer-session-id", "--reviewer-session-ref", "--session-host", "--planner-workspace", "--worker-workspace", "--task-dir", "--workspace-lifecycle", "--session-reason", "--from-address", "--to-address", "--reviewer-to-address", "--subject", "--reviewer-subject", "--brief-file", "--review-context", "--workflow-policy", "--artifact-root", "--content-type", "--schema-version", "--send-timeout-ms"],
     flags: ["--json"],
     defaults: { reviewerSessionId: "", reviewerSessionRef: "", reviewerToAddress: "", reviewerSubject: "", workflowPolicy: "unattended; auto_accept_if_no_must_fix=true", artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", sendTimeoutMs: String(DEFAULT_SEND_TIMEOUT_MS), json: false }
   });
   if (options.help) {
-    process.stdout.write(`${usage}\n`);
+    stdout.write(`${usage}\n`);
     return;
   }
   for (const [key, label] of [
@@ -422,7 +428,7 @@ export async function main(argv = process.argv.slice(2)) {
         lock.reviewer_address = options.reviewerToAddress;
         lock.reviewer_subject = options.reviewerSubject;
       });
-      process.stderr.write("sending reviewer...\n");
+      stderr.write("sending reviewer...\n");
       const reviewSent = await sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
       if (reviewSent.status === "interrupted") {
         retainInterrupted("reviewer", reviewSent);
@@ -445,7 +451,7 @@ export async function main(argv = process.argv.slice(2)) {
       });
     }
 
-    process.stderr.write("sending coder...\n");
+    stderr.write("sending coder...\n");
     const coderSent = await sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief));
     if (coderSent.status === "interrupted") {
       retainInterrupted("coder", coderSent);
@@ -494,8 +500,8 @@ export async function main(argv = process.argv.slice(2)) {
       lock_file: lockFile,
       lock_output: lockResult.stdout.trim()
     };
-    if (options.json) process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-    else process.stdout.write(`delegate_dispatch_ok task_id=${options.taskId} coder_delivery_id=${coderSent.receipt.delivery_id} coder_notify_status=${coderSent.notification.status} review_context_delivery_id=${reviewContextDeliveryId || "None"} review_context_notify_status=${reviewContextNotification?.status || "None"} lock_dir=${lockDir}\n`);
+    if (options.json) stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    else stdout.write(`delegate_dispatch_ok task_id=${options.taskId} coder_delivery_id=${coderSent.receipt.delivery_id} coder_notify_status=${coderSent.notification.status} review_context_delivery_id=${reviewContextDeliveryId || "None"} review_context_notify_status=${reviewContextNotification?.status || "None"} lock_dir=${lockDir}\n`);
   } finally {
     if (rollback && fs.existsSync(lockFile)) rollbackPendingLock(lockFile, lockDir, options.taskId);
   }

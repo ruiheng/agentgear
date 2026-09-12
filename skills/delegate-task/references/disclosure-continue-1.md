@@ -49,7 +49,7 @@ Round: final
 For direct user-owned code sessions only:
 
 - user owns branch, commit, review, merge, and closeout decisions
-- on a user review request, run `review-request` with `review_lane = standalone`; return it here without closeout
+- on a user review request, retrieve `agentgear skill get review-request` and use its standard send flow with `review_lane = standalone`; require the delivered `Action: review_requested` envelope, then return it here without closeout. Do not send an ad-hoc review/progress body.
 - make code progress and blockers legible, but do not claim workflow delivery or invent a Waypost result
 
 ## Requester Receive

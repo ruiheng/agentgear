@@ -25,6 +25,13 @@ On delegated `review_task_context`:
 - retain it as this task-scoped reviewer's planner context; keep transport metadata internal
 - `waypost_ack` it and wait; do not inspect or judge code from this message alone
 
+Keep a later `review_requested` delivery claimed until the review result has
+been sent successfully. A message that lacks `Action: review_requested` or the
+required review-request envelope is malformed: do not inspect the diff or emit
+a review result; report the routing defect to its sender under the shared
+protocol, then acknowledge that ordinary malformed delivery after the defect
+message is delivered.
+
 On the later delegated `review_requested` from coder:
 - recover the matching task-scoped planner context when it is not already active
 - require matching task, planner, reviewer, session host, Branch Plan, and Workspace Handoff

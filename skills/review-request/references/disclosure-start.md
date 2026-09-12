@@ -5,7 +5,9 @@ selector-summary: Complete review-request instructions, part 1.
 
 # Review Request
 
-Generate a copy/paste-friendly Waypost message for code review.
+Send one canonical `review_requested` Waypost action to the recorded reviewer.
+The review handoff is complete only when the standard envelope is delivered;
+an ad-hoc progress message is not a review request.
 
 Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 

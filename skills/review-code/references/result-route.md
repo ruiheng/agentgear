@@ -15,7 +15,12 @@ every lane. Route `abort_iteration` and `work_accepted` to the recorded Planner
 for `task` / `integration_final`, or to the recorded requester for
 `standalone`. The planner decides whether to close out, request another review,
 or take another workflow action. The reviewer never runs closeout as part of reporting its
-verdict. This is a declared discriminator route; retrieve the complete review
+verdict. This selector describes reviewer-originated routing: when the current
+session is already the recorded requester (for example, the delegated Coder),
+handle a matching `rework_required` under that session's owning workflow and do
+not forward a progress note or a "should I continue?" request to the Planner as
+a substitute; the coder's owning workflow requires it to continue and resubmit.
+This is a declared discriminator route; retrieve the complete review
 contract in order:
 
 `agentgear skill get review-code/review review-code/continue-1 review-code/continue-2 review-code/continue-3`
