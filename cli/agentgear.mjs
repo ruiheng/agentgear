@@ -810,6 +810,7 @@ function hooks(argumentsList) {
   const hosts = resolveHookHosts(options.targets);
   const launcher = computePaths().launcher;
   if (operation === "install") {
+    for (const host of hosts) host.install({ launcher, dryRun: true });
     for (const host of hosts) {
       const result = host.install({ launcher });
       print(`Agentgear ${host.label} hooks ${result.changed ? "installed" : "already installed"}: ${result.path}`);
@@ -818,6 +819,7 @@ function hooks(argumentsList) {
     return;
   }
   if (operation === "uninstall") {
+    for (const host of hosts) host.uninstall({ dryRun: true });
     for (const host of hosts) {
       const result = host.uninstall();
       print(`Agentgear ${host.label} hooks ${result.changed ? "uninstalled" : "not installed"}: ${result.path}`);

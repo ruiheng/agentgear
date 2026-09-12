@@ -58,6 +58,7 @@ export function refreshInstalledManagedHooks({ env = process.env, print = () => 
 }
 
 export function uninstallManagedHooks({ env = process.env, print = () => {} } = {}) {
+  for (const host of managedHookHosts) host.uninstall({ env, dryRun: true });
   for (const host of managedHookHosts) {
     const result = host.uninstall({ env });
     if (result.changed) print(`unregistered Agentgear ${host.label} hooks: ${result.path}`);

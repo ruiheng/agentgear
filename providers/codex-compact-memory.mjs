@@ -111,7 +111,8 @@ export function installCodexCompactMemory({
   env = process.env,
   launcher,
   platform = process.platform,
-  onlyIfInstalled = false
+  onlyIfInstalled = false,
+  dryRun = false
 } = {}) {
   const filePath = path.join(codexHome(env), "hooks.json");
   const { value, mode, unsafeNumber } = readDocument(filePath);
@@ -132,12 +133,12 @@ export function installCodexCompactMemory({
   const changed = JSON.stringify(next) !== JSON.stringify(value);
   if (changed) {
     refuseUnsafeRewrite(filePath, unsafeNumber, LABEL);
-    writeHookDocument(filePath, next, mode);
+    if (!dryRun) writeHookDocument(filePath, next, mode);
   }
   return { path: filePath, changed, installed: true, command: commands.command, launcher };
 }
 
-export function uninstallCodexCompactMemory({ env = process.env } = {}) {
+export function uninstallCodexCompactMemory({ env = process.env, dryRun = false } = {}) {
   const filePath = path.join(codexHome(env), "hooks.json");
   const { value, mode, unsafeNumber } = readDocument(filePath);
   const hooks = validateHooks(value.hooks, filePath);
@@ -154,7 +155,7 @@ export function uninstallCodexCompactMemory({ env = process.env } = {}) {
   const changed = JSON.stringify(next) !== JSON.stringify(value);
   if (changed) {
     refuseUnsafeRewrite(filePath, unsafeNumber, LABEL);
-    writeHookDocument(filePath, next, mode);
+    if (!dryRun) writeHookDocument(filePath, next, mode);
   }
   return { path: filePath, changed };
 }

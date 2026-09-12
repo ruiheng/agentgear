@@ -603,6 +603,41 @@ test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
   }
 });
 
+test("hooks install and uninstall preflight every host before writing", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const executable = path.resolve("bin/agentgear.mjs");
+    const invoke = argumentsList => childProcess.spawnSync(process.execPath, [executable, ...argumentsList], {
+      cwd: path.resolve("."),
+      env: item.env,
+      encoding: "utf8"
+    });
+    const codexHooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    const devinConfigPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
+    fs.mkdirSync(path.dirname(devinConfigPath), { recursive: true });
+    fs.writeFileSync(devinConfigPath, "{ not json\n");
+
+    const failedInstall = invoke(["hooks", "install"]);
+    assert.notEqual(failedInstall.status, 0);
+    assert.equal(fs.existsSync(codexHooksPath), false);
+
+    fs.writeFileSync(devinConfigPath, "{}\n");
+    assert.equal(invoke(["hooks", "install"]).status, 0);
+    assert.equal(fs.existsSync(codexHooksPath), true);
+    fs.writeFileSync(devinConfigPath, "{ not json\n");
+    const failedUninstall = invoke(["hooks", "uninstall"]);
+    assert.notEqual(failedUninstall.status, 0);
+    const codexHooks = JSON.parse(fs.readFileSync(codexHooksPath, "utf8"));
+    assert.equal(codexHooks.hooks.SessionStart[0].matcher, "^compact$");
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
 test("install and update refresh opted-in hooks without enabling them initially", () => {
   const item = fixture();
   try {

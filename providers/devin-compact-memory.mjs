@@ -134,7 +134,8 @@ export function installDevinCompactMemory({
   env = process.env,
   launcher,
   platform = process.platform,
-  onlyIfInstalled = false
+  onlyIfInstalled = false,
+  dryRun = false
 } = {}) {
   const filePath = path.join(devinConfigHome(env), "config.json");
   const { value, mode, unsafeNumber } = readDocument(filePath);
@@ -155,12 +156,12 @@ export function installDevinCompactMemory({
   const changed = JSON.stringify(next) !== JSON.stringify(value);
   if (changed) {
     refuseUnsafeRewrite(filePath, unsafeNumber, LABEL);
-    writeHookDocument(filePath, next, mode);
+    if (!dryRun) writeHookDocument(filePath, next, mode);
   }
   return { path: filePath, changed, installed: true, command: commands.command, launcher };
 }
 
-export function uninstallDevinCompactMemory({ env = process.env } = {}) {
+export function uninstallDevinCompactMemory({ env = process.env, dryRun = false } = {}) {
   const filePath = path.join(devinConfigHome(env), "config.json");
   const { value, mode, unsafeNumber } = readDocument(filePath);
   const hooks = validateHooks(value.hooks, filePath);
@@ -177,7 +178,7 @@ export function uninstallDevinCompactMemory({ env = process.env } = {}) {
   const changed = JSON.stringify(next) !== JSON.stringify(value);
   if (changed) {
     refuseUnsafeRewrite(filePath, unsafeNumber, LABEL);
-    writeHookDocument(filePath, next, mode);
+    if (!dryRun) writeHookDocument(filePath, next, mode);
   }
   return { path: filePath, changed };
 }
