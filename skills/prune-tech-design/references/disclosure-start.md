@@ -24,8 +24,10 @@ the actual Waypost endpoints before acting:
   immediately preceding Previous Artifact for round 2 or later, and positive
   Context Revision.
 
-Require the requested Context Revision to match the Canonical Contract. Require
-the artifact paths to follow the manifest author and immutable round naming.
+Reread the Canonical Contract and require the requested Context Revision to
+equal its current revision; a request ahead of retained context signals a
+contract update, not an error. Require the artifact paths to follow the
+manifest author and immutable round naming.
 A lazy pruner may receive its first retained context with the prune request; in
 that case read the complete Canonical Contract through the manifest before
 reviewing. An authenticated older contract revision or Round is a stale no-op.

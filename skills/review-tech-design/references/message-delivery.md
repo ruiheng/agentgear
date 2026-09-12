@@ -92,7 +92,9 @@ Lane Manifest: <workspace-relative lane manifest or received value>
 <precise correction>
 ```
 
-Use no Round. Echo the rejected revision. Send
+Use no Round. Echo the rejected revision. In `## Correction Needed`, name the
+Canonical Contract's current Context Revision as the correction target; never
+request redispatch under an older revision. Send
 subject `design context rejected: <task_id>`. Settle only after send success and
 wait for corrected context.
 

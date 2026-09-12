@@ -18,7 +18,11 @@ Retain that user-authoritative context in the reviewer session. A duplicate or
 older authenticated notice is a stale no-op. Do not record progress in the
 manifest and do not inspect a design from a context notice alone.
 
-For each later review request, reread the contract and require the message's
-Context Revision to match. Missing or unsupported current context retrieves
-`review-tech-design/message-delivery` and sends Context Rejection. Valid intake
-is retained and settled without a reply.
+For each later review request, treat the message's Context Revision as the
+author's claim of the contract revision its artifact was written under; a value
+ahead of retained context signals that the contract advanced, not an error.
+Reread the Canonical Contract through the manifest; its current revision is the
+only authority, and the claim must equal it. A claim that differs from the
+freshly read revision retrieves `review-tech-design/message-delivery` and sends
+Context Rejection naming the file's current revision as the required
+correction. Valid intake is retained and settled without a reply.
