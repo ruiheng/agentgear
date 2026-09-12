@@ -317,13 +317,14 @@ test("schema-1 lanes are rejected as an explicit hard cut", async () => {
   }
 });
 
-test("reviewer protocol consumes review checkpoints instead of review maxima", () => {
+test("reviewer and pruner protocols leave the review checkpoint to the lane author", () => {
   const references = ["routes.md", "review-contract.md", "committed-docs-review.md", "message-delivery.md"]
     .map(name => fs.readFileSync(new URL(`../skills/review-tech-design/references/${name}`, import.meta.url), "utf8"))
+    .concat(fs.readFileSync(new URL("../skills/prune-tech-design/references/disclosure-start.md", import.meta.url), "utf8"))
     .join("\n");
   assert.doesNotMatch(references, /Max Review Rounds|max_review_rounds/);
-  assert.match(references, /Review Checkpoint/);
-  assert.match(references, /schema-2 lane manifest/);
+  assert.doesNotMatch(references, /[Cc]heckpoint/);
+  assert.match(references, /schema 2/);
 });
 
 test("draft reviewer decisions return to the author-owned Canonical Contract", () => {

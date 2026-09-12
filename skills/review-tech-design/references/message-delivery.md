@@ -41,8 +41,7 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 [remaining uncertainty or None]
 ```
 
-`User Decisions` records review-relevant product or scope answers. Checkpoint
-continuation is not recorded here.
+`User Decisions` records review-relevant product or scope answers.
 
 Use `None` under Caveats for every decision except `SOUND_WITH_CAVEATS`.
 `SOUND_WITH_CAVEATS` requires at least one caveat, copied verbatim and in the
@@ -56,8 +55,8 @@ Lane Manifest: <workspace-relative lane manifest>
 Artifact: <reviewed artifact>
 ```
 
-Draft-round resolves participant identity, review checkpoint, interval, and
-contract path from the manifest, while the authenticated request names the exact round,
+Draft-round resolves participant identity and contract path from the manifest,
+while the authenticated request names the exact round,
 artifact, previous artifact, and Context Revision. Committed-docs omits Lane Manifest
 and resolves context from the inline request plus preceding
 rounds. Message reports use only their routed mode; direct-use sets

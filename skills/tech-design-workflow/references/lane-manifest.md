@@ -30,12 +30,13 @@ When `always` is selected, also record the initial `pruner_session_id` and
 `pruner_to_address`. `auto` and `never` omit them. Additional creation
 timestamps are diagnostics only.
 
-Use it for participant routes, the Canonical Contract, review checkpoint, and
-session closeout. Round progress and reports remain in messages and artifacts.
+Use it for participant routes, the Canonical Contract, and session closeout.
+Round progress and reports remain in messages and artifacts.
 
-Only `review_checkpoint` changes. After the user chooses to continue, the author
-advances it by `review_checkpoint_interval`. This does not change the contract
-or send a message.
+Only `review_checkpoint` changes; it gates the author's dispatch and is not
+review or prune input. After the user chooses to continue, the author advances
+it by `review_checkpoint_interval`. This does not change the contract or send a
+message.
 
 ## Dynamic Work
 
