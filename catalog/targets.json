@@ -30,6 +30,12 @@
       "global": "~/.kiro/skills",
       "project": ".kiro/skills",
       "dist": "kiro/.kiro/skills"
+    },
+    "devin": {
+      "description": "Devin CLI",
+      "global": "~/.config/devin/skills",
+      "project": ".devin/skills",
+      "dist": "devin/.devin/skills"
     }
   }
 }

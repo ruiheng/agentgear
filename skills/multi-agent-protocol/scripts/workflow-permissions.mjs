@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { devinConfigHome } from "./devin-paths.mjs";
 import { renderClaimedJsonPermissions } from "./json-permission-claims.mjs";
 import {
   claudeWaypostPermission,
@@ -18,7 +19,7 @@ import {
   writeWaypostOwnershipManifest
 } from "./waypost-permission-spec.mjs";
 
-const usage = `Manage Agentgear permissions for Claude Code, Codex, Gemini CLI, and Agy.
+const usage = `Manage Agentgear permissions for Claude Code, Codex, Gemini CLI, Agy, and Devin CLI.
 
 Usage:
   agentgear permissions init [--scope user|project] [--project DIR]
@@ -149,6 +150,7 @@ export function permissionPaths(scope, projectDir, env = process.env) {
   const agyRoot = user
     ? path.resolve(env.AGENTGEAR_AGY_HOME || path.join(getHome(env), ".gemini", "antigravity-cli"))
     : null;
+  const devinRoot = user ? devinConfigHome(env) : path.join(projectDir, ".devin");
   return {
     configRoot,
     claudeSettings: path.join(configRoot, ".claude", "settings.json"),
@@ -163,7 +165,10 @@ export function permissionPaths(scope, projectDir, env = process.env) {
     geminiLegacyPolicy: path.join(configRoot, ".gemini", "policies", "agent-deck-workflow.toml"),
     agySettings: agyRoot ? path.join(agyRoot, "settings.json") : null,
     agyClaims: agyRoot ? path.join(agyRoot, ".agentgear-workflow-claims.json") : null,
-    agyPermissionRegistry: agyRoot ? path.join(agyRoot, ".agentgear-permission-presets.json") : null
+    agyPermissionRegistry: agyRoot ? path.join(agyRoot, ".agentgear-permission-presets.json") : null,
+    devinConfig: path.join(devinRoot, "config.json"),
+    devinClaims: path.join(devinRoot, ".agentgear-workflow-claims.json"),
+    devinPermissionRegistry: path.join(devinRoot, ".agentgear-permission-presets.json")
   };
 }
 
@@ -244,7 +249,10 @@ function permissionMutationPaths(paths) {
     paths.geminiLegacyPolicy,
     paths.agySettings,
     paths.agyClaims,
-    paths.agyPermissionRegistry
+    paths.agyPermissionRegistry,
+    paths.devinConfig,
+    paths.devinClaims,
+    paths.devinPermissionRegistry
   ].filter(Boolean))];
 }
 
@@ -450,6 +458,36 @@ function missingClaudeWorkflowLauncherIssue(filePath, env) {
     : null;
 }
 
+function devinExec(words) {
+  return `Exec(${shellCommand(words)})`;
+}
+
+function missingDevinWorkflowLauncherIssue(paths, env) {
+  const inspected = readRetiredPermissionFile(paths.devinConfig, "Devin config");
+  if (inspected.issue || inspected.source === null) return null;
+  let settings;
+  try {
+    settings = JSON.parse(inspected.source);
+  } catch {
+    return inspected.source.includes("run multi-agent-protocol")
+      ? `Devin config contains Agentgear workflow approvals but is not valid JSON: ${paths.devinConfig}`
+      : null;
+  }
+  const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
+  const prior = launcherForms(env).map(command => devinExec([command, "run", "multi-agent-protocol"]));
+  if (!prior.some(permission => allowed.has(permission))) return null;
+  const missing = launcherForms(env).flatMap(command => [
+    ...workflowLauncherSkills
+      .filter(skill => skill !== "multi-agent-protocol")
+      .map(skill => devinExec([command, "run", skill])),
+    devinExec([command, "skill", "get"])
+  ])
+    .filter(permission => !allowed.has(permission));
+  return missing.length > 0
+    ? `Devin config is missing ${missing.length} workflow launcher approval(s): ${paths.devinConfig}`
+    : null;
+}
+
 function generatedLauncherPattern(command, skill, format) {
   const words = [command, "run", skill].map(JSON.stringify).join(", ");
   return format === "codex" ? `pattern = [${words}]` : `commandPrefix = [${words}]`;
@@ -490,6 +528,8 @@ export function findMissingWorkflowLauncherApprovals({
   const issues = [];
   const claudeIssue = missingClaudeWorkflowLauncherIssue(paths.claudeSettings, env);
   if (claudeIssue) issues.push(claudeIssue);
+  const devinIssue = missingDevinWorkflowLauncherIssue(paths, env);
+  if (devinIssue) issues.push(devinIssue);
   for (const [filePath, label, format] of [
     [paths.codexRules, "Codex rules", "codex"],
     [paths.codexLegacyRules, "Legacy Codex rules", "codex"],
@@ -587,6 +627,48 @@ function missingAgyWaypostCliActionIssue(paths, action) {
     : null;
 }
 
+function missingDevinWaypostCliActionIssue(paths, action) {
+  const claimInspected = readRetiredPermissionFile(paths.devinClaims, "Devin workflow claims");
+  if (claimInspected.issue || claimInspected.source === null) return null;
+
+  let claim;
+  try {
+    claim = JSON.parse(claimInspected.source);
+  } catch {
+    return null;
+  }
+  // Only inspect the workflow-owned claim. Devin config can contain arbitrary
+  // Exec(...) grants, and those must not be treated as Agentgear approvals.
+  if (claim?.version !== 1 || claim?.producer !== "workflow"
+    || !Array.isArray(claim.permissions)
+    || claim.permissions.some(permission => typeof permission !== "string")) {
+    return null;
+  }
+
+  const priorWaypostCli = claim.permissions.filter(permission =>
+    permission.startsWith("Exec(")
+    && permission.includes(" --state-dir ")
+    && (permission.endsWith(" read)") || permission.endsWith(" list)"))
+  );
+  if (priorWaypostCli.length === 0) return null;
+
+  const settingsInspected = readRetiredPermissionFile(paths.devinConfig, "Devin config");
+  if (settingsInspected.issue || settingsInspected.source === null) return null;
+  let settings;
+  try {
+    settings = JSON.parse(settingsInspected.source);
+  } catch {
+    return null;
+  }
+  const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
+  const missing = priorWaypostCli
+    .map(permission => permission.replace(/ (?:read|list)\)$/, ` ${action})`))
+    .filter(permission => !allowed.has(permission));
+  return missing.length > 0
+    ? `Devin Waypost CLI approvals are missing ${action}: ${paths.devinConfig}`
+    : null;
+}
+
 function findMissingWaypostCliActionApprovals(action, {
   scope = "user",
   project = process.cwd(),
@@ -602,6 +684,8 @@ function findMissingWaypostCliActionApprovals(action, {
   if (claudeIssue) issues.push(claudeIssue);
   const agyIssue = missingAgyWaypostCliActionIssue(paths, action);
   if (agyIssue) issues.push(agyIssue);
+  const devinIssue = missingDevinWaypostCliActionIssue(paths, action);
+  if (devinIssue) issues.push(devinIssue);
   for (const [filePath, label] of [
     [paths.codexRules, "Codex rules"],
     [paths.codexLegacyRules, "Legacy Codex rules"],
@@ -813,6 +897,35 @@ function configureAgy(waypost, paths) {
   });
   for (const output of rendered) writeAtomic(output.path, output.source);
   log("ok", `Merged permissions into ${paths.agySettings}`);
+}
+
+function generatedDevinPermissions(waypost) {
+  return [...new Set([
+    devinExec(["agent-deck"]),
+    "Exec(git diff)", "Exec(git show)", "Exec(git status)", "Exec(git log)", "Exec(git rev-parse)",
+    ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill =>
+      devinExec([command, "run", skill])
+    )),
+    ...launcherForms().map(command => devinExec([command, "skill", "get"])),
+    ...launcherForms().map(command => devinExec([command, "resolve-tool-command"])),
+    "Write(/.agent-artifacts/**)",
+    ...waypost.rules.filter(rule => !rule.wildcard).map(rule => devinExec(waypostRulePattern(rule))),
+    ...(waypost.trusted ? workflowWaypostMcpTools.map(name => `mcp__waypost__${name}`) : [])
+  ])];
+}
+
+function configureDevin(waypost, paths) {
+  log("info", "Configuring Devin CLI permissions...");
+  const permissions = generatedDevinPermissions(waypost);
+  const rendered = renderClaimedJsonPermissions({
+    settingsPath: paths.devinConfig,
+    claimPath: paths.devinClaims,
+    registryPath: paths.devinPermissionRegistry,
+    permissions,
+    claimDocument: { version: 1, producer: "workflow" }
+  });
+  for (const output of rendered) writeAtomic(output.path, output.source);
+  log("ok", `Merged permissions into ${paths.devinConfig}`);
 }
 
 function codexCommandValue(line) {
@@ -1354,6 +1467,48 @@ function checkAgy(paths, waypost, issues) {
   }
 }
 
+function checkDevin(paths, waypost, issues) {
+  const source = readRegularText(paths.devinConfig, "Devin config", issues);
+  if (source !== null) {
+    try {
+      const settings = JSON.parse(source);
+      const allowed = new Set(Array.isArray(settings?.permissions?.allow) ? settings.permissions.allow : []);
+      const missing = generatedDevinPermissions(waypost).filter(permission => !allowed.has(permission));
+      if (missing.length > 0) issues.push(`Devin config is missing ${missing.length} Agentgear permission(s)`);
+    } catch (error) {
+      issues.push(`Devin config is invalid JSON: ${error.message}`);
+    }
+  }
+  const claimSource = readRegularText(paths.devinClaims, "Devin workflow claims", issues);
+  if (claimSource !== null) {
+    try {
+      const claim = JSON.parse(claimSource);
+      const expected = generatedDevinPermissions(waypost);
+      if (claim.version !== 1 || claim.producer !== "workflow"
+        || !Array.isArray(claim.permissions)
+        || claim.permissions.length !== expected.length
+        || claim.permissions.some((permission, index) => permission !== expected[index])) {
+        issues.push(`Devin workflow claims are out of date: ${paths.devinClaims}`);
+      }
+    } catch (error) {
+      issues.push(`Devin workflow claims are invalid JSON: ${error.message}`);
+    }
+  }
+  const registrySource = readRegularText(paths.devinPermissionRegistry, "Devin permission registry", issues);
+  if (registrySource !== null) {
+    try {
+      const registry = JSON.parse(registrySource);
+      if (registry.version !== 1
+        || !Array.isArray(registry.introduced_permissions)
+        || registry.introduced_permissions.some(permission => typeof permission !== "string")) {
+        issues.push(`Devin permission registry is invalid: ${paths.devinPermissionRegistry}`);
+      }
+    } catch (error) {
+      issues.push(`Devin permission registry is invalid JSON: ${error.message}`);
+    }
+  }
+}
+
 export function checkPermissions({ scope = "user", project = process.cwd() } = {}) {
   const projectDir = resolveProjectDir(path.resolve(project));
   const paths = permissionPaths(scope, projectDir);
@@ -1364,6 +1519,7 @@ export function checkPermissions({ scope = "user", project = process.cwd() } = {
   checkCodex(paths, waypost, issues);
   checkGemini(paths, waypost, issues);
   checkAgy(paths, waypost, issues);
+  checkDevin(paths, waypost, issues);
   return { ok: issues.length === 0, scope, project: projectDir, issues, paths };
 }
 
@@ -1384,6 +1540,7 @@ export function initializePermissions({ scope = "user", project = process.cwd() 
       configureGemini(waypost, paths)
     ];
     configureAgy(waypost, paths);
+    configureDevin(waypost, paths);
     archiveLegacyPermissionFiles(legacyArchives);
   } catch (error) {
     try {

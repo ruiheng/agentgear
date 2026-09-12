@@ -22,7 +22,16 @@ function fixture(name) {
   const home = path.join(temporary, "home");
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(home, { recursive: true });
-  return { temporary, project, environment: { ...process.env, HOME: home, CODEX_HOME: path.join(home, ".codex") } };
+  return {
+    temporary,
+    project,
+    environment: {
+      ...process.env,
+      HOME: home,
+      CODEX_HOME: path.join(home, ".codex"),
+      XDG_CONFIG_HOME: path.join(home, ".config")
+    }
+  };
 }
 
 function initializeWorkflowPermissions(current) {
@@ -83,6 +92,8 @@ test("adding composable presets writes independent native harness rules", () => 
     assert.equal(claude.permissions.allow.includes("Bash(go test *)"), true);
     assert.match(fs.readFileSync(result.paths.codex, "utf8"), /pattern = \["go", "test"\]/);
     assert.match(fs.readFileSync(result.paths.gemini, "utf8"), /commandPrefix = \["go", "test"\]/);
+    const devin = JSON.parse(fs.readFileSync(result.paths.devin, "utf8"));
+    assert.equal(devin.permissions.allow.includes("Exec(go test)"), true);
     assert.equal(path.basename(result.paths.codex), "agentgear-preset-go.rules");
     assert.equal(path.basename(result.paths.gemini), "agentgear-preset-go.toml");
   } finally {
@@ -96,7 +107,7 @@ test("project presets reject symlinked harness configuration directories", { ski
     description: "Safe checks.",
     rules: [{ command: ["safe-check"], justification: "Run safe checks." }]
   };
-  for (const [target, directory] of [["claude", ".claude"], ["codex", ".codex"], ["gemini", ".gemini"]]) {
+  for (const [target, directory] of [["claude", ".claude"], ["codex", ".codex"], ["gemini", ".gemini"], ["devin", ".devin"]]) {
     const current = fixture(`preset-${target}-symlink`);
     try {
       const external = path.join(current.temporary, "external");
@@ -388,6 +399,40 @@ test("agy adapter writes user-scoped command grants without duplicating preset l
   }
 });
 
+test("devin adapter writes Exec grants to the Devin config", () => {
+  const current = fixture("preset-devin");
+  try {
+    const preset = {
+      name: "go-checks",
+      description: "Go checks.",
+      rules: [
+        { command: ["gofmt"], justification: "Format Go source." },
+        { command: ["go", "test"], justification: "Run Go tests." }
+      ]
+    };
+    const projectResult = addPermissionPreset(preset, {
+      project: current.project,
+      env: current.environment,
+      targets: ["devin"]
+    });
+    assert.equal(projectResult.paths.devin, path.join(fs.realpathSync(current.project), ".devin", "config.json"));
+    const projectSettings = JSON.parse(fs.readFileSync(projectResult.paths.devin, "utf8"));
+    assert.deepEqual(projectSettings.permissions.allow, ["Exec(gofmt)", "Exec(go test)"]);
+
+    const userResult = addPermissionPreset(preset, {
+      scope: "user",
+      project: current.project,
+      env: current.environment,
+      targets: ["devin"]
+    });
+    assert.equal(userResult.paths.devin, path.join(current.environment.XDG_CONFIG_HOME, "devin", "config.json"));
+    const userSettings = JSON.parse(fs.readFileSync(userResult.paths.devin, "utf8"));
+    assert.deepEqual(userSettings.permissions.allow, ["Exec(gofmt)", "Exec(go test)"]);
+  } finally {
+    fs.rmSync(current.temporary, { recursive: true, force: true });
+  }
+});
+
 test("every built-in preset passes through every permission adapter", () => {
   const current = fixture("preset-matrix");
   try {
@@ -400,9 +445,9 @@ test("every built-in preset passes through every permission adapter", () => {
       const projectResult = addPermissionPreset(preset, {
         project: current.project,
         env: current.environment,
-        targets: ["claude", "codex", "gemini"]
+        targets: ["claude", "codex", "gemini", "devin"]
       });
-      assert.deepEqual(Object.keys(projectResult.paths), ["claude", "codex", "gemini"]);
+      assert.deepEqual(Object.keys(projectResult.paths), ["claude", "codex", "gemini", "devin"]);
       const agyResult = addPermissionPreset(preset, {
         scope: "user",
         project: current.project,

@@ -18,7 +18,7 @@ function stateHome(env) {
 }
 
 export function sessionMemoryDirectory(sessionId, env = process.env) {
-  if (typeof sessionId !== "string" || !sessionId) throw new Error("Codex hook input is missing session_id");
+  if (typeof sessionId !== "string" || !sessionId) throw new Error("hook input is missing session_id");
   const key = crypto.createHash("sha256").update(sessionId).digest("hex");
   return path.join(stateHome(env), "agentgear", "compact-memory", key);
 }
@@ -72,7 +72,7 @@ function parsedJson(value) {
 
 function responseFailed(response) {
   if (!isPlainObject(response)) return false;
-  if (response.isError === true || response.is_error === true) return true;
+  if (response.isError === true || response.is_error === true || response.success === false) return true;
   for (const field of ["exit_code", "exitCode"]) {
     if (Number.isInteger(response[field]) && response[field] !== 0) return true;
   }
@@ -286,13 +286,15 @@ function directWaypostReadCommand(command, options = {}) {
   return ["recv", "read"].includes(words[index]);
 }
 
+const SHELL_TOOL_NAMES = new Set(["Bash", "exec"]);
+
 export function handlePostToolUse(input, options = {}) {
   if (input.hook_event_name !== "PostToolUse") return;
   if (waypostToolName(input.tool_name)
-    || (input.tool_name === "Bash" && directWaypostReadCommand(bashCommand(input), options))) {
+    || (SHELL_TOOL_NAMES.has(input.tool_name) && directWaypostReadCommand(bashCommand(input), options))) {
     recordStickyMessages(input, options);
   }
-  if (input.tool_name === "Bash") recordSkillGet(input, options);
+  if (SHELL_TOOL_NAMES.has(input.tool_name)) recordSkillGet(input, options);
 }
 
 function shellDisplay(argv) {
@@ -343,7 +345,7 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
 }
 
 export function handleHook(input, options = {}) {
-  if (!isPlainObject(input)) throw new Error("Codex hook input must be a JSON object");
+  if (!isPlainObject(input)) throw new Error("hook input must be a JSON object");
   if (input.hook_event_name === "PostToolUse") {
     try {
       handlePostToolUse(input, options);
@@ -352,7 +354,9 @@ export function handleHook(input, options = {}) {
     }
     return null;
   }
-  if (input.hook_event_name !== "SessionStart" || input.source !== "compact") return null;
+  const recovery = input.hook_event_name === "PostCompaction"
+    || (input.hook_event_name === "SessionStart" && input.source === "compact");
+  if (!recovery) return null;
   let additionalContext;
   try {
     additionalContext = compactAdditionalContext(input.session_id, options);
@@ -362,7 +366,7 @@ export function handleHook(input, options = {}) {
   if (!additionalContext) return null;
   return {
     hookSpecificOutput: {
-      hookEventName: "SessionStart",
+      hookEventName: input.hook_event_name,
       additionalContext
     }
   };

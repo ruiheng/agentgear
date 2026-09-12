@@ -415,13 +415,14 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
 
 test("lists the catalog and builds every target layout", () => {
   run(["build"]);
-  assert.deepEqual(Object.keys(loadCatalog(rootDir).targets.targets), ["general", "gemini", "agy", "claude", "kiro"]);
+  assert.deepEqual(Object.keys(loadCatalog(rootDir).targets.targets), ["general", "gemini", "agy", "claude", "kiro", "devin"]);
   for (const [target, directory] of [
     ["general", ".agents/skills"],
     ["gemini", ".gemini/skills"],
     ["agy", ".gemini/config/skills"],
     ["claude", ".claude/skills"],
-    ["kiro", ".kiro/skills"]
+    ["kiro", ".kiro/skills"],
+    ["devin", ".devin/skills"]
   ]) {
     assert.equal(
       fs.existsSync(path.join(rootDir, "dist", target, directory, "handoff", "SKILL.md")),

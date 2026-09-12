@@ -33,6 +33,9 @@ Gemini CLI. `agy` installs directly to Agy's discovered
 `~/.gemini/config/skills.json`. `claude` adds Claude Code's separate
 `.claude/skills` location. Use an explicit `--target` list to narrow an
 installation; add `kiro` only when Kiro's separate skill directory is needed.
+Devin CLI discovers `.agents/skills` natively, so `general` already covers it;
+add `devin` to install to Devin's own `~/.config/devin/skills` and
+`.devin/skills` directories.
 
 `update` resolves the newest published version, stages it under the user's XDG
 data directory, then publishes it only after the target checks and installation
@@ -106,25 +109,28 @@ agentgear action list
 `action list` prints every registered `action:<name>` address. Add
 `--json` to include its owning skill, canonical selector, and summary.
 
-### Codex hooks
+### Agent hooks
 
-Agentgear can install an optional pair of user-level [Codex
-hooks](https://learn.chatgpt.com/docs/hooks):
+Agentgear can install an optional set of user-level hooks for
+[Codex](https://learn.chatgpt.com/docs/hooks) and Devin CLI:
 
 ~~~bash
 agentgear hooks install
 agentgear hooks doctor
 agentgear hooks uninstall
+agentgear hooks install --target devin
 ~~~
 
-After installation, use `/hooks` in Codex to review and trust both Agentgear
-hooks. Installation preserves hook groups it does not own.
+Codex hooks live in `~/.codex/hooks.json`; Devin hooks merge into the `hooks`
+object of `~/.config/devin/config.json`. After installation, use `/hooks` in
+each host to review and trust the Agentgear hooks. Installation preserves hook
+groups it does not own.
 Later `agentgear install`, `update`, and `agentgear-source-install` runs refresh
 the Agentgear-owned groups when they are already present; they never enable the
 hooks for a user who has not explicitly installed them.
 
-This is a best-effort supplement to Codex compaction, not a transcript or
-progress tracker. Per Codex session, it stores the latest eight Waypost
+This is a best-effort supplement to agent compaction, not a transcript or
+progress tracker. Per agent session, it stores the latest eight Waypost
 messages whose final non-empty body line is exactly:
 
 ~~~text
@@ -138,18 +144,18 @@ not copied; Agentgear keeps only each message's subject and delivery id in one
 small session-local index. The hook also remembers up to 32 distinct successful
 direct `agentgear skill get ...` commands in that index. Direct
 Waypost CLI capture is limited to successful `recv` and `read` commands with
-explicit `--json` output. After a compact, Codex receives only delivery ids and
+explicit `--json` output. After a compact, the agent receives only delivery ids and
 subjects, plus a
 reminder that these are historical messages, the command to read them by
 delivery id, and that relevant skill instructions can be fetched again. It does
 not store user prompts or execution progress. Use the displayed `waypost read`
 command to recover the original message when compaction omitted task details.
 
-State is isolated by a hash of the Codex `session_id` under
+State is isolated by a hash of the host `session_id` under
 `$XDG_STATE_HOME/agentgear/compact-memory` (or
 `~/.local/state/agentgear/compact-memory` when `XDG_STATE_HOME` is unset).
 Missing state is treated as empty; other state failures preserve the existing
-file and surface a Codex system message instead of silently discarding history.
+file and surface a system message instead of silently discarding history.
 
 Use `agentgear-source-install` from a source checkout, and rerun it after
 source changes. The target normally links to Agentgear's shared runtime, with
@@ -256,7 +262,7 @@ initializer.
 | `permissions init/check` | Configure or verify workflow permissions for supported agent harnesses. |
 | `permissions preset` | List, copy, or add reusable development-stack permission presets. |
 | `session delete` | Delete a session through a stable host-neutral interface; Thurbox uses recoverable soft-delete. |
-| `hooks install/uninstall/doctor` | Install, remove, or diagnose Agentgear's optional Codex hooks. |
+| `hooks install/uninstall/doctor` | Install, remove, or diagnose Agentgear's optional Codex and Devin hooks. |
 | `run` | Run a script bundled with an installed skill. |
 
 `agentgear session delete` normalizes host-specific deletion and failure
@@ -321,14 +327,15 @@ Custom presets use the same JSON shape as files under
 `catalog/permission-presets/`: a kebab-case `name`, a `description`, and
 `rules` containing tokenized `command` arrays plus human-readable
 `justification` strings. Restart existing agent sessions after adding presets.
-Codex, Claude Code, Gemini CLI, and Agy are implemented as independent output
-adapters over the same preset schema. Agy currently exposes user-scoped command
-grants, so selecting `agy` requires `--scope user`.
+Codex, Claude Code, Gemini CLI, Agy, and Devin CLI are implemented as
+independent output adapters over the same preset schema. Devin grants render as
+`Exec(...)` prefixes in `config.json`. Agy currently exposes user-scoped
+command grants, so selecting `agy` requires `--scope user`.
 
 The initializer grants only the explicit Agentgear, Waypost, and session-host
 operations used by the workflow. User scope configures Claude Code, Codex,
-Gemini CLI, and Agy; Agy's permission settings are global, so project scope
-does not modify them. Agentgear records the Codex MCP sections it adds and
+Gemini CLI, Agy, and Devin CLI; Agy's permission settings are global, so
+project scope does not modify them. Agentgear records the Codex MCP sections it adds and
 removes them when Waypost is no longer trusted; user-managed sections are never
 claimed. Restart existing agent sessions after changing permissions so they
 reload their harness configuration.

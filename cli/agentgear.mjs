@@ -64,12 +64,12 @@ import { runSessionCommand } from "./lib/session-hosts.mjs";
 import { runCli as runResolveToolCommand } from "../skills/multi-agent-protocol/scripts/resolve-tool-command.js";
 import { runPermissionsCommand } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
 import { runPermissionPresetCommand } from "./lib/permission-presets.mjs";
-import { refreshInstalledCodexHooks } from "./lib/codex-hooks.mjs";
 import {
-  doctorCodexCompactMemory,
-  installCodexCompactMemory,
-  uninstallCodexCompactMemory
-} from "../providers/codex-compact-memory.mjs";
+  managedHookHosts,
+  refreshInstalledManagedHooks,
+  resolveHookHosts,
+  uninstallManagedHooks
+} from "./lib/managed-hooks.mjs";
 import { runCompactMemoryHook } from "../skills/multi-agent-protocol/scripts/compact-memory-hook.mjs";
 
 const thisFile = fs.realpathSync(fileURLToPath(import.meta.url));
@@ -109,7 +109,7 @@ function usage() {
     "  permissions preset list|show|add [options]",
     "  resolve-tool-command [resolver options]",
     "  session delete --host NAME --session-id ID [--profile NAME] [--json]",
-    "  hooks install|uninstall|doctor",
+    "  hooks install|uninstall|doctor [--target NAME[,NAME]]",
     "  run <skill> <script> [args...]",
     "",
     "Install/update defaults:",
@@ -351,10 +351,7 @@ function purge(catalog, options) {
       print("Purge complete.");
       notifyPermissionMigration(false);
     } else {
-      const compactMemoryHooks = uninstallCodexCompactMemory({ env: process.env });
-      if (compactMemoryHooks.changed) {
-        print(`unregistered Agentgear Codex hooks: ${compactMemoryHooks.path}`);
-      }
+      uninstallManagedHooks({ env: process.env, print });
       const tornDown = purgeManagedRuntime({ state, env: process.env, print });
       if (tornDown) {
         removeInstallStateFile({ print });
@@ -783,41 +780,61 @@ function actionUsage() {
   ].join("\n");
 }
 
+function hooksUsage() {
+  return [
+    "Usage: agentgear hooks install|uninstall|doctor [--target NAME[,NAME]]",
+    "",
+    "Install or diagnose Agentgear's optional agent hooks.",
+    `Available targets: ${managedHookHosts.map(host => host.name).join(",")} (default: all).`,
+    "After installation, review and trust the Agentgear hooks with /hooks in each host."
+  ].join("\n");
+}
+
 function hooks(argumentsList) {
   const [operation, ...rest] = argumentsList;
   if (!operation || operation === "--help" || operation === "-h") {
-    print([
-      "Usage: agentgear hooks install|uninstall|doctor",
-      "",
-      "Install or diagnose Agentgear's optional Codex hooks.",
-      "After installation, review and trust both Agentgear hooks with /hooks in Codex."
-    ].join("\n"));
+    print(hooksUsage());
     return;
   }
-  if (rest.length > 0) fail(`hooks ${operation} does not accept arguments`);
+  if (!["install", "uninstall", "doctor"].includes(operation)) {
+    fail(`Unknown hooks command: ${operation}`);
+  }
+  const options = parseOptions(rest);
+  if (options.help) {
+    print(hooksUsage());
+    return;
+  }
+  if ([...options.supplied].some(option => option !== "target") || options.positional.length > 0) {
+    fail(`hooks ${operation} accepts only --target NAME[,NAME]`);
+  }
+  const hosts = resolveHookHosts(options.targets);
   const launcher = computePaths().launcher;
   if (operation === "install") {
-    const result = installCodexCompactMemory({ launcher });
-    print(`Agentgear Codex hooks ${result.changed ? "installed" : "already installed"}: ${result.path}`);
-    print("Codex hook trust: review both Agentgear hooks with /hooks before use");
+    for (const host of hosts) {
+      const result = host.install({ launcher });
+      print(`Agentgear ${host.label} hooks ${result.changed ? "installed" : "already installed"}: ${result.path}`);
+    }
+    print("Hook trust: review the Agentgear hooks with /hooks in each host before use");
     return;
   }
   if (operation === "uninstall") {
-    const result = uninstallCodexCompactMemory();
-    print(`Agentgear Codex hooks ${result.changed ? "uninstalled" : "not installed"}: ${result.path}`);
+    for (const host of hosts) {
+      const result = host.uninstall();
+      print(`Agentgear ${host.label} hooks ${result.changed ? "uninstalled" : "not installed"}: ${result.path}`);
+    }
     return;
   }
-  if (operation === "doctor") {
-    const result = doctorCodexCompactMemory({ launcher });
-    print(`Agentgear Codex capture hook: ${result.missing.includes("PostToolUse") ? "missing" : "configured"}`);
-    print(`Agentgear Codex recovery hook: ${result.missing.includes("SessionStart") ? "missing" : "configured"}`);
+  let incomplete = false;
+  for (const host of hosts) {
+    const result = host.doctor({ launcher });
+    print(`Agentgear ${host.label} capture hook: ${result.missing.includes("PostToolUse") ? "missing" : "configured"}`);
+    print(`Agentgear ${host.label} recovery hook: ${result.missing.some(event => event === "SessionStart" || event === "PostCompaction") ? "missing" : "configured"}`);
     print(`Agentgear launcher: ${result.launcherUsable ? "available" : "unusable"}`);
-    print("Codex hook trust: not checked; verify with /hooks in Codex");
+    print(`${host.label} hook trust: not checked; verify with /hooks in ${host.label}`);
     print(`Hooks file: ${result.path}`);
-    if (result.missing.length > 0 || !result.launcherUsable) process.exitCode = 1;
-    return;
+    if (result.missing.length > 0 || !result.launcherUsable) incomplete = true;
   }
-  fail(`Unknown hooks command: ${operation}`);
+  if (incomplete) process.exitCode = 1;
 }
 
 function action(catalog, argumentsList) {
@@ -862,7 +879,7 @@ function migrate(catalog, argumentsList) {
   }
   let roots;
   if (options.targets.length === 0 && !options.destination && options.scope === "global") {
-    roots = ["general", "claude", "kiro"].map(name => resolveTargetRoots(catalog, { ...options, targets: [name] })[0].root);
+    roots = ["general", "claude", "kiro", "devin"].map(name => resolveTargetRoots(catalog, { ...options, targets: [name] })[0].root);
   } else {
     roots = resolveTargetRoots(catalog, options).map(target => target.root);
   }
@@ -950,7 +967,7 @@ export function main(commandArguments = process.argv.slice(2)) {
     case "install":
     case "update":
       installSelection({ catalog, options, sourceRoot: rootDir, print });
-      refreshInstalledCodexHooks({ print });
+      refreshInstalledManagedHooks({ print });
       break;
     case "status":
       status(catalog, options);

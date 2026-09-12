@@ -23,6 +23,11 @@ import {
   installCodexCompactMemory,
   uninstallCodexCompactMemory
 } from "../providers/codex-compact-memory.mjs";
+import {
+  doctorDevinCompactMemory,
+  installDevinCompactMemory,
+  uninstallDevinCompactMemory
+} from "../providers/devin-compact-memory.mjs";
 import { loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
 function fixture() {
@@ -33,6 +38,7 @@ function fixture() {
     HOME: home,
     XDG_STATE_HOME: path.join(temporary, "state"),
     XDG_DATA_HOME: path.join(temporary, "data"),
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     CODEX_HOME: path.join(temporary, "codex")
   };
   return { temporary, env };
@@ -572,10 +578,14 @@ test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
     const installed = invoke(["hooks", "install"]);
     assert.equal(installed.status, 0, installed.stderr);
     assert.match(installed.stdout, /Agentgear Codex hooks installed/);
+    assert.match(installed.stdout, /Agentgear Devin hooks installed/);
     const doctor = invoke(["hooks", "doctor"]);
     assert.equal(doctor.status, 0, doctor.stderr);
     assert.match(doctor.stdout, /capture hook: configured/);
     assert.match(doctor.stdout, /recovery hook: configured/);
+    const devinDoctor = invoke(["hooks", "doctor", "--target", "devin"]);
+    assert.equal(devinDoctor.status, 0, devinDoctor.stderr);
+    assert.match(devinDoctor.stdout, /Agentgear Devin capture hook: configured/);
 
     const legacy = invoke(["compact-memory", "doctor"]);
     assert.equal(legacy.status, 0, legacy.stderr);
@@ -584,6 +594,7 @@ test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
     const uninstalled = invoke(["hooks", "uninstall"]);
     assert.equal(uninstalled.status, 0, uninstalled.stderr);
     assert.match(uninstalled.stdout, /Agentgear Codex hooks uninstalled/);
+    assert.match(uninstalled.stdout, /Agentgear Devin hooks uninstalled/);
     const after = invoke(["hooks", "doctor"]);
     assert.equal(after.status, 1, after.stderr);
     assert.match(after.stdout, /capture hook: missing/);
@@ -703,6 +714,7 @@ test("full Agentgear purge unregisters Codex hooks before removing the launcher"
     const purged = invoke(["uninstall", "--purge"]);
     assert.equal(purged.status, 0, purged.stderr);
     assert.match(purged.stdout, /unregistered Agentgear Codex hooks/);
+    assert.match(purged.stdout, /unregistered Agentgear Devin hooks/);
     assert.equal(fs.existsSync(path.join(item.env.HOME, ".local", "bin", "agentgear")), false);
     const document = JSON.parse(fs.readFileSync(path.join(item.env.CODEX_HOME, "hooks.json"), "utf8"));
     assert.equal(Object.hasOwn(document, "hooks"), false);
@@ -735,6 +747,165 @@ test("Codex compact-memory launcher checks reject unusable platform artifacts", 
       fs.symlinkSync(target, launcher);
       assert.equal(codexCompactMemoryLauncherUsable(launcher, { platform: "linux" }), false);
     }
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Devin compact memory hooks merge into Devin config without touching user configuration", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const configPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    const userHook = { matcher: "exec", hooks: [{ type: "command", command: "./check.sh" }] };
+    fs.writeFileSync(configPath, `${JSON.stringify({
+      permissions: { allow: ["Exec(git status)"] },
+      hooks: { PreToolUse: [userHook] }
+    }, null, 2)}\n`);
+
+    assert.equal(installDevinCompactMemory({ env: item.env, launcher, onlyIfInstalled: true }).installed, false);
+
+    const installed = installDevinCompactMemory({ env: item.env, launcher });
+    assert.equal(installed.changed, true);
+    const document = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(document.permissions.allow.includes("Exec(git status)"), true);
+    assert.deepEqual(document.hooks.PreToolUse, [userHook]);
+    for (const event of ["SessionStart", "PostCompaction", "PostToolUse"]) {
+      assert.equal(document.hooks[event].length, 1, event);
+      assert.equal(document.hooks[event][0].hooks[0].type, "command");
+      assert.match(document.hooks[event][0].hooks[0].command, /compact-memory-hook$/);
+    }
+    assert.equal(document.hooks.PostToolUse[0].matcher, "^(?:exec|mcp__waypost__waypost_(?:recv|read))$");
+
+    assert.equal(installDevinCompactMemory({ env: item.env, launcher }).changed, false);
+    assert.deepEqual(doctorDevinCompactMemory({ env: item.env, launcher }).missing, []);
+
+    const removed = uninstallDevinCompactMemory({ env: item.env });
+    assert.equal(removed.changed, true);
+    const after = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.deepEqual(after.hooks, { PreToolUse: [userHook] });
+    assert.equal(after.permissions.allow.includes("Exec(git status)"), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Devin compact memory hooks preserve look-alike user hooks and adopt stale agentgear paths", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const configPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    const lookAlike = {
+      matcher: "",
+      hooks: [{ type: "command", command: "/usr/local/bin/my-agentgear compact-memory-hook" }]
+    };
+    const stale = {
+      matcher: "",
+      hooks: [{ type: "command", command: "'/opt/old-agentgear/bin/agentgear' compact-memory-hook" }]
+    };
+    fs.writeFileSync(configPath, `${JSON.stringify({
+      hooks: { PostToolUse: [lookAlike], SessionStart: [stale] }
+    }, null, 2)}\n`);
+
+    const installed = installDevinCompactMemory({ env: item.env, launcher });
+    assert.equal(installed.changed, true);
+    const document = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.deepEqual(document.hooks.PostToolUse[0], lookAlike);
+    assert.equal(document.hooks.PostToolUse.length, 2);
+    assert.equal(document.hooks.SessionStart.length, 1);
+    assert.equal(
+      document.hooks.SessionStart[0].hooks[0].command,
+      `'${launcher}' compact-memory-hook`
+    );
+
+    const removed = uninstallDevinCompactMemory({ env: item.env });
+    assert.equal(removed.changed, true);
+    const after = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.deepEqual(after.hooks, { PostToolUse: [lookAlike] });
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Devin compact memory hook command uses a node invocation on Windows", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    const installed = installDevinCompactMemory({ env: item.env, launcher, platform: "win32" });
+    assert.equal(installed.command, `node "${launcher}" compact-memory-hook`);
+    const configPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
+    const document = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(
+      document.hooks.PostToolUse[0].hooks[0].command,
+      `node "${launcher}" compact-memory-hook`
+    );
+    const windowsOwned = uninstallDevinCompactMemory({ env: item.env });
+    assert.equal(windowsOwned.changed, true);
+    assert.equal(JSON.parse(fs.readFileSync(configPath, "utf8")).hooks, undefined);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("compact memory hook handles Devin exec and PostCompaction payloads", () => {
+  const item = fixture();
+  try {
+    const sticky = {
+      delivery_id: "delivery-1",
+      subject: "sticky task",
+      body: `Task body\n\n${STICKY_TASK_CONTEXT_MARKER}`
+    };
+    const recv = {
+      session_id: "devin-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "exec",
+      tool_input: { command: "waypost --state-dir /tmp/waypost recv --json" },
+      tool_response: { success: true, output: JSON.stringify({ delivery: sticky }) }
+    };
+    assert.equal(handleHook(recv, { env: item.env }), null);
+    const failed = {
+      ...recv,
+      tool_response: { success: false, output: JSON.stringify({ delivery: { ...sticky, delivery_id: "delivery-2" } }) }
+    };
+    assert.equal(handleHook(failed, { env: item.env }), null);
+    const skillGet = {
+      session_id: "devin-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "exec",
+      tool_input: { command: "agentgear skill get handoff" },
+      tool_response: { success: true, output: "" }
+    };
+    assert.equal(handleHook(skillGet, { env: item.env }), null);
+
+    const recovery = handleHook(
+      { session_id: "devin-session", hook_event_name: "PostCompaction" },
+      { env: item.env }
+    );
+    assert.equal(recovery.hookSpecificOutput.hookEventName, "PostCompaction");
+    assert.match(recovery.hookSpecificOutput.additionalContext, /delivery-1/);
+    assert.doesNotMatch(recovery.hookSpecificOutput.additionalContext, /delivery-2/);
+    assert.match(recovery.hookSpecificOutput.additionalContext, /handoff/);
+
+    const sessionStart = handleHook(
+      { session_id: "devin-session", hook_event_name: "SessionStart", source: "compact" },
+      { env: item.env }
+    );
+    assert.equal(sessionStart.hookSpecificOutput.hookEventName, "SessionStart");
+    const startup = handleHook(
+      { session_id: "devin-session", hook_event_name: "SessionStart", source: "startup" },
+      { env: item.env }
+    );
+    assert.equal(startup, null);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }

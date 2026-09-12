@@ -11,7 +11,10 @@ installed only once. Normal installation does not maintain
 `~/.gemini/config/skills.json`.
 
 `claude` adds Claude Code's separate `.claude/skills` location. Kiro declares
-its own `.kiro/skills` location, so it remains the optional `kiro` target. Use
+its own `.kiro/skills` location, so it remains the optional `kiro` target.
+Devin CLI discovers `.agents/skills` natively, so `general` already covers it;
+the optional `devin` target installs to Devin's own `~/.config/devin/skills`
+and `.devin/skills` directories instead. Use
 an explicit `--target` list to narrow the defaults; use `--target general,kiro`
 when both generic and Kiro locations are needed.
 
@@ -21,7 +24,10 @@ permission rules. Configure permissions explicitly through
 project --project DIR` writes trusted-project configuration. Verify the active
 scope with `agentgear permissions check`. User scope also merges Agy approvals
 into `~/.gemini/antigravity-cli/settings.json`; project scope leaves that
-global file untouched. Generated rules use the stable
+global file untouched. Devin approvals merge into the `permissions.allow` list
+of `~/.config/devin/config.json` at user scope or `.devin/config.json` at
+project scope, rendered as `Exec(...)` prefixes and `mcp__waypost__...` tool
+names. Generated rules use the stable
 `agentgear run …` launcher rather than a checkout path. The initializer does
 not create an MCP server declaration; it adds scoped approvals only when the
 Waypost server is already configured. Codex approvals use a bounded generated

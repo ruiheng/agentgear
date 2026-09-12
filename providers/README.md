@@ -12,9 +12,14 @@ target selection and archive orchestration in the owning skill; provider
 metadata lookup, deletion guards, and host-native cleanup stay in the adapter.
 
 `permission-adapters/` renders the common development permission-preset schema
-into Codex, Claude Code, Gemini CLI, and Agy configuration. Preset discovery,
-schema validation, target selection, and transactional orchestration remain in
-`cli/lib/`; native paths, formats, and settings merge behavior stay here.
+into Codex, Claude Code, Gemini CLI, Agy, and Devin CLI configuration. Preset
+discovery, schema validation, target selection, and transactional
+orchestration remain in `cli/lib/`; native paths, formats, and settings merge
+behavior stay here.
 
-`codex-compact-memory.mjs` owns the Codex-native hooks path, document shape,
-managed-group merge, and platform launcher checks for Agentgear hook setup.
+`codex-compact-memory.mjs` and `devin-compact-memory.mjs` own the Codex- and
+Devin-native hooks paths, document shapes, managed-group merge, and platform
+launcher checks for Agentgear hook setup; `hook-json-file.mjs` holds the shared
+safe JSON document machinery. Devin's XDG config home resolution is shared
+with the workflow permission scripts in
+`skills/multi-agent-protocol/scripts/devin-paths.mjs`.

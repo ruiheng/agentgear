@@ -78,6 +78,7 @@ test("workflow permissions use the stable launcher and never an old source path"
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -132,6 +133,7 @@ test("workflow permissions revoke retired Claude send-and-wake grants", () => {
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -167,6 +169,7 @@ test("retired permission detection only treats Claude allow entries as approvals
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -397,6 +400,7 @@ test("workflow permissions add explicit Waypost MCP approvals for Claude and Cod
   const stateDir = path.join(temporary, "waypost-state");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: stateDir,
@@ -445,6 +449,7 @@ test("user-scoped permission init and check cover all harnesses", () => {
   const bin = path.join(temporary, "bin with spaces");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost state"),
@@ -463,6 +468,21 @@ test("user-scoped permission init and check cover all harnesses", () => {
     assert.equal(configured.paths.claudeSettings, path.join(home, ".claude", "settings.json"));
     assert.equal(configured.paths.geminiPolicy, path.join(home, ".gemini", "policies", "agentgear-workflow.toml"));
     assert.equal(configured.paths.agySettings, path.join(home, ".gemini", "antigravity-cli", "settings.json"));
+    assert.equal(configured.paths.devinConfig, path.join(environment.XDG_CONFIG_HOME, "devin", "config.json"));
+
+    const devin = JSON.parse(fs.readFileSync(paths.devinConfig, "utf8"));
+    const devinWaypost = fs.realpathSync(path.join(bin, "waypost"));
+    const devinStateDir = path.resolve(environment.WAYPOST_STATE_DIR);
+    assert.equal(devin.permissions.allow.includes("Exec(git status)"), true);
+    assert.equal(devin.permissions.allow.includes(`Exec('${devinWaypost}' doc)`), true);
+    assert.equal(devin.permissions.allow.includes(`Exec('${devinWaypost}' --state-dir '${devinStateDir}' read)`), true);
+    assert.equal(devin.permissions.allow.includes(`Exec('${devinWaypost}' --state-dir '${devinStateDir}' dead-letter)`), true);
+    assert.equal(devin.permissions.allow.includes("Exec(waypost)"), false);
+    assert.equal(devin.permissions.allow.includes("mcp__waypost__waypost_recv"), true);
+    assert.equal(devin.permissions.allow.includes("mcp__waypost__session_resolve"), false);
+    const devinClaims = JSON.parse(fs.readFileSync(paths.devinClaims, "utf8"));
+    assert.equal(devinClaims.producer, "workflow");
+    assert.deepEqual(devinClaims.permissions, devin.permissions.allow);
 
     const agy = JSON.parse(fs.readFileSync(paths.agySettings, "utf8"));
     const waypost = fs.realpathSync(path.join(bin, "waypost"));
@@ -512,6 +532,7 @@ test("project-scoped permission init leaves Agy global settings untouched", () =
   const environment = {
     HOME: home,
     AGENTGEAR_AGY_HOME: agyHome,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -540,6 +561,7 @@ test("Agy configuration failure rolls back every workflow permission file", () =
   const environment = {
     HOME: home,
     AGENTGEAR_AGY_HOME: agyHome,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -572,6 +594,7 @@ test("user-scoped permission init retires the known config_files Codex rules", (
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -610,6 +633,7 @@ test("permission init archives a modified config_files Codex rules file instead 
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -650,6 +674,7 @@ test("workflow permissions do not create Codex approvals without a configured Wa
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -682,6 +707,7 @@ test("workflow permissions recognize the trusted absolute Waypost command in Cod
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -716,6 +742,7 @@ test("workflow permissions revoke Agentgear-owned Codex approvals when Waypost l
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -759,6 +786,7 @@ test("workflow permissions migrate the legacy Codex approval block into owned bo
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -807,6 +835,7 @@ test("workflow permissions automatically reconcile orphaned Codex ownership", ()
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -854,6 +883,7 @@ test("workflow permissions refuse to override a user-managed Codex denial", () =
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -890,6 +920,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
   const waypost = writeWaypostExecutable(bin);
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: stateDir,
@@ -1003,6 +1034,7 @@ test("workflow permissions reject project-local Waypost commands", () => {
   const waypost = writeWaypostExecutable(projectBin);
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -1031,6 +1063,7 @@ test("workflow permissions reject a relative Waypost state directory", () => {
   const waypost = writeWaypostExecutable(bin);
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: "relative-state",
@@ -1059,6 +1092,7 @@ test("workflow permissions reject Waypost found through a relative PATH entry", 
   const waypost = writeWaypostExecutable(path.join(temporary, relativeBin));
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -1090,6 +1124,7 @@ test("workflow permissions reject a Waypost command inside a symlinked project",
   const waypost = writeWaypostExecutable(bin);
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -1122,6 +1157,7 @@ test("workflow permissions migrate a verified legacy v1 Waypost manifest", () =>
   const userPermission = "Bash(/opt/custom-waypost --state-dir /tmp/custom-state read)";
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: stateDir,
@@ -1160,6 +1196,7 @@ test("workflow permissions preserve Codex config mode and honor CODEX_HOME", () 
   const environment = {
     HOME: home,
     CODEX_HOME: codexHome,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),
@@ -1189,6 +1226,7 @@ test("workflow permissions refuse to extend inline Codex Waypost tools", () => {
   const configFile = path.join(home, ".codex", "config.toml");
   const environment = {
     HOME: home,
+    XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     WAYPOST_STATE_DIR: path.join(temporary, "waypost-state"),

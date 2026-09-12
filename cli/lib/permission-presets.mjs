@@ -5,7 +5,7 @@ import { permissionAdapters } from "../../providers/permission-adapters/index.mj
 import { validatePermissionPreset } from "./permission-preset-schema.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const defaultTargets = ["claude", "codex", "gemini"];
+const defaultTargets = ["claude", "codex", "gemini", "devin"];
 
 const usage = `Manage reusable development-stack permission presets.
 
@@ -13,14 +13,14 @@ Usage:
   agentgear permissions preset list [--json]
   agentgear permissions preset show NAME [--file FILE]
   agentgear permissions preset add NAME... [--scope user|project] [--project DIR]
-                                      [--target claude,codex,gemini,agy]
+                                      [--target claude,codex,gemini,agy,devin]
   agentgear permissions preset add --file FILE [--scope user|project] [--project DIR]
-                                      [--target claude,codex,gemini,agy]
+                                      [--target claude,codex,gemini,agy,devin]
 
 Defaults:
   --scope project
   --project current directory
-  --target claude,codex,gemini
+  --target claude,codex,gemini,devin
 
 Agy currently stores permission grants at user scope. Select it explicitly with
 --scope user --target agy (or combine it with other user-scoped targets).
