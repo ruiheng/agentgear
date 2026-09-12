@@ -35,7 +35,9 @@ Gemini CLI. `agy` installs directly to Agy's discovered
 installation; add `kiro` only when Kiro's separate skill directory is needed.
 Devin CLI discovers `.agents/skills` natively, so `general` already covers it;
 add `devin` to install to Devin's own `~/.config/devin/skills` and
-`.devin/skills` directories.
+`.devin/skills` directories. The global directory follows Devin's config home:
+`$XDG_CONFIG_HOME/devin` on Linux/macOS (`~/.config/devin` by default) and
+`%APPDATA%/devin` on Windows.
 
 `update` resolves the newest published version, stages it under the user's XDG
 data directory, then publishes it only after the target checks and installation
@@ -122,7 +124,9 @@ agentgear hooks install --target devin
 ~~~
 
 Codex hooks live in `~/.codex/hooks.json`; Devin hooks merge into the `hooks`
-object of `~/.config/devin/config.json`. After installation, use `/hooks` in
+object of Devin's user config (`$XDG_CONFIG_HOME/devin/config.json`, defaulting
+to `~/.config/devin/config.json`; `%APPDATA%/devin/config.json` on Windows).
+After installation, use `/hooks` in
 each host to review and trust the Agentgear hooks. Installation preserves hook
 groups it does not own.
 Later `agentgear install`, `update`, and `agentgear-source-install` runs refresh
