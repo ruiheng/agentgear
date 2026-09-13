@@ -1,5 +1,10 @@
 import process from "node:process";
 import {
+  doctorClaudeCompactMemory,
+  installClaudeCompactMemory,
+  uninstallClaudeCompactMemory
+} from "../../providers/claude-compact-memory.mjs";
+import {
   doctorCodexCompactMemory,
   installCodexCompactMemory,
   uninstallCodexCompactMemory
@@ -12,6 +17,13 @@ import {
 import { computePaths } from "./runtime.mjs";
 
 export const managedHookHosts = Object.freeze([
+  Object.freeze({
+    name: "claude",
+    label: "Claude Code",
+    install: installClaudeCompactMemory,
+    uninstall: uninstallClaudeCompactMemory,
+    doctor: doctorClaudeCompactMemory
+  }),
   Object.freeze({
     name: "codex",
     label: "Codex",

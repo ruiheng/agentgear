@@ -1,5 +1,5 @@
+import os from "node:os";
 import path from "node:path";
-import { devinConfigHome } from "../skills/multi-agent-protocol/scripts/devin-paths.mjs";
 import {
   readHookDocument,
   refuseUnsafeRewrite,
@@ -16,25 +16,28 @@ import {
   mergeManagedCompactMemoryGroup
 } from "./managed-hook-command.mjs";
 
-const LABEL = "Devin config hooks";
-const MANAGED_EVENTS = Object.freeze(["SessionStart", "PostCompaction", "PostToolUse"]);
+const LABEL = "Claude Code settings hooks";
+const MANAGED_EVENTS = Object.freeze(["SessionStart", "PostToolUse"]);
 
-export function devinCompactMemoryLauncherUsable(launcher, { platform = process.platform } = {}) {
+function claudeConfigHome(env) {
+  if (typeof env.CLAUDE_CONFIG_DIR === "string" && env.CLAUDE_CONFIG_DIR.trim()) {
+    return path.resolve(env.CLAUDE_CONFIG_DIR);
+  }
+  return path.join(env.HOME || os.homedir(), ".claude");
+}
+
+export function claudeCompactMemoryLauncherUsable(launcher, { platform = process.platform } = {}) {
   return compactMemoryLauncherUsable(launcher, { platform });
 }
 
 function desiredGroups(commands) {
   return {
     SessionStart: {
-      matcher: "",
-      hooks: [compactMemoryHandler(commands)]
-    },
-    PostCompaction: {
-      matcher: "",
+      matcher: "^compact$",
       hooks: [compactMemoryHandler(commands)]
     },
     PostToolUse: {
-      matcher: "^(?:exec|mcp__waypost__waypost_(?:recv|read))$",
+      matcher: "^(?:Bash|mcp__waypost__waypost_(?:recv|read)|waypost_(?:recv|read))$",
       hooks: [compactMemoryHandler(commands)]
     }
   };
@@ -48,21 +51,21 @@ function validateHooks(value, filePath) {
   return validateHookGroups(value, filePath, LABEL);
 }
 
-export function installDevinCompactMemory({
+export function installClaudeCompactMemory({
   env = process.env,
   launcher,
   platform = process.platform,
   onlyIfInstalled = false,
   dryRun = false
 } = {}) {
-  const filePath = path.join(devinConfigHome(env), "config.json");
+  const filePath = path.join(claudeConfigHome(env), "settings.json");
   const { value, mode, unsafeNumber } = readDocument(filePath);
   const hooks = validateHooks(value.hooks, filePath);
   if (onlyIfInstalled && !hasManagedCompactMemoryGroup(hooks, MANAGED_EVENTS)) {
     return { path: filePath, changed: false, installed: false, launcher };
   }
   const commands = compactMemoryHookCommand(launcher, { platform });
-  if (!devinCompactMemoryLauncherUsable(launcher, { platform })) {
+  if (!claudeCompactMemoryLauncherUsable(launcher, { platform })) {
     throw new Error(`Agentgear launcher is not usable: ${launcher}`);
   }
   const desired = desiredGroups(commands);
@@ -79,8 +82,8 @@ export function installDevinCompactMemory({
   return { path: filePath, changed, installed: true, command: commands.command, launcher };
 }
 
-export function uninstallDevinCompactMemory({ env = process.env, dryRun = false } = {}) {
-  const filePath = path.join(devinConfigHome(env), "config.json");
+export function uninstallClaudeCompactMemory({ env = process.env, dryRun = false } = {}) {
+  const filePath = path.join(claudeConfigHome(env), "settings.json");
   const { value, mode, unsafeNumber } = readDocument(filePath);
   const hooks = validateHooks(value.hooks, filePath);
   const updated = { ...hooks };
@@ -101,8 +104,8 @@ export function uninstallDevinCompactMemory({ env = process.env, dryRun = false 
   return { path: filePath, changed };
 }
 
-export function doctorDevinCompactMemory({ env = process.env, launcher, platform = process.platform } = {}) {
-  const filePath = path.join(devinConfigHome(env), "config.json");
+export function doctorClaudeCompactMemory({ env = process.env, launcher, platform = process.platform } = {}) {
+  const filePath = path.join(claudeConfigHome(env), "settings.json");
   const { value } = readDocument(filePath);
   const hooks = validateHooks(value.hooks, filePath);
   const commands = compactMemoryHookCommand(launcher, { platform });
@@ -116,6 +119,6 @@ export function doctorDevinCompactMemory({ env = process.env, launcher, platform
     path: filePath,
     command: commands.command,
     missing,
-    launcherUsable: devinCompactMemoryLauncherUsable(launcher, { platform })
+    launcherUsable: claudeCompactMemoryLauncherUsable(launcher, { platform })
   };
 }

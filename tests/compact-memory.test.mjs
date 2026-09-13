@@ -18,6 +18,11 @@ import {
   STICKY_TASK_CONTEXT_MARKER
 } from "../skills/multi-agent-protocol/scripts/compact-memory-shared.mjs";
 import {
+  doctorClaudeCompactMemory,
+  installClaudeCompactMemory,
+  uninstallClaudeCompactMemory
+} from "../providers/claude-compact-memory.mjs";
+import {
   codexCompactMemoryLauncherUsable,
   doctorCodexCompactMemory,
   installCodexCompactMemory,
@@ -41,6 +46,7 @@ function fixture() {
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     CODEX_HOME: path.join(temporary, "codex")
   };
+  delete env.CLAUDE_CONFIG_DIR;
   return { temporary, env };
 }
 
@@ -577,6 +583,7 @@ test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
 
     const installed = invoke(["hooks", "install"]);
     assert.equal(installed.status, 0, installed.stderr);
+    assert.match(installed.stdout, /Agentgear Claude Code hooks installed/);
     assert.match(installed.stdout, /Agentgear Codex hooks installed/);
     assert.match(installed.stdout, /Agentgear Devin hooks installed/);
     const doctor = invoke(["hooks", "doctor"]);
@@ -586,6 +593,9 @@ test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
     const devinDoctor = invoke(["hooks", "doctor", "--target", "devin"]);
     assert.equal(devinDoctor.status, 0, devinDoctor.stderr);
     assert.match(devinDoctor.stdout, /Agentgear Devin capture hook: configured/);
+    const claudeDoctor = invoke(["hooks", "doctor", "--target", "claude"]);
+    assert.equal(claudeDoctor.status, 0, claudeDoctor.stderr);
+    assert.match(claudeDoctor.stdout, /Agentgear Claude Code capture hook: configured/);
 
     const legacy = invoke(["compact-memory", "doctor"]);
     assert.equal(legacy.status, 0, legacy.stderr);
@@ -593,6 +603,7 @@ test("hooks CLI installs, diagnoses, and uninstalls the Codex hooks", () => {
 
     const uninstalled = invoke(["hooks", "uninstall"]);
     assert.equal(uninstalled.status, 0, uninstalled.stderr);
+    assert.match(uninstalled.stdout, /Agentgear Claude Code hooks uninstalled/);
     assert.match(uninstalled.stdout, /Agentgear Codex hooks uninstalled/);
     assert.match(uninstalled.stdout, /Agentgear Devin hooks uninstalled/);
     const after = invoke(["hooks", "doctor"]);
@@ -617,6 +628,7 @@ test("hooks install and uninstall preflight every host before writing", () => {
       encoding: "utf8"
     });
     const codexHooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    const claudeSettingsPath = path.join(item.env.HOME, ".claude", "settings.json");
     const devinConfigPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
     fs.mkdirSync(path.dirname(devinConfigPath), { recursive: true });
     fs.writeFileSync(devinConfigPath, "{ not json\n");
@@ -624,10 +636,12 @@ test("hooks install and uninstall preflight every host before writing", () => {
     const failedInstall = invoke(["hooks", "install"]);
     assert.notEqual(failedInstall.status, 0);
     assert.equal(fs.existsSync(codexHooksPath), false);
+    assert.equal(fs.existsSync(claudeSettingsPath), false);
 
     fs.writeFileSync(devinConfigPath, "{}\n");
     assert.equal(invoke(["hooks", "install"]).status, 0);
     assert.equal(fs.existsSync(codexHooksPath), true);
+    assert.equal(fs.existsSync(claudeSettingsPath), true);
     fs.writeFileSync(devinConfigPath, "{ not json\n");
     const failedUninstall = invoke(["hooks", "uninstall"]);
     assert.notEqual(failedUninstall.status, 0);
@@ -748,6 +762,7 @@ test("full Agentgear purge unregisters Codex hooks before removing the launcher"
 
     const purged = invoke(["uninstall", "--purge"]);
     assert.equal(purged.status, 0, purged.stderr);
+    assert.match(purged.stdout, /unregistered Agentgear Claude Code hooks/);
     assert.match(purged.stdout, /unregistered Agentgear Codex hooks/);
     assert.match(purged.stdout, /unregistered Agentgear Devin hooks/);
     assert.equal(fs.existsSync(path.join(item.env.HOME, ".local", "bin", "agentgear")), false);
@@ -887,6 +902,269 @@ test("Devin compact memory hook command uses a node invocation on Windows", () =
     const windowsOwned = uninstallDevinCompactMemory({ env: item.env });
     assert.equal(windowsOwned.changed, true);
     assert.equal(JSON.parse(fs.readFileSync(configPath, "utf8")).hooks, undefined);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code compact memory hooks merge into user settings without touching other keys", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const settingsPath = path.join(item.env.HOME, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    const userHook = { matcher: "Bash", hooks: [{ type: "command", command: "./check.sh" }] };
+    fs.writeFileSync(settingsPath, `${JSON.stringify({
+      permissions: { allow: ["Bash(git status)"] },
+      hooks: { PreToolUse: [userHook] }
+    }, null, 2)}\n`);
+
+    assert.equal(installClaudeCompactMemory({ env: item.env, launcher, onlyIfInstalled: true }).installed, false);
+
+    const installed = installClaudeCompactMemory({ env: item.env, launcher });
+    assert.equal(installed.changed, true);
+    const document = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(document.permissions.allow.includes("Bash(git status)"), true);
+    assert.deepEqual(document.hooks.PreToolUse, [userHook]);
+    for (const event of ["SessionStart", "PostToolUse"]) {
+      assert.equal(document.hooks[event].length, 1, event);
+      assert.equal(document.hooks[event][0].hooks[0].type, "command");
+      assert.match(document.hooks[event][0].hooks[0].command, /compact-memory-hook$/);
+    }
+    assert.equal(document.hooks.SessionStart[0].matcher, "^compact$");
+    assert.equal(
+      document.hooks.PostToolUse[0].matcher,
+      "^(?:Bash|mcp__waypost__waypost_(?:recv|read)|waypost_(?:recv|read))$"
+    );
+
+    assert.equal(installClaudeCompactMemory({ env: item.env, launcher }).changed, false);
+    assert.deepEqual(doctorClaudeCompactMemory({ env: item.env, launcher }).missing, []);
+
+    const removed = uninstallClaudeCompactMemory({ env: item.env });
+    assert.equal(removed.changed, true);
+    const after = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.deepEqual(after.hooks, { PreToolUse: [userHook] });
+    assert.equal(after.permissions.allow.includes("Bash(git status)"), true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code compact memory hooks preserve look-alike user hooks and adopt stale agentgear paths", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const settingsPath = path.join(item.env.HOME, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    const lookAlike = {
+      matcher: "",
+      hooks: [{ type: "command", command: "/usr/local/bin/my-agentgear compact-memory-hook" }]
+    };
+    const stale = {
+      matcher: "compact",
+      hooks: [{ type: "command", command: "'/opt/old-agentgear/bin/agentgear' compact-memory-hook" }]
+    };
+    fs.writeFileSync(settingsPath, `${JSON.stringify({
+      hooks: { PostToolUse: [lookAlike], SessionStart: [stale] }
+    }, null, 2)}\n`);
+
+    const installed = installClaudeCompactMemory({ env: item.env, launcher });
+    assert.equal(installed.changed, true);
+    const document = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.deepEqual(document.hooks.PostToolUse[0], lookAlike);
+    assert.equal(document.hooks.PostToolUse.length, 2);
+    assert.equal(document.hooks.SessionStart.length, 1);
+    assert.equal(
+      document.hooks.SessionStart[0].hooks[0].command,
+      `'${launcher}' compact-memory-hook`
+    );
+
+    const removed = uninstallClaudeCompactMemory({ env: item.env });
+    assert.equal(removed.changed, true);
+    const after = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.deepEqual(after.hooks, { PostToolUse: [lookAlike] });
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code compact memory hooks honor CLAUDE_CONFIG_DIR and refuse an unusable launcher", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    const env = { ...item.env, CLAUDE_CONFIG_DIR: path.join(item.temporary, "claude-config") };
+    assert.throws(
+      () => installClaudeCompactMemory({ env, launcher }),
+      /Agentgear launcher is not usable/
+    );
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+
+    const installed = installClaudeCompactMemory({ env, launcher });
+    assert.equal(installed.path, path.join(env.CLAUDE_CONFIG_DIR, "settings.json"));
+    const document = JSON.parse(fs.readFileSync(installed.path, "utf8"));
+    assert.equal(document.hooks.SessionStart.length, 1);
+    assert.equal(fs.existsSync(path.join(item.env.HOME, ".claude", "settings.json")), false);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code compact memory hook command uses a node invocation on Windows", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    const installed = installClaudeCompactMemory({ env: item.env, launcher, platform: "win32" });
+    assert.equal(installed.command, `node "${launcher}" compact-memory-hook`);
+    const settingsPath = path.join(item.env.HOME, ".claude", "settings.json");
+    const document = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(
+      document.hooks.PostToolUse[0].hooks[0].command,
+      `node "${launcher}" compact-memory-hook`
+    );
+    const windowsOwned = uninstallClaudeCompactMemory({ env: item.env });
+    assert.equal(windowsOwned.changed, true);
+    assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).hooks, undefined);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code compact memory uninstall removes managed-command groups under any event", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const settingsPath = path.join(item.env.HOME, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    installClaudeCompactMemory({ env: item.env, launcher });
+
+    const document = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    document.hooks.PreToolUse = [{
+      matcher: "Bash",
+      hooks: [
+        { type: "command", command: `'${launcher}' compact-memory-hook` },
+        { type: "command", command: `'${launcher}' compact-memory-hook` }
+      ]
+    }];
+    fs.writeFileSync(settingsPath, `${JSON.stringify(document, null, 2)}\n`);
+
+    const doctor = doctorClaudeCompactMemory({ env: item.env, launcher });
+    assert.deepEqual(doctor.missing, []);
+
+    const removed = uninstallClaudeCompactMemory({ env: item.env });
+    assert.equal(removed.changed, true);
+    const after = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(Object.hasOwn(after, "hooks"), false);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code compact memory doctor reports multi-handler managed groups instead of throwing", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const settingsPath = path.join(item.env.HOME, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, `${JSON.stringify({
+      hooks: {
+        SessionStart: [{
+          matcher: "^compact$",
+          hooks: [
+            { type: "command", command: `'${launcher}' compact-memory-hook` },
+            { type: "command", command: `'${launcher}' compact-memory-hook` }
+          ]
+        }]
+      }
+    }, null, 2)}\n`);
+
+    const doctor = doctorClaudeCompactMemory({ env: item.env, launcher });
+    assert.deepEqual(doctor.missing.sort(), ["PostToolUse", "SessionStart"]);
+    assert.equal(doctor.launcherUsable, true);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("compact memory hook handles Claude Code Bash stdout and SessionStart compact payloads", () => {
+  const item = fixture();
+  try {
+    const sticky = {
+      delivery_id: "dlv_claude",
+      subject: "claude task",
+      body: `Task body\n\n${STICKY_TASK_CONTEXT_MARKER}`
+    };
+    const recv = {
+      session_id: "claude-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "waypost recv --for workflow/coder --json" },
+      tool_response: {
+        stdout: JSON.stringify({ delivery: sticky }),
+        stderr: "",
+        interrupted: false,
+        isImage: false
+      }
+    };
+    assert.equal(handleHook(recv, { env: item.env }), null);
+    const failed = {
+      ...recv,
+      tool_response: {
+        stdout: JSON.stringify({ delivery: { ...sticky, delivery_id: "dlv_failed" } }),
+        stderr: "exit code 1",
+        returnCode: 1,
+        interrupted: false,
+        isImage: false
+      }
+    };
+    assert.equal(handleHook(failed, { env: item.env }), null);
+    const interrupted = {
+      ...recv,
+      tool_response: {
+        stdout: JSON.stringify({ delivery: { ...sticky, delivery_id: "dlv_interrupted" } }),
+        stderr: "",
+        interrupted: true,
+        isImage: false
+      }
+    };
+    assert.equal(handleHook(interrupted, { env: item.env }), null);
+    const skillGet = {
+      session_id: "claude-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "agentgear skill get handoff" },
+      tool_response: { stdout: "skill text", stderr: "", interrupted: false, isImage: false }
+    };
+    assert.equal(handleHook(skillGet, { env: item.env }), null);
+
+    const recovery = handleHook(
+      { session_id: "claude-session", hook_event_name: "SessionStart", source: "compact" },
+      { env: item.env }
+    );
+    assert.equal(recovery.hookSpecificOutput.hookEventName, "SessionStart");
+    assert.match(recovery.hookSpecificOutput.additionalContext, /dlv_claude/);
+    assert.doesNotMatch(recovery.hookSpecificOutput.additionalContext, /dlv_failed|dlv_interrupted/);
+    assert.match(recovery.hookSpecificOutput.additionalContext, /handoff/);
+    const startup = handleHook(
+      { session_id: "claude-session", hook_event_name: "SessionStart", source: "startup" },
+      { env: item.env }
+    );
+    assert.equal(startup, null);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }

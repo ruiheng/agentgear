@@ -114,7 +114,7 @@ agentgear action list
 ### Agent hooks
 
 Agentgear can install an optional set of user-level hooks for
-[Codex](https://learn.chatgpt.com/docs/hooks) and Devin CLI:
+[Codex](https://learn.chatgpt.com/docs/hooks), Claude Code, and Devin CLI:
 
 ~~~bash
 agentgear hooks install
@@ -123,7 +123,9 @@ agentgear hooks uninstall
 agentgear hooks install --target devin
 ~~~
 
-Codex hooks live in `~/.codex/hooks.json`; Devin hooks merge into the `hooks`
+Codex hooks live in `~/.codex/hooks.json`; Claude Code hooks merge into the
+`hooks` object of its user settings (`$CLAUDE_CONFIG_DIR/settings.json`,
+defaulting to `~/.claude/settings.json`); Devin hooks merge into the `hooks`
 object of Devin's user config (`$XDG_CONFIG_HOME/devin/config.json`, defaulting
 to `~/.config/devin/config.json`; `%APPDATA%/devin/config.json` on Windows).
 After installation, use `/hooks` in
@@ -266,7 +268,7 @@ initializer.
 | `permissions init/check` | Configure or verify workflow permissions for supported agent harnesses. |
 | `permissions preset` | List, copy, or add reusable development-stack permission presets. |
 | `session delete` | Delete a session through a stable host-neutral interface; Thurbox uses recoverable soft-delete. |
-| `hooks install/uninstall/doctor` | Install, remove, or diagnose Agentgear's optional Codex and Devin hooks. |
+| `hooks install/uninstall/doctor` | Install, remove, or diagnose Agentgear's optional Claude Code, Codex, and Devin hooks. |
 | `run` | Run a script bundled with an installed skill. |
 
 `agentgear session delete` normalizes host-specific deletion and failure

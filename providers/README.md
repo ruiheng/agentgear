@@ -17,9 +17,12 @@ discovery, schema validation, target selection, and transactional
 orchestration remain in `cli/lib/`; native paths, formats, and settings merge
 behavior stay here.
 
-`codex-compact-memory.mjs` and `devin-compact-memory.mjs` own the Codex- and
-Devin-native hooks paths, document shapes, managed-group merge, and platform
-launcher checks for Agentgear hook setup; `hook-json-file.mjs` holds the shared
-safe JSON document machinery. Devin's XDG config home resolution is shared
-with the workflow permission scripts in
+`claude-compact-memory.mjs`, `codex-compact-memory.mjs`, and
+`devin-compact-memory.mjs` own the Claude Code-, Codex-, and Devin-native hooks
+paths, document shapes, managed-group merge, and platform launcher checks for
+Agentgear hook setup; `hook-json-file.mjs` holds the shared safe JSON document
+machinery, and `managed-hook-command.mjs` holds the shared launcher command,
+ownership detection, and group merge used by hosts whose hook groups carry no
+description field. Devin's XDG config home resolution is shared with the
+workflow permission scripts in
 `skills/multi-agent-protocol/scripts/devin-paths.mjs`.

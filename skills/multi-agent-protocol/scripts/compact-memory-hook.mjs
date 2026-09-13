@@ -72,8 +72,9 @@ function parsedJson(value) {
 
 function responseFailed(response) {
   if (!isPlainObject(response)) return false;
-  if (response.isError === true || response.is_error === true || response.success === false) return true;
-  for (const field of ["exit_code", "exitCode"]) {
+  if (response.isError === true || response.is_error === true || response.success === false
+    || response.interrupted === true) return true;
+  for (const field of ["exit_code", "exitCode", "returnCode"]) {
     if (Number.isInteger(response[field]) && response[field] !== 0) return true;
   }
   return false;
@@ -83,7 +84,7 @@ function responseRoots(response) {
   if (responseFailed(response)) return [];
   const roots = [response];
   if (isPlainObject(response)) {
-    for (const field of ["structuredContent", "structured_content", "output"]) {
+    for (const field of ["structuredContent", "structured_content", "output", "stdout"]) {
       if (response[field] !== undefined) roots.push(response[field]);
     }
     if (Array.isArray(response.content)) {
