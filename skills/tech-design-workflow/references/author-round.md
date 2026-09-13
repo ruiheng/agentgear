@@ -110,13 +110,18 @@ measures cumulative additions from the baseline.
 `PRUNER_REQUIRED` means nothing was sent. Resolve or recover the lane's one
 `design_pruner`, then rerun with its session ID and address.
 
-Receipts and nudge outcomes are transport diagnostics. Within one invocation, a
-returned delivery id is final durable success and never causes another Waypost
-send. If its nudge failed or is unknown, the dispatcher checks that delivery and
-sends only the fixed session-host wake notice unless it is already leased or
-acknowledged. Failure to read delivery state does not block that one replay. Do
-not rerun the dispatcher to repair a nudge. After an unclear durable send,
-inspect Waypost before retrying.
+Receipts and nudge outcomes are transport diagnostics. The dispatcher sends each
+request in order and each notify step is slow, so a run can take about a minute;
+it reports `sending <stage>...` and `delivery_id=` on stderr as each send
+becomes durable. If the call returns while it is still running, keep polling
+that same session until it exits — never start a second invocation; re-running
+always sends again. Within one invocation, a returned delivery id is final
+durable success and never causes another Waypost send. If its nudge failed or is
+unknown, the dispatcher checks that delivery and sends only the fixed
+session-host wake notice unless it is already leased or acknowledged. Failure to
+read delivery state does not block that one replay. Do not rerun the dispatcher
+to repair a nudge. After an unclear durable send, inspect Waypost before
+retrying.
 
 ## Reports and Delivery
 

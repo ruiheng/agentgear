@@ -262,14 +262,15 @@ export function readDelegateBody(bodyFile, { stdinIsTTY = Boolean(process.stdin.
   }
 }
 
-async function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, message) {
+async function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, message, onReceipt) {
   const send = await sendMessage(message, {
     toAddress,
     fromAddress: options.fromAddress,
     subject,
     contentType: options.contentType,
     schemaVersion: options.schemaVersion,
-    sendTimeoutMs: options.sendTimeoutMs
+    sendTimeoutMs: options.sendTimeoutMs,
+    onReceipt
   });
   // spawnSync may report a timeout after Waypost persisted the send. Preserve
   // a receipt that was already written to stdout instead of discarding it.
@@ -429,7 +430,8 @@ export async function main(argv = process.argv.slice(2), { stdout = process.stdo
         lock.reviewer_subject = options.reviewerSubject;
       });
       stderr.write("sending reviewer...\n");
-      const reviewSent = await sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief));
+      const reviewSent = await sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief),
+        receipt => stderr.write(`reviewer delivery_id=${receipt.delivery_id} durable; notify pending\n`));
       if (reviewSent.status === "interrupted") {
         retainInterrupted("reviewer", reviewSent);
         fail("reviewer context send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");
@@ -452,7 +454,8 @@ export async function main(argv = process.argv.slice(2), { stdout = process.stdo
     }
 
     stderr.write("sending coder...\n");
-    const coderSent = await sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief));
+    const coderSent = await sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief),
+      receipt => stderr.write(`coder delivery_id=${receipt.delivery_id} durable; notify pending\n`));
     if (coderSent.status === "interrupted") {
       retainInterrupted("coder", coderSent);
       fail("coder send interrupted; delivery is unknown", 4, "SEND_INTERRUPTED");

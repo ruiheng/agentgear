@@ -147,7 +147,7 @@ export function run(command, args = [], { cwd, input, env, stdio = "pipe", timeo
   };
 }
 
-export function runWaypostSendStreaming(args, { cwd, input, env, timeoutMs = 0 } = {}) {
+export function runWaypostSendStreaming(args, { cwd, input, env, timeoutMs = 0, onReceipt } = {}) {
   return new Promise((resolve) => {
     const child = spawnCommandAsync("waypost", args, {
       cwd,
@@ -174,7 +174,14 @@ export function runWaypostSendStreaming(args, { cwd, input, env, timeoutMs = 0 }
         if (!line.trim()) continue;
         try {
           const payload = JSON.parse(line);
-          if (payload?.delivery_id) receiptPayload = payload;
+          if (payload?.delivery_id && !receiptPayload) {
+            receiptPayload = payload;
+            // The NDJSON receipt line is emitted before the potentially slow
+            // notify phase; surface it so callers can report durable progress.
+            if (typeof onReceipt === "function") {
+              try { onReceipt(payload); } catch {}
+            }
+          }
           if (receiptPayload?.delivery_id && payload?.notify_status) {
             finish({
               status: 0,

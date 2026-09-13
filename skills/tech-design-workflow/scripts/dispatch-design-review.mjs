@@ -331,7 +331,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       message: body,
       runCommand: dependencies.runWaypost,
       readDeliveryCommand: dependencies.runWaypostRead,
-      runNudgeCommand: dependencies.runNudge
+      runNudgeCommand: dependencies.runNudge,
+      stderr: dependencies.stderr || process.stderr
     });
   };
   const reviewer = options.prunerOnly ? null : await send(

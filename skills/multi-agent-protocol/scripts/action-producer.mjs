@@ -187,7 +187,8 @@ function sendDeclaredActionMessage(declaration, message, {
   contentType,
   schemaVersion,
   sendTimeoutMs = 0,
-  runCommand = run
+  runCommand = run,
+  onReceipt
 } = {}) {
   for (const [value, label] of [
     [toAddress, "Waypost Action destination"],
@@ -218,7 +219,7 @@ function sendDeclaredActionMessage(declaration, message, {
     "--ndjson"
   ];
   if (runCommand === run) {
-    return runWaypostSendStreaming(commandArgs, { input: actionMessageBody(message), timeoutMs: sendTimeoutMs });
+    return runWaypostSendStreaming(commandArgs, { input: actionMessageBody(message), timeoutMs: sendTimeoutMs, onReceipt });
   }
   return runCommand("waypost", commandArgs, { input: actionMessageBody(message), timeoutMs: sendTimeoutMs });
 }

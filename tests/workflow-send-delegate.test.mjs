@@ -297,7 +297,7 @@ test("required review sends one opaque task contract to reviewer then coder", as
     ));
     const records = fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
     assert.equal(records.length, 2);
-    assert.equal(progress, "sending reviewer...\nsending coder...\n");
+    assert.equal(progress, "sending reviewer...\nreviewer delivery_id=review-1 durable; notify pending\nsending coder...\ncoder delivery_id=coder-1 durable; notify pending\n");
     for (const [index, record] of records.entries()) {
       assert.deepEqual(record.args.slice(-2), ["--notify", "--ndjson"]);
       assert.deepEqual(

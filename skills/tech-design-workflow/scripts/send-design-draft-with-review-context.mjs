@@ -204,7 +204,7 @@ function authorBody(options) {
   );
 }
 
-export function sendWaypost(sendMessage, options, toAddress, subject, message, runCommand = run) {
+export function sendWaypost(sendMessage, options, toAddress, subject, message, runCommand = run, onReceipt) {
   const sent = sendMessage(message, {
     toAddress,
     fromAddress: options.fromAddress,
@@ -212,7 +212,8 @@ export function sendWaypost(sendMessage, options, toAddress, subject, message, r
     contentType: options.contentType,
     schemaVersion: options.schemaVersion,
     sendTimeoutMs: options.sendTimeoutMs,
-    runCommand
+    runCommand,
+    onReceipt
   });
   const processResult = (sent) => {
     if (sent.timedOut || sent.signal) {
@@ -328,10 +329,20 @@ export async function sendWaypostWithNudgeRetry({
   message,
   runCommand = run,
   readDeliveryCommand = run,
-  runNudgeCommand = run
+  runNudgeCommand = run,
+  stderr = process.stderr
 }) {
-  const sent = await sendWaypost(sender, sendOptions, toAddress, subject, message, runCommand);
+  stderr.write(`sending ${label}...\n`);
+  let receiptReported = false;
+  const reportReceipt = (deliveryId, suffix) => {
+    if (receiptReported || !deliveryId) return;
+    receiptReported = true;
+    stderr.write(`${label} delivery_id=${deliveryId} durable${suffix}\n`);
+  };
+  const sent = await sendWaypost(sender, sendOptions, toAddress, subject, message, runCommand,
+    receipt => reportReceipt(receipt?.delivery_id, "; notify pending"));
   if (sent.status !== "sent") failDelivery(label, sent);
+  reportReceipt(sent.receipt?.delivery_id, "");
   return retryNudge(sent, sessionHost, sessionId, readDeliveryCommand, runNudgeCommand);
 }
 
@@ -542,7 +553,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       message: body,
       runCommand: runWaypost,
       readDeliveryCommand: dependencies.runWaypostRead || run,
-      runNudgeCommand: dependencies.runNudge || run
+      runNudgeCommand: dependencies.runNudge || run,
+      stderr: dependencies.stderr || process.stderr
     });
   };
 
