@@ -42,10 +42,13 @@ Use `auto_restart = false` only for read-only inspection. An existing stopped
 target then returns `status = not_ready`; do not send work to it. A normal
 dispatch may require its returned exact id again with automatic restart.
 
-Generic creation always needs a same-host parent. It has no detached,
-parentless, group-placement, or startup-instruction form. An action that cannot
-name a portable parent must ask the user to create the direct session manually,
-then require it.
+Create workflow sessions only through `session_create`; never a host-specific
+create tool such as `agent_deck_create_session`, and never a startup
+instruction. The first durable delivery is the new session's bootstrap, so an
+injected instruction only makes it poll before work arrives. Generic creation
+always needs a same-host parent; it has no detached, parentless, or
+group-placement form. An action that cannot name a portable parent must ask
+the user to create the direct session manually, then require it.
 
 If creation rejects the recorded parent or child workdir, report that exact
 error. Do not inspect a host CLI or session inventory, and do not replace the
