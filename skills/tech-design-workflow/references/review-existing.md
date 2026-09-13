@@ -22,8 +22,11 @@ Send this target from the requester to the reviewer. On the first request,
 include the complete requester-authored Canonical Design Task Contract inline.
 On later rounds, include the previous reviewed commit and any User Decision
 Delta for a product or scope change. Round identifies the review request. The
-requester asks the user after round 5 and every 2 rounds thereafter. Continuing
-is workflow state, not a delta; retain the reviewer and history.
+requester asks the user only on non-convergence evidence — unresolved findings
+not shrinking across consecutive reviewed rounds, a reopened finding family, or
+a decision needing user authority — and on material blockers; routine revision
+continues without a user round-trip. Continuing is workflow state, not a delta;
+retain the reviewer and history.
 
 ```markdown
 Task: <task_id>

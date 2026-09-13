@@ -34,9 +34,10 @@ Use it for participant routes, the Canonical Contract, and session closeout.
 Round progress and reports remain in messages and artifacts.
 
 Only `review_checkpoint` changes; it gates the author's dispatch and is not
-review or prune input. After the user chooses to continue, the author advances
-it by `review_checkpoint_interval`. This does not change the contract or send a
-message.
+review or prune input. The author advances it by `review_checkpoint_interval`
+after recording convergence evidence in the round notes, or after the user
+chooses to continue a reported risk. This does not change the contract or send
+a message.
 
 ## Dynamic Work
 

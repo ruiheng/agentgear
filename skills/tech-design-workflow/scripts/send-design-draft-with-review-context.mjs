@@ -132,6 +132,10 @@ export function expectedArtifactPath(authorSessionId, round = 1) {
   );
 }
 
+export function expectedNotesPath(authorSessionId, round) {
+  return expectedArtifactPath(authorSessionId, round).replace(/\.md$/, ".notes.md");
+}
+
 export function requireSymlinkFreeContainedPath(root, candidate, label) {
   if (!pathIsInside(root, candidate)) fail(`${label} must be inside --workdir`);
   const relative = path.relative(root, candidate);

@@ -35,16 +35,32 @@ implementation is internally coherent.
 
 ## Decision Rules
 
-- `SOUND`: implementation-ready with no unresolved design findings or unapproved scope.
+Tag every finding `(blocking|advisory)`; for round 2 and later also
+`(regression|standing)`:
+
+- `blocking`: the design violates the Contract or a user decision, or leaves a
+  decision the spec must own — persisted shapes, wire/API contracts, ownership,
+  concurrency and rollback boundaries, migrations, acceptance evidence —
+  ambiguous enough that a coder could implement it wrong. A caveat the target
+  must record is blocking while absent.
+- `advisory`: improves the document without changing what a coder builds.
+- `regression`: this revision broke something the previous artifact had right.
+- `standing`: the gap predates this revision. On content unchanged across two
+  or more reviewed rounds, state the new evidence or why earlier review missed
+  it; a standing finding without that justification is weak.
+
+Decide:
+
+- `SOUND`: no blocking findings; implementation-ready with no unapproved scope.
+  Advisory findings may still be listed.
 - `SOUND_WITH_CAVEATS`: deliverable with only non-blocking caveats that are
   recorded verbatim as the same ordered list under `## Caveats` in the reviewed
   target and the review report.
-- `NEEDS_REVISION`: the design must change and receive another reviewed snapshot.
+- `NEEDS_REVISION`: at least one blocking finding; the design must change and
+  receive another reviewed snapshot.
 - `NEEDS_INPUT`: message-review input is incomplete, mismatched, or unreadable.
 
-Do not use `SOUND_WITH_CAVEATS` when a document revision is required. If a
-non-blocking caveat is absent from the target, return `NEEDS_REVISION` so the
-author can add it before acceptance. Resolve technical uncertainty from the
+Do not use `SOUND_WITH_CAVEATS` when a document revision is required. Resolve technical uncertainty from the
 repository and contract. When required user input genuinely blocks review, ask
 the user directly and wait for the answer before producing the report. Include
 the exact question and answer under User Decisions; do not emit a report with an

@@ -18,6 +18,7 @@ import {
 } from "./action-producers.mjs";
 import {
   expectedArtifactPath,
+  expectedNotesPath,
   readContract,
   requireSymlinkFreeContainedPath,
   sendWaypostWithNudgeRetry,
@@ -35,6 +36,11 @@ Required:
 
 Optional:
   --previous-artifact <workspace-relative-path>
+  --rationale-file <workspace-relative-path>
+                                  This round's rNNN.notes.md, carried in the
+                                  request body: finding dispositions, and at
+                                  checkpoint rounds the convergence assessment.
+                                  Required for round 2 and later
   --pruner-baseline-artifact <workspace-relative-path>
                                   Last artifact that received MINIMAL
   --major-structure-change      Mark a material structural change since that baseline
@@ -180,7 +186,7 @@ function resolvePruner(manifest, options, evidence) {
   return requirePruner(manifest, options, reason);
 }
 
-function reviewMessage(factory, manifest, options) {
+function reviewMessage(factory, manifest, options, body) {
   return factory({
     before: [{ name: "Task", value: manifest.task_id }],
     after: [
@@ -190,7 +196,7 @@ function reviewMessage(factory, manifest, options) {
       { name: "Context Revision", value: String(options.contextRevision) },
       { name: "Round", value: String(options.round) }
     ],
-    body: ""
+    body
   });
 }
 
@@ -199,7 +205,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     values: [
       "--lane-manifest", "--artifact", "--previous-artifact", "--pruner-baseline-artifact", "--round",
       "--context-revision", "--pruner-session-id", "--pruner-to-address",
-      "--content-type", "--schema-version", "--send-timeout-ms"
+      "--rationale-file", "--content-type", "--schema-version", "--send-timeout-ms"
     ],
     flags: ["--major-structure-change", "--pruner-only", "--json"],
     defaults: {
@@ -228,8 +234,9 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   validateManifest(manifest);
   if (options.round > manifest.review_checkpoint) {
     fail(
-      `round ${options.round} crosses the user checkpoint at ${manifest.review_checkpoint}; `
-        + `analyze and report structural risks and affected outcomes to the user, then stop, redirect, or continue and advance the checkpoint`,
+      `round ${options.round} crosses the review checkpoint at ${manifest.review_checkpoint}; `
+        + `run the tech-design-workflow/author-convergence assessment in the round notes, `
+        + `then advance the checkpoint on convergence evidence or report the structural risk to the user and stop`,
       3,
       "USER_CHECKPOINT_REQUIRED"
     );
@@ -279,6 +286,24 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const growth = baselineFile
     ? measureGrowth(fs.readFileSync(baselineFile, "utf8"), artifactSource)
     : { addedLines: 0, addedChars: 0 };
+
+  let rationale = "";
+  if (options.rationaleFile) {
+    if (options.round === 1) fail("--rationale-file is not valid for round 1");
+    const expectedRationale = expectedNotesPath(manifest.author_session_id, options.round);
+    if (options.rationaleFile !== expectedRationale) {
+      fail(`--rationale-file must equal ${expectedRationale}`);
+    }
+    const rationaleFile = resolveWorkspaceFile(workdir, options.rationaleFile, "--rationale-file");
+    rationale = fs.readFileSync(rationaleFile, "utf8").trim();
+    if (!rationale) fail("--rationale-file is empty");
+    const rationaleMetrics = measureDesign(rationale);
+    if (rationaleMetrics.lines > policy.maxLines || rationaleMetrics.chars > policy.maxChars) {
+      fail("--rationale-file exceeds the workflow policy limit");
+    }
+  } else if (options.round > 1) {
+    fail("--rationale-file is required for round 2 and later");
+  }
   const thresholdReached = metrics.lines >= policy.maxLines || metrics.chars >= policy.maxChars;
   const growthThresholdReached = Boolean(baselineFile)
     && (growth.addedLines >= policy.recheckAddedLines || growth.addedChars >= policy.recheckAddedChars);
@@ -314,7 +339,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     manifest.reviewer_session_id,
     manifest.reviewer_to_address,
     `design-spec review: ${manifest.task_id} r${options.round}`,
-    reviewMessage(designSpecReviewRequestedMessage, manifest, options),
+    reviewMessage(designSpecReviewRequestedMessage, manifest, options, rationale),
     "design review"
   );
   let prunerResult = null;
@@ -324,7 +349,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       pruner.sessionId,
       pruner.address,
       `design prune: ${manifest.task_id} r${options.round}`,
-      reviewMessage(designPruneRequestedMessage, manifest, options),
+      reviewMessage(designPruneRequestedMessage, manifest, options, rationale),
       "design prune"
     );
   }
@@ -332,6 +357,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     status: "sent",
     artifact: options.artifact,
     round: options.round,
+    rationale_file: options.rationaleFile || null,
     lines: metrics.lines,
     chars: metrics.chars,
     pruner_baseline_artifact: options.prunerBaselineArtifact || null,

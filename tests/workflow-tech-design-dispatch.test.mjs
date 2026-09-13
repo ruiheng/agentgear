@@ -9,6 +9,7 @@ import {
   DELIVERY_STATE_TIMEOUT_MS,
   NUDGE_MESSAGE,
   expectedArtifactPath,
+  expectedNotesPath,
   main as dispatchDraft,
   readContract,
   sendOutputFrom,
@@ -89,7 +90,14 @@ function writeArtifact(item, round, source) {
   const artifact = path.join(item.workdir, relative);
   fs.mkdirSync(path.dirname(artifact), { recursive: true });
   fs.writeFileSync(artifact, source);
+  if (round > 1) writeNotes(item, round);
   return { relative, artifact };
+}
+
+function writeNotes(item, round, source = "## Finding Dispositions\n- None\n") {
+  const relative = expectedNotesPath("author-1", round);
+  fs.writeFileSync(path.join(item.workdir, relative), source);
+  return relative;
 }
 
 function waypostReadState(state, records = []) {
@@ -150,11 +158,12 @@ function failedNudge(records) {
   };
 }
 
-function reviewArgs(item, round = 1) {
+function reviewArgs(item, round = 1, { notes = round > 1 } = {}) {
   return [
     "--lane-manifest", item.manifestRelative,
     "--artifact", expectedArtifactPath("author-1", round),
     ...(round > 1 ? ["--previous-artifact", expectedArtifactPath("author-1", round - 1)] : []),
+    ...(notes ? ["--rationale-file", expectedNotesPath("author-1", round)] : []),
     "--round", String(round),
     "--context-revision", "1",
     "--json"
@@ -1128,6 +1137,76 @@ test("review dispatch validates exact round, previous artifact, and contract rev
       loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
     }));
     assert.match(records[0].body, /^Previous Artifact: \.agent-artifacts\/design-spec\/author-1\/r001\.md$/m);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("review dispatch requires and binds the author rationale file", async () => {
+  const item = fixture();
+  try {
+    await createLane(item);
+    writeArtifact(item, 1, "# Round one\n");
+    writeArtifact(item, 2, "# Round two\n");
+    const notesRelative = expectedNotesPath("author-1", 2);
+    writeNotes(item, 2, "## Finding Dispositions\n- R1-001: rebut — contract evidence\n");
+
+    const records = [];
+    const summary = JSON.parse(await captureStdout(() => dispatchReview(reviewArgs(item, 2), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    })));
+    assert.equal(records.length, 1);
+    assert.match(records[0].body, /R1-001: rebut/);
+    assert.equal(summary.rationale_file, notesRelative);
+
+    await assert.rejects(dispatchReview(reviewArgs(item, 2, { notes: false }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), /required for round 2/);
+
+    await assert.rejects(dispatchReview([
+      ...reviewArgs(item),
+      "--rationale-file", expectedNotesPath("author-1", 1)
+    ], {
+      cwd: item.workdir,
+      requireCommand() {},
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), /not valid for round 1/);
+
+    for (const badPath of [
+      expectedNotesPath("author-1", 1),
+      ".agent-artifacts/design-spec/other-1/r002.notes.md",
+      "../outside.md"
+    ]) {
+      await assert.rejects(dispatchReview([
+        ...reviewArgs(item, 2, { notes: false }),
+        "--rationale-file", badPath
+      ], {
+        cwd: item.workdir,
+        requireCommand() {},
+        loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+      }), /--rationale-file must equal/);
+    }
+
+    writeNotes(item, 2, "   \n");
+    await assert.rejects(dispatchReview(reviewArgs(item, 2), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), /--rationale-file is empty/);
+
+    writeNotes(item, 2, "x ".repeat(100));
+    await assert.rejects(dispatchReview(reviewArgs(item, 2), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => ({ maxLines: 250, maxChars: 50 })
+    }), /exceeds the workflow policy limit/);
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }

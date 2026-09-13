@@ -14,28 +14,29 @@ existing artifact and retained conversation.
 
 ## Draft
 
-When the lane policy is unattended, continue from drafting through required
-review-report handling, revision, acceptance, and delivery in the same active
-workflow. Treat a draft or first review request as an intermediate artifact;
-do not pause for a progress report. Pause only when the Contract requires a
-user decision, a configured review checkpoint requires user direction, or a
-concrete blocker prevents the next authorized action.
+In an unattended lane, continue from drafting through report handling,
+revision, acceptance, and delivery in one workflow; a draft is an
+intermediate artifact, not a progress-report point. Pause only when the
+Contract requires a user decision, a checkpoint finds non-convergence, or a
+blocker prevents the next authorized action.
 
-For round 1, inspect the repository as needed. In later rounds, reread the
+For round 1, inspect the repository. In later rounds, reread the
 Canonical Contract and sketch the minimum architecture from repository evidence
 before reading the prior artifact or reports. Treat the prior design and
- reports as evidence, not authority or a patch list. Success means satisfying
- the user-authoritative Contract with an implementable design; reviewer and
- pruner approval is not a design objective.
+reports as evidence, not authority or a patch list. Success means satisfying
+the user-authoritative Contract with an implementable design; reviewer and
+pruner approval is not a design objective.
+
 Write the smallest complete, implementation-ready design at
 `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`.
 
-**IMMUTABILITY INVARIANT:** Once an `rNNN.md` snapshot has been dispatched,
+**IMMUTABILITY INVARIANT:** Once an `rNNN.md` snapshot is dispatched,
 committed, or included in a review request, it is immutable. Never edit,
 overwrite, append to, or reformat that path. Any revision, including a wording
 fix, must be written to the next numbered snapshot (`rNNN+1.md`) and the new
-snapshot must be dispatched as a separate artifact. Review reports and
-closeout must refer to the exact snapshot that was reviewed.
+snapshot must be dispatched as a separate artifact. Reports and closeout refer
+to the exact reviewed snapshot; the same holds for a dispatched
+`rNNN.notes.md`.
 
 Write for a coder who did not observe the workflow. Describe the current
 intended change and only the decisions, boundaries, and consequences material
@@ -44,42 +45,41 @@ to safe implementation. Include rationale only for non-obvious choices.
 The artifact is a specification, not drafting history. Omit review dialogue,
 question-and-answer transcripts, exploration notes, workflow metadata, and
 discarded ideas. Apply accepted requirements and design decisions where
-relevant; discard process details with no implementation value. Ask the user
-about an implementation-blocking choice; do not copy the discussion into the
-specification.
+relevant; discard process details with no implementation value.
 
 Resolve technical questions from evidence. If a product or scope choice blocks
-drafting, ask the user directly. Append the exact question and answer as a User
-Decision Delta and increment Context Revision before resuming. A dispatched
-round is review evidence; changes go into the next numbered snapshot.
+drafting, ask the user directly.
 
-Before revising, classify findings as local or structural and validate them
-against the Contract and repository. Re-baseline any invalid boundary,
-ownership model, data flow, lifecycle, or core assumption from the minimum
-architecture; do not patch around it. If reviewer and pruner findings conflict
-on a decision, or repeated fixes fail to converge, ask the user to choose before
-writing another snapshot. Record the exact answer as a User Decision Delta.
+Before dispatching a revision, write `rNNN.notes.md` next to the snapshot —
+one disposition per finding in the reports, `None` when there were none:
 
-If any feedback conflicts with a user requirement, non-goal, compatibility
-boundary, or core trade-off, ask the user rather than reconciling it yourself.
+- `accept`: valid under the Contract and repository evidence; apply it.
+  A structural finding re-baselines the invalid boundary, ownership model,
+  data flow, lifecycle, or core assumption from the minimum architecture;
+  never patch around it.
+- `rebut`: invalid or outweighed; state the evidence. Rebutted findings do not
+  drive the design; the dispatch carries the notes and the role concedes or
+  re-raises naming what the rebuttal did not answer.
+- `escalate`: only under a stop condition below; name it.
 
-After a checkpoint round is reviewed, do not create another artifact. Stop and
-report the suspected structural risk, its evidence, affected user outcome, and
-available directions to the user. Treat failure to deliver by the checkpoint as
-evidence of a structural problem unless you name evidence that rules out that
-specific risk and explains why the design is now deliverable. Ask the user to
-stop, redirect, or continue only after that analysis. If they continue, advance
-the checkpoint and resume the same lane:
+Stop conditions, in order — ask the user only after evidence fails:
 
-```bash
-agentgear run tech-design-workflow advance-design-review-checkpoint.mjs \
-  --workdir "<current workspace>" \
-  --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
-  --expected-current-checkpoint "<current checkpoint>" \
-  --json
-```
+1. A product, scope, or authority decision the Contract and repository cannot
+   answer — including one conflicting with a user requirement, non-goal,
+   compatibility boundary, or core trade-off.
+2. Reviewer and pruner demand contradictory resolutions of one decision with
+   no Contract-faithful intersection; report the intersection you tried or why
+   none exists, both positions, and the evidence.
+3. Measurable non-convergence: unresolved findings did not shrink across two
+   consecutive reviewed rounds, or a finding family recurred after an accepted
+   fix.
 
-Checkpoint continuation does not change the Canonical Contract or Context Revision.
+Record every exact user answer as a User Decision Delta and increment Context
+Revision before resuming.
+
+If the just-reviewed round reached `review_checkpoint`, first retrieve
+`agentgear skill get tech-design-workflow/author-convergence`; its convergence
+assessment goes into the next round's notes file before dispatch.
 
 ## Review Dispatch
 
@@ -90,19 +90,22 @@ agentgear run tech-design-workflow dispatch-design-review.mjs \
   --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
   --artifact ".agent-artifacts/design-spec/<author_session_id>/rNNN.md" \
   --previous-artifact ".agent-artifacts/design-spec/<author_session_id>/rMMM.md" \
+  --rationale-file ".agent-artifacts/design-spec/<author_session_id>/rNNN.notes.md" \
   --round "<round>" \
   --context-revision "<current contract revision>" \
   --json
 ```
 
-Omit `--previous-artifact` for round 1. After `MINIMAL`, pass that exact snapshot
+Omit `--previous-artifact` for round 1. From round 2 the dispatch requires
+`--rationale-file` — this round's own notes file — carrying your dispositions
+to each role. After `MINIMAL`, pass that exact snapshot
 as `--pruner-baseline-artifact` on later normal dispatches. Add
-`--major-structure-change` when the author judges that the revision materially
-reorganizes boundaries, ownership, data flow, rollout, or another defining
-structure. Local fixes and wording changes do not qualify. The dispatcher
+`--major-structure-change` when the revision materially reorganizes
+boundaries, ownership, data flow, rollout, or another defining structure;
+local fixes and wording changes do not qualify. The dispatcher
 measures cumulative additions from the baseline.
 
-`USER_CHECKPOINT_REQUIRED` means no request was sent; use the checkpoint flow above.
+`USER_CHECKPOINT_REQUIRED` means no request was sent; use `author-convergence`.
 
 `PRUNER_REQUIRED` means nothing was sent. Resolve or recover the lane's one
 `design_pruner`, then rerun with its session ID and address.
@@ -121,10 +124,11 @@ Authenticate reviewer and optional pruner reports by their actual transport
 endpoints, Task, Round, and artifact. Keep reports in their messages. Wait for
 both reports when a pruner was requested.
 
-Revise on `NEEDS_REVISION` or `NEEDS_SIMPLIFICATION`; use the direct-user flow
-above when a product or scope choice blocks revision. Apply reviewer-collected
-answers through `report-handling`. `MINIMAL` establishes the reviewed artifact
-as the next pruner baseline.
+Handle `NEEDS_REVISION`/`NEEDS_SIMPLIFICATION` through the dispositions above.
+`NEEDS_REVISION` must name a blocking finding; one naming none is contestable
+through the notes, not a defect to patch.
+Apply reviewer-collected answers through `report-handling`. `MINIMAL`
+establishes the reviewed artifact as the next pruner baseline.
 
 Deliver after correctness accepts the artifact and, unless policy is `never`,
 the enabled pruner has accepted that same artifact with `MINIMAL`. When an

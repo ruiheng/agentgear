@@ -12,7 +12,7 @@ import {
 } from "../../multi-agent-protocol/scripts/workflow-lib.mjs";
 import { requireSymlinkFreeContainedPath } from "./send-design-draft-with-review-context.mjs";
 
-const usage = `Advance a design lane's review checkpoint after the user chooses to continue.
+const usage = `Advance a design lane's review checkpoint after recorded convergence evidence or the user's continue decision.
 
 Required:
   --workdir <path>

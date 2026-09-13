@@ -26,7 +26,7 @@ For a new request, choose draft-review when no defensible committed specificatio
 - The requester starts the lane and delivers the result. The author drafts and revises; the reviewer independently assesses each dispatched snapshot.
 - Draft-review may add one `design_pruner` that only removes unnecessary design. `always` starts it immediately and ignores the initial size threshold; `auto` starts it at that threshold; `never` uses none.
 - The pruner is contract-first and adversarial: derive the minimum required structure independently before evaluating the artifact; author decomposition and rationale are proposals, not authority.
-- On every author revision, re-derive the minimum architecture before applying feedback. Conflicting findings or non-converging revisions require a user decision before another snapshot.
+- On every author revision, re-derive the minimum architecture before applying feedback. The author records a per-finding disposition — accept, rebut with evidence, or escalate — in a notes file riding the next dispatch. Escalate to the user only after evidence-based resolution fails: a scope or authority decision, contradictory role requirements with no Contract-faithful intersection, or measurable non-convergence.
 - Reviewer and pruner acceptance are review signals, not task goals; the author optimizes for the user-authoritative Contract.
 - With `auto` or `always`, recheck after `MINIMAL` only for author-declared major structural change or substantial cumulative growth. Delivery requires correctness and pruning acceptance for the artifact being delivered; minor fixes go only to the reviewer until one becomes the delivered artifact.
 - In draft-review, author, reviewer, and an enabled pruner are distinct sibling sessions. Lazy activation creates the pruner as another sibling before review dispatch.
@@ -36,7 +36,7 @@ For a new request, choose draft-review when no defensible committed specificatio
 - Store that contract once under `.agent-artifacts/message/` and reference it from `.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`. Keep the manifest and contract through closeout.
 - Store complete draft rounds under `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. A dispatched round is review evidence, so revisions use the next numbered snapshot.
 - Keep drafting read-only with respect to Git state and workspace ownership.
-- Review checkpoints are author-only risk signals. If the design is not deliverable at round 5 or a later checkpoint, the author must analyze and report the risk and affected outcome to the user before continuing. NEEDS_INPUT and same-snapshot review do not increment the round.
+- Review checkpoints are author-only convergence assessments. At each one the author records the unresolved-finding trend, reopened finding families, and unresolved role contradictions in the round notes. A converging lane self-advances and continues; a non-converging lane stops and reports the risk and affected outcome to the user. NEEDS_INPUT and same-snapshot review do not increment the round.
 - On round 2 and later, include the immediately preceding dispatched snapshot. Use diff-first evidence after that snapshot completed review; otherwise review the current artifact in full and use the diff for navigation.
 - Review from repository evidence and exact artifacts; use author summaries only for navigation.
 - Treat Waypost sends as fire-and-forget. Retry only while troubleshooting an unclear delivery.

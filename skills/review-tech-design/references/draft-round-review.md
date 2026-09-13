@@ -23,9 +23,14 @@ and scan the complete current artifact for consistency. Otherwise derive the
 review frame again and review the complete target independently. The diff is
 navigation, not inherited approval.
 
+A round 2 and later draft-round request carries author notes below the
+headers: per-finding dispositions (`accept`/`rebut`/`escalate`) and sometimes
+the author's convergence assessment. They are non-authoritative evidence that may focus
+attention but does not limit the review — concede a sound rebuttal, or
+re-raise the finding with the evidence the rebuttal did not answer.
+
 Expand scope when evidence justifies it, and record why. Ask the user directly
 and wait for the answer when required user input cannot be inferred; include the
 exact question and answer in the report. Return `NEEDS_INPUT` only when the
 review request or required artifact is missing, mismatched, or unreadable.
-Use stable finding IDs when helpful. A concise author rationale may focus
-attention but does not limit the independent review.
+Use stable finding IDs when helpful.

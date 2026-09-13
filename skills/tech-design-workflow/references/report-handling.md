@@ -37,7 +37,8 @@ material user decision or the explicit checkpoint/blocker rules below.
 - `NEEDS_INPUT`: correct missing or invalid review input. Resolve ordinary
   technical questions through evidence, findings, or revision;
 - `NEEDS_REVISION` / `NEEDS_SIMPLIFICATION`: after every requested role reports,
-  apply the author-round continuation gate before creating the next complete
+  record each finding's disposition in the next round's notes file, then apply
+  the author-round continuation rules before creating the next complete
   artifact.
 - `SOUND`: accept correctness only with no caveats;
 - `SOUND_WITH_CAVEATS`: require every caveat to appear verbatim and in order in
@@ -47,7 +48,9 @@ material user decision or the explicit checkpoint/blocker rules below.
   approval and does not override the author's Contract-based judgment.
 
 Wait for reviewer and pruner when both were requested. Resolve disagreements
-from evidence or ask the relevant role for another ordinary review.
+from evidence; a rebuttal rides the next dispatch's notes file so the role
+re-evaluates it. Escalate to the user only under `author-round`'s ordered stop
+conditions.
 
 For any draft report with `User Decisions`, append each exact question and
 answer to the Canonical Contract as a User Decision Delta and increment Context

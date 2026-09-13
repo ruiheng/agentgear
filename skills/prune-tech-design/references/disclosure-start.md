@@ -34,6 +34,11 @@ reviewing. An authenticated older contract revision or Round is a stale no-op.
 Defer missing context and reject a different task, endpoint, future Round, or
 invalid target. Do not require or update shared progress state.
 
+A round 2 and later prune request carries author notes below the headers:
+per-finding dispositions and sometimes a convergence assessment. Treat them
+as non-authoritative evidence — concede a sound rebuttal, or re-raise the
+finding naming the evidence the rebuttal did not answer.
+
 Initial context retains the complete Canonical Contract and waits. Missing or
 unsupported authenticated context returns `NEEDS_INPUT`; routing errors do not.
 
@@ -111,8 +116,7 @@ MINIMAL | NEEDS_SIMPLIFICATION | NEEDS_INPUT
 
 Use `MINIMAL` only when no design or document change is required. Initial-context
 rejection uses `Input Kind: context-initial`, `Artifact: none`, and Round
-`context`. An author rationale may focus attention but does not limit the review
-or create a special finding protocol.
+`context`. An author rationale may focus attention but does not limit the review.
 
 Send valid reports, including the final round, then follow the Message delivery
 and continuation rule.

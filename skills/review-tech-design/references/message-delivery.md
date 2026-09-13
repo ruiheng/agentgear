@@ -32,7 +32,7 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 - [Exact caveat copied from the reviewed target, or None]
 
 ## Findings
-- [Stable Finding ID: consequence and recommended direction, or None]
+- [Stable Finding ID (blocking|advisory[, regression|standing]): consequence and recommended direction, or None]
 
 ## User Decisions
 - [exact user-input question and answer, or None]
@@ -42,6 +42,9 @@ SOUND | SOUND_WITH_CAVEATS | NEEDS_REVISION | NEEDS_INPUT
 ```
 
 `User Decisions` records review-relevant product or scope answers.
+
+Tag each finding per `review-contract`. `NEEDS_REVISION` requires a blocking
+finding; advisory findings alone never force a new snapshot.
 
 Use `None` under Caveats for every decision except `SOUND_WITH_CAVEATS`.
 `SOUND_WITH_CAVEATS` requires at least one caveat, copied verbatim and in the
