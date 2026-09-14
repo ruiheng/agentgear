@@ -39,9 +39,10 @@ Optional:
                                   Required on a two-phase lane: structure
                                   rounds use sNNN.md and may include the
                                   pruner; implementation rounds use rNNN.md,
-                                  require the recorded structure document,
-                                  and never include the pruner. A single-phase
-                                  lane uses rNNN.md only.
+                                  require the recorded structure document, and
+                                  reach the pruner only through --pruner-only
+                                  as the post-acceptance delivery gate. A
+                                  single-phase lane uses rNNN.md only.
   --structure-doc <workspace-relative-path>
                                   Required for an implementation-phase dispatch:
                                   the accepted structure document recorded in
@@ -54,9 +55,13 @@ Optional:
                                   checkpoint rounds the convergence assessment.
                                   Required for round 2 and later
   --pruner-baseline-artifact <workspace-relative-path>
-                                  Last same-phase artifact that received MINIMAL
-  --major-structure-change      Mark a material structural change since that baseline
-  --pruner-only                 Send this artifact only to the pruner
+                                  Last same-phase artifact that received MINIMAL;
+                                  structure rounds only on a two-phase lane
+  --major-structure-change      Mark a material structural change since that baseline;
+                                  structure rounds only on a two-phase lane
+  --pruner-only                 Send this artifact only to the pruner; the only
+                                  pruner path on a two-phase implementation
+                                  dispatch, used as the delivery gate
   --pruner-session-id <id>      Supply the lazy pruner when this dispatch requires it
   --pruner-to-address <address> Supply the lazy pruner when this dispatch requires it
   --content-type <type>         Default: text/markdown
@@ -329,13 +334,16 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     if (options.previousArtifact !== expectedPrevious) fail(`--previous-artifact must equal ${expectedPrevious}`);
     resolveWorkspaceFile(workdir, options.previousArtifact, "previous artifact");
   }
-  const pruningApplies = !twoPhase || options.phase === "structure";
-  if (!pruningApplies) {
-    if (options.prunerOnly || options.prunerBaselineArtifact || options.majorStructureChange
-      || options.prunerSessionId || options.prunerToAddress) {
-      fail("implementation-phase dispatches never include the pruner; structure changes route through an sNNN amendment");
+  const implementationGateOnly = twoPhase && options.phase === "implementation";
+  if (implementationGateOnly) {
+    if (options.prunerBaselineArtifact || options.majorStructureChange) {
+      fail("implementation-phase pruning is a delivery gate; baseline and structural-change options apply to structure rounds only");
+    }
+    if (!options.prunerOnly && (options.prunerSessionId || options.prunerToAddress)) {
+      fail("implementation-phase pruner options require --pruner-only; ordinary implementation rounds go to the reviewer only");
     }
   }
+  const pruningApplies = !implementationGateOnly || options.prunerOnly;
   if (options.prunerOnly && (options.prunerBaselineArtifact || options.majorStructureChange)) {
     fail("--pruner-only cannot be combined with baseline or structural-change options");
   }

@@ -22,9 +22,9 @@ the initial size threshold; explicit `never` uses no pruner, including at
 delivery; otherwise use `auto` and create it lazily at that threshold. After
 `MINIMAL`, enabled policies recheck only for author-declared major structural
 change or configured cumulative growth. On a two-phase lane the pruner reviews
-only structure rounds. When enabled, delivery requires correctness and, for
-artifacts the pruner reviews, pruning acceptance for the artifact being
-delivered.
+structure rounds, then gates implementation delivery: an `rNNN` reaches it
+only after the reviewer accepts that artifact. When enabled, delivery requires
+correctness and pruning acceptance for the artifact being delivered.
 
 Resolve `architect_author`, `architect_reviewer`, and an explicitly enabled `design_pruner`
 through the shared Tool Resolution Contract with the target workdir. Keep launch

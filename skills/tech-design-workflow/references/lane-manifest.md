@@ -84,7 +84,7 @@ The dispatcher does not write workflow state. `auto` first prunes at
 `max_lines` or `max_chars`; `always` ignores that initial threshold. After
 `MINIMAL`, pass that same-phase snapshot as `--pruner-baseline-artifact`.
 Recheck only for `--major-structure-change` or cumulative growth reaching
-`recheck_added_lines` or `recheck_added_chars`. Final mode sends only to the
-pruner when a delivered structure artifact has not yet received pruning
-acceptance. `never` uses none. The pruner never sees implementation-phase
-`rNNN` rounds on a two-phase lane.
+`recheck_added_lines` or `recheck_added_chars`. `--pruner-only` sends only to
+the pruner when a delivery candidate has not yet received pruning
+acceptance — on a two-phase lane it is also the implementation gate, the only
+way the pruner sees an `rNNN` artifact. `never` uses none.

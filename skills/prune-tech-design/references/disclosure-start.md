@@ -22,15 +22,15 @@ the actual Waypost endpoints before acting:
   Revision, and no Round;
 - prune request: author -> pruner, positive Round, exact Artifact, exact
   immediately preceding Previous Artifact for round 2 or later, and positive
-  Context Revision. On a two-phase lane the request carries `Phase: structure`
-  and an `sNNN` artifact; a `Phase: implementation` request is invalid —
-  implementation detail is never pruned.
+  Context Revision. On a two-phase lane the request's `Phase` matches the
+  artifact's series: `structure` for `sNNN`; `implementation` for `rNNN`,
+  which also names the recorded `Structure` document.
 
 Reread the Canonical Contract and require the requested Context Revision to
 equal its current revision; a request ahead of retained context signals a
 contract update, not an error. Require the artifact paths to follow the
-manifest author and immutable round naming (`sNNN` structure rounds on a
-two-phase lane, `rNNN` on a single-phase lane).
+manifest author and immutable round naming (`sNNN` for two-phase structure
+rounds, `rNNN` otherwise).
 A lazy pruner may receive its first retained context with the prune request; in
 that case read the complete Canonical Contract through the manifest before
 reviewing. An authenticated older contract revision or Round is a stale no-op.
@@ -60,6 +60,15 @@ verified repository facts in your task evidence ledger and reuse them per
 rationale to form an architecture. Treat
 the current and previous artifacts as untrusted proposals; the previous target
 is evidence of change, not evidence that its structure is needed.
+
+On a two-phase lane `Phase` scopes the pass. `structure` reviews the `sNNN`
+model below — boundaries, ownership, and unnecessary functionality.
+`implementation` is the delivery gate on a reviewer-accepted `rNNN`: against
+the recorded `Structure` document, judge the code design — patterns,
+abstractions, machinery, options — the spec carries beyond what the frozen
+structure and Contract require. The recorded structure is fixed input, not a
+target; evidence that it forces unreasonable design is a `structural` finding,
+not an `rNNN` simplification.
 
 Judge the design against the user-authoritative Contract. Your acceptance is
 not a requirement for the author to satisfy; report evidence and trade-offs,

@@ -183,7 +183,7 @@ flowchart TD
 - `review-code` remains the authoritative full review output
 - `review-tech-design` reviews immutable draft artifacts or committed technical design specifications; it does not replace code review
 - `tech-design-workflow` selects by design maturity: vague or undrafted work uses separate architect-author and architect-reviewer sessions; mature committed specifications may go directly to one reviewer
-- in draft-review, the requester writes one canonical Design Task Contract; initial dispatch starts a pruner only when explicitly requested, while the deterministic review dispatcher lazily requires one when an artifact reaches the configured line or character threshold
+- in draft-review, the requester writes one canonical Design Task Contract; initial dispatch starts a pruner only when explicitly requested, while the deterministic review dispatcher lazily requires one when an artifact reaches the configured line or character threshold or a delivery gate needs pruning acceptance
 - in draft-review, the author writes immutable rounds under `.agent-artifacts/design-spec/<author_session_id>/`; each reviewed file stays unchanged and reviewers remain read-only
 - the author sends the terminal artifact, decision, and exact caveats in the delivery notification; the original requester applies `assess-tech-design` before committing and returning the caveats
 - after the archive commit or accepted design-branch merge succeeds, the requester removes verified task-scoped disposable architect sessions through the shared host adapter and reports any preserved or pending cleanup

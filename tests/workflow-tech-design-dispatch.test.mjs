@@ -1459,10 +1459,32 @@ test("structure rounds review sNNN with the pruner; implementation requires the 
     assert.equal(impl.pruner_requested, false);
     assert.equal(impl.phase, "implementation");
 
+    const gateRecords = [];
+    const gate = JSON.parse(await captureStdout(() => dispatchReview([
+      ...reviewArgs(item, 1, {
+        phase: "implementation",
+        structureDoc: expectedArtifactPath("author-1", 1, "structure")
+      }),
+      "--pruner-only"
+    ], {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(gateRecords),
+      loadPolicy: () => policy
+    })));
+    assert.deepEqual(gateRecords.map(record => actionFrom(record.body)), ["design_prune_requested"]);
+    assert.match(gateRecords[0].body, /^Phase: implementation$/m);
+    assert.match(gateRecords[0].body,
+      /^Structure: \.agent-artifacts\/design-spec\/author-1\/s001\.md$/m);
+    assert.equal(gate.reviewer_requested, false);
+    assert.equal(gate.pruner_requested, true);
+    assert.equal(gate.pruner_reason, "pruner-only dispatch");
+    assert.equal(gate.round, 1);
+
     for (const extra of [
-      ["--pruner-only"],
       ["--pruner-baseline-artifact", expectedArtifactPath("author-1", 1, "structure")],
-      ["--pruner-session-id", "pruner-2", "--pruner-to-address", "waypost/pruner-2"]
+      ["--major-structure-change"],
+      ["--pruner-only", "--pruner-baseline-artifact", expectedArtifactPath("author-1", 1, "structure")]
     ]) {
       await assert.rejects(dispatchReview([
         ...reviewArgs(item, 1, {
@@ -1475,8 +1497,20 @@ test("structure rounds review sNNN with the pruner; implementation requires the 
         requireCommand() {},
         runWaypost: successfulWaypost([]),
         loadPolicy: () => policy
-      }), /never include the pruner/);
+      }), /apply to structure rounds only/);
     }
+    await assert.rejects(dispatchReview([
+      ...reviewArgs(item, 1, {
+        phase: "implementation",
+        structureDoc: expectedArtifactPath("author-1", 1, "structure")
+      }),
+      "--pruner-session-id", "pruner-2", "--pruner-to-address", "waypost/pruner-2"
+    ], {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => policy
+    }), /require --pruner-only/);
 
     await assert.rejects(dispatchReview(reviewArgs(item, 1, {
       phase: "implementation",
@@ -1487,6 +1521,50 @@ test("structure rounds review sNNN with the pruner; implementation requires the 
       runWaypost: successfulWaypost([]),
       loadPolicy: () => policy
     }), /does not match the lane manifest/);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("an auto two-phase lane activates the lazy pruner at the implementation gate", async () => {
+  const item = fixture({ phases: "two" });
+  const policy = { maxLines: 250, maxChars: 20000 };
+  const s001 = expectedArtifactPath("author-1", 1, "structure");
+  try {
+    await createLane(item);
+    writeArtifact(item, 1, "# Structure\n", "structure");
+    await captureStdout(() => recordDesignStructure(recordArgs(item, ["--structure-doc", s001])));
+    writeArtifact(item, 1, "# Implementation\n", "implementation");
+
+    const blocked = [];
+    await assert.rejects(dispatchReview([
+      ...reviewArgs(item, 1, { phase: "implementation", structureDoc: s001 }),
+      "--pruner-only"
+    ], {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(blocked),
+      loadPolicy: () => policy
+    }), error => error.prefix === "PRUNER_REQUIRED" && error.exitCode === 3);
+    assert.deepEqual(blocked, []);
+
+    const records = [];
+    const gate = JSON.parse(await captureStdout(() => dispatchReview([
+      ...reviewArgs(item, 1, { phase: "implementation", structureDoc: s001 }),
+      "--pruner-only",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      loadPolicy: () => policy
+    })));
+    assert.deepEqual(records.map(record => actionFrom(record.body)), ["design_prune_requested"]);
+    assert.match(records[0].body, /^Phase: implementation$/m);
+    assert.match(records[0].body, /^Structure: \.agent-artifacts\/design-spec\/author-1\/s001\.md$/m);
+    assert.equal(gate.pruner_requested, true);
+    assert.equal(gate.reviewer_requested, false);
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }

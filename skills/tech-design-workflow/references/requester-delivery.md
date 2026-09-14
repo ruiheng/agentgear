@@ -18,9 +18,8 @@ On `design_spec_delivered`:
    Decision and ordered Caveats to the delivered artifact: `SOUND` uses
    `None`, while `SOUND_WITH_CAVEATS` requires the same nonempty ordered list
    verbatim under `## Caveats`. Require `Pruner Decision: MINIMAL` for
-   structure and single-phase deliveries unless policy is `never`; for
-   `never`, and for implementation deliveries on a two-phase lane, reject that
-   field. An implementation delivery also names `Structure:`; require it to
+   every delivery unless policy is `never`; for `never`, reject that field.
+   An implementation delivery also names `Structure:`; require it to
    equal the manifest's recorded `structure_doc`.
 3. Retrieve `agentgear skill get assess-tech-design` and actively assess the
    artifact against the original request, current Canonical Contract, accepted

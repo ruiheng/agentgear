@@ -123,8 +123,10 @@ exact snapshot as `--pruner-baseline-artifact` on later same-phase dispatches.
 Add `--major-structure-change` when the revision materially reorganizes
 boundaries, ownership, data flow, rollout, or another defining structure;
 local fixes and wording changes do not qualify. The dispatcher
-measures cumulative additions from the baseline. Implementation rounds never
-take pruner options: a structural concern rides `structure-amendment`.
+measures cumulative additions from the baseline. Baseline and
+structural-change options are structure-phase only: an `rNNN` dispatch goes
+to the reviewer alone, and the pruner enters through `author-delivery`'s
+post-acceptance gate. A structural concern rides `structure-amendment`.
 
 `USER_CHECKPOINT_REQUIRED` means no request was sent; use `author-convergence`.
 

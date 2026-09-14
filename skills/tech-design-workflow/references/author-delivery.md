@@ -5,12 +5,14 @@ selector-summary: Deliver an accepted technical design artifact to the requester
 
 # Author Delivery
 
-Deliver after correctness accepts the artifact and, for structure or
-single-phase artifacts with an enabled pruner, the pruner has accepted that
-same artifact with `MINIMAL`. When an accepted reviewer-only revision has no
-pruner report, request one for that snapshot with `--pruner-only` and the
-pruner identity, omitting baseline/structure options. It sends only to the
-pruner and keeps the round.
+Deliver after correctness accepts the artifact and, with an enabled pruner,
+the pruner has accepted that same artifact with `MINIMAL`. When an accepted
+artifact has no pruner report for that snapshot — every implementation
+artifact on a two-phase lane, where the pruner enters only as this
+post-acceptance gate — request one with `--pruner-only`, adding the pruner
+identity unless the manifest records it and omitting baseline and
+structural-change options. An implementation gate still names
+`--structure-doc`. It sends only to the pruner and keeps the round.
 
 Send to the manifest's requester address:
 
@@ -31,8 +33,7 @@ Decision: <SOUND | SOUND_WITH_CAVEATS>
 ```
 
 Use `None` for `SOUND`. Include `Phase` on a two-phase lane. Include `Pruner
-Decision` for structure and single-phase deliveries unless policy is `never`;
-implementation deliveries on a two-phase lane omit it. Include the lazy pruner
+Decision` for every delivery unless policy is `never`. Include the lazy pruner
 session ID only when the requester did not create it.
 
 A two-phase lane delivers twice. After the requester accepts the structure

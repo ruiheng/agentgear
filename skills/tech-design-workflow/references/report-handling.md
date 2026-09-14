@@ -31,7 +31,7 @@ Apply the report with ordinary agent judgment:
 The reviewed snapshot is immutable. Apply accepted changes only by creating the
 next numbered snapshot in the same series (`sNNN.md` or `rNNN.md`); never patch
 the reviewed file in place, even for a minor wording change. On a two-phase
-lane, a `structural` blocking finding on an implementation artifact — one the
+lane, a `structural` finding on an implementation artifact — one the
 recorded structure cannot accommodate — is not an `rNNN` revision: follow
 `author-round`'s structure amendment protocol.
 
