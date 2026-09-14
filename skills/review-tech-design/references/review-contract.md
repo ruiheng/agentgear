@@ -9,7 +9,7 @@ selector-summary: Apply the canonical authority, independence, decision, and rou
 
 - Treat the Design Task Contract and exact user answers in User Decision Deltas as authority.
 - Review whether the design serves that authority; reviewer agreement is not a goal and is never a substitute for user requirements.
-- Treat agent summaries, change summaries, and evidence conclusions as non-authoritative.
+- Treat other roles' summaries, change summaries, and evidence conclusions as non-authoritative; your own ledger facts stay verified per `multi-agent-protocol/evidence-ledger`.
 - Retain user context by task. Missing context is a completeness failure, not permission to infer.
 - Remain review-only. Do not edit a review target or reviewer-external state.
 - For draft-review, write reviewer state only under `.agent-artifacts/design-review/<reviewer_session_id>/<task_id>/`; the author must not write it.

@@ -18,14 +18,15 @@ For round 1, perform the full independent repository investigation needed to
 judge the target.
 
 For round 2 and later, require the message to name the existing immediately
-preceding immutable artifact. Read its ordinary diff to the current target. If
-your reports and evidence ledger show that you reviewed that snapshot under
-the same Context Revision and user decisions, map changes to prior findings,
-reuse unchanged ledger evidence per `multi-agent-protocol/evidence-ledger`,
-reinspect affected or contradictory source, and scan the complete current
-artifact for consistency. Otherwise derive the review frame again and review
-the complete target independently. The diff is navigation, not inherited
-approval.
+preceding immutable artifact. Read its ordinary diff to the current target.
+When you reviewed that snapshot under the same Context Revision and user
+decisions, your prior findings and verified ledger facts stand: map diff
+changes to them, reuse unchanged ledger evidence per
+`multi-agent-protocol/evidence-ledger`, reinspect affected or contradictory
+source, and scan the complete current artifact for consistency. Derive the
+review frame again and review the complete target independently only when
+authority changed or your records are missing. The diff is navigation, not
+approval: a prior Decision does not carry forward; your verified facts do.
 
 A round 2 and later draft-round request carries author notes below the
 headers: per-finding dispositions (`accept`/`rebut`/`escalate`) and sometimes
