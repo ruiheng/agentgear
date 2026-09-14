@@ -11,6 +11,9 @@ This session owns one planner lane.
 
 Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 ## Input
 
 Provide `execute_plan`, or a matching `integration_final` result plus plan context.

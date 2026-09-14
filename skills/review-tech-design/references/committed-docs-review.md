@@ -7,6 +7,9 @@ selector-summary: Review committed design documents at an exact recorded commit.
 
 Require base branch, design branch, exact reviewed commit, explicit docs in scope, and complete user context. Inspect the named documents at the stated commit; never silently review a moving worktree snapshot.
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 For round 1, independently inspect repository evidence needed to judge the committed specifications.
 
 For later rounds, require the previous reviewed commit and begin with a machine

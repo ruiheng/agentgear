@@ -26,6 +26,9 @@ Stay advisory and read-only. Leave edits, Git, archival, and workflow routing to
 
 ## Assessment
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 Assess only relevant areas:
 
 - core approach; whether goals/requirements are sound, appropriately scoped, or should be split

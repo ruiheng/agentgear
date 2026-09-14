@@ -47,6 +47,9 @@ unsupported authenticated context returns `NEEDS_INPUT`; routing errors do not.
 Ask: what can be removed from the design and document while the explicit goal
 and required behavior remain clear?
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 Start with an independent minimal model from the Canonical Contract and current
 repository facts: required outcomes, actors, state, and actual boundaries. Keep
 verified repository facts in your task evidence ledger and reuse them per

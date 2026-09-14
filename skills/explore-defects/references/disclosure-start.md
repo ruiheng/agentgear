@@ -7,6 +7,9 @@ selector-summary: Complete explore-defects instructions, part 1.
 
 Treat a known fact as a seed for a possible defect family. Find unseen instances; do not assume the task is to explain the original symptom or prove every lead.
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 ## Boundaries
 
 - Default read-only: do not change files, config, Git state, or external state.
@@ -52,6 +55,8 @@ Direction: <shared mechanism>
 Allowed scope: <approved non-sensitive paths/URIs or artifacts>
 History: <bounded revision range or none>
 Evidence cap: <N files/sites; N commits if history>
+
+Retrieve `agentgear skill get search-files` before locating files or code, and apply its ready-tool guidance.
 
 Find candidate instances or counter-signals; rank the lead.
 Read-only: do not change files, config, Git state, or external state.

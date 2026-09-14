@@ -12,6 +12,9 @@ This skill is advisory only.
 
 Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 ## Internal Collaborator Request
 
 When workflow orchestration needs a collaborator to perform the advisory review,

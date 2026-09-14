@@ -8,6 +8,9 @@ selector-aliases: action:design_spec_draft_requested
 
 Retrieve `agentgear skill get multi-agent-protocol/shared-protocol tech-design-workflow/lane-manifest`.
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 Authenticate the requester/author transport endpoints and Task against the lane
 manifest. Read the Canonical Contract. Duplicate work is recognizable from the
 existing artifact and retained conversation.

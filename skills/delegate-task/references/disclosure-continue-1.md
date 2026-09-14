@@ -15,6 +15,7 @@ reply sender; resolve `worker_session_id` from the current bound session.
 Then:
 
 - treat the body as the task contract and own local execution within it
+- retrieve `agentgear skill get search-files` before locating files or code across the workspace, and apply its ready-tool guidance
 - this action excludes repository/code-delivery mutation. If required, return it for `delegate-code-task`; do not edit code or Git delivery state under this contract
 - follow user steering within scope; report a material scope conflict to the requester
 - preserve the recorded workspace lifecycle in the terminal result

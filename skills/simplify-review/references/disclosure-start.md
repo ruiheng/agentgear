@@ -12,6 +12,9 @@ This skill is advisory only. Do not edit files, apply patches, or produce commit
 
 Workflow protocol baseline: retrieve `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protocol`.
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 ## Input
 
 Use one of:

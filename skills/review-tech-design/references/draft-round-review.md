@@ -9,6 +9,9 @@ Require one named complete `.agent-artifacts/design-spec/<author_session_id>/rNN
 target. Do not edit it or switch to a newer round. Use prior rounds only for
 comparison, never to supply missing specification content.
 
+Retrieve `agentgear skill get search-files` before locating files or code
+across the workspace, and apply its ready-tool guidance.
+
 ## Round Review Algorithm
 
 For round 1, perform the full independent repository investigation needed to
