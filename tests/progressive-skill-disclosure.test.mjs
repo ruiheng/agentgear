@@ -1091,7 +1091,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
     "abort_iteration", "browser_check_report", "browser_check_requested", "browser_setup_provided", "browser_setup_requested",
     "closeout_delivered", "code_delivery_complete", "code_health_review_report", "code_health_review_requested",
     "delegated_task_result", "design_prune_context", "design_prune_report", "design_prune_requested",
-    "design_spec_delivered", "design_spec_draft_requested",
+    "design_spec_delivered", "design_spec_delivery_rejected", "design_spec_draft_requested",
     "design_spec_review_context", "design_spec_review_context_rejected",
     "design_spec_review_report", "design_spec_review_requested", "design_task_context_revision",
     "execute_delegate_task", "execute_delegated_task", "execute_plan", "generic", "group_message_available",

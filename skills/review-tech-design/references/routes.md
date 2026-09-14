@@ -20,9 +20,13 @@ without opening the target:
 Draft-round has no Mode field. Authenticate Task and author -> reviewer
 transport endpoints against the manifest. Require schema 2, a positive Round,
 an artifact equal to
-`.agent-artifacts/design-spec/<author_session_id>/rNNN.md`, the immediately
-preceding artifact for later rounds, and a Context Revision equal to the current
-Canonical Contract before opening the target. Use retained conversation and
+`.agent-artifacts/design-spec/<author_session_id>/<sNNN|rNNN>.md`, the immediately
+preceding same-series artifact for later rounds, and a Context Revision equal
+to the current Canonical Contract before opening the target. On a lane whose
+manifest declares `design_phases: two`, also require `Phase` matching the
+artifact's series (`s` is `structure`, `r` is `implementation`); an
+implementation request must name `Structure` equal to the manifest's recorded
+`structure_doc`. Use retained conversation and
 artifact history to recognize an older or duplicate request. Defer missing
 authority; reject a different task, endpoint, or target.
 

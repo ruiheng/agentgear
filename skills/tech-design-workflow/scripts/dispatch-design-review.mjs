@@ -35,14 +35,26 @@ Required:
   --context-revision <positive-integer>
 
 Optional:
+  --phase <structure|implementation>
+                                  Required on a two-phase lane: structure
+                                  rounds use sNNN.md and may include the
+                                  pruner; implementation rounds use rNNN.md,
+                                  require the recorded structure document,
+                                  and never include the pruner. A single-phase
+                                  lane uses rNNN.md only.
+  --structure-doc <workspace-relative-path>
+                                  Required for an implementation-phase dispatch:
+                                  the accepted structure document recorded in
+                                  the lane manifest. Naming it forces the author
+                                  to acknowledge the current structural baseline.
   --previous-artifact <workspace-relative-path>
   --rationale-file <workspace-relative-path>
-                                  This round's rNNN.notes.md, carried in the
+                                  This round's sNNN/rNNN.notes.md, carried in the
                                   request body: finding dispositions, and at
                                   checkpoint rounds the convergence assessment.
                                   Required for round 2 and later
   --pruner-baseline-artifact <workspace-relative-path>
-                                  Last artifact that received MINIMAL
+                                  Last same-phase artifact that received MINIMAL
   --major-structure-change      Mark a material structural change since that baseline
   --pruner-only                 Send this artifact only to the pruner
   --pruner-session-id <id>      Supply the lazy pruner when this dispatch requires it
@@ -124,6 +136,29 @@ function validateManifest(manifest) {
   if (!["auto", "always", "never"].includes(manifest.pruner_policy)) {
     fail("lane manifest pruner_policy is invalid");
   }
+  if (manifest.design_phases !== undefined && !["two", "single"].includes(manifest.design_phases)) {
+    fail("lane manifest design_phases is invalid");
+  }
+  if (manifest.design_phases === "two") {
+    for (const field of ["structure_checkpoint", "initial_review_checkpoint"]) {
+      if (!Number.isInteger(manifest[field]) || manifest[field] <= 0) {
+        fail(`lane manifest ${field} is invalid`);
+      }
+    }
+    if (manifest.structure_doc !== undefined) {
+      plain(manifest.structure_doc, "lane manifest structure_doc");
+      const match = /^s([0-9]{3,})\.md$/.exec(path.posix.basename(manifest.structure_doc));
+      const prefix = path.posix.join(".agent-artifacts", "design-spec", manifest.author_session_id);
+      if (!match || path.posix.dirname(manifest.structure_doc) !== prefix) {
+        fail("lane manifest structure_doc is not an sNNN artifact of this author");
+      }
+    }
+    if (manifest.structure_amendment_pending !== undefined && manifest.structure_amendment_pending !== true) {
+      fail("lane manifest structure_amendment_pending is invalid");
+    }
+  } else if (manifest.structure_doc !== undefined || manifest.structure_amendment_pending !== undefined) {
+    fail("a single-phase lane manifest must not record structure state");
+  }
   const hasInitialPruner = Boolean(manifest.pruner_session_id || manifest.pruner_to_address);
   if (Boolean(manifest.pruner_session_id) !== Boolean(manifest.pruner_to_address)) {
     fail("lane manifest has an incomplete initial pruner identity");
@@ -191,7 +226,10 @@ function reviewMessage(factory, manifest, options, body) {
     before: [{ name: "Task", value: manifest.task_id }],
     after: [
       { name: "Lane Manifest", value: options.laneManifest },
+      ...(manifest.design_phases === "two" ? [{ name: "Phase", value: options.phase }] : []),
       { name: "Artifact", value: options.artifact },
+      ...(options.phase === "implementation" && manifest.structure_doc
+        ? [{ name: "Structure", value: manifest.structure_doc }] : []),
       ...(options.previousArtifact ? [{ name: "Previous Artifact", value: options.previousArtifact }] : []),
       { name: "Context Revision", value: String(options.contextRevision) },
       { name: "Round", value: String(options.round) }
@@ -205,7 +243,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     values: [
       "--lane-manifest", "--artifact", "--previous-artifact", "--pruner-baseline-artifact", "--round",
       "--context-revision", "--pruner-session-id", "--pruner-to-address",
-      "--rationale-file", "--content-type", "--schema-version", "--send-timeout-ms"
+      "--rationale-file", "--content-type", "--schema-version", "--send-timeout-ms", "--phase",
+      "--structure-doc"
     ],
     flags: ["--major-structure-change", "--pruner-only", "--json"],
     defaults: {
@@ -232,9 +271,48 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const manifestFile = resolveWorkspaceFile(workdir, options.laneManifest, "lane manifest");
   const manifest = readJson(manifestFile);
   validateManifest(manifest);
-  if (options.round > manifest.review_checkpoint) {
+
+  const twoPhase = manifest.design_phases === "two";
+  if (twoPhase) {
+    if (!options.phase) fail("--phase is required for a two-phase lane");
+    if (!["structure", "implementation"].includes(options.phase)) {
+      fail("--phase must be structure or implementation");
+    }
+    if (options.phase === "implementation") {
+      if (!manifest.structure_doc) {
+        fail(
+          "implementation dispatch requires an accepted structure document; "
+            + "record it with record-design-structure.mjs after the structure delivery is accepted"
+        );
+      }
+      if (manifest.structure_amendment_pending) {
+        fail(
+          "a structure amendment is in flight; implementation rounds wait until "
+            + "record-design-structure.mjs records the newly accepted structure document"
+        );
+      }
+      if (!options.structureDoc) {
+        fail("--structure-doc is required for an implementation-phase dispatch");
+      }
+      plain(options.structureDoc, "--structure-doc");
+      if (options.structureDoc !== manifest.structure_doc) {
+        fail("--structure-doc does not match the lane manifest's recorded structure document");
+      }
+    } else if (options.structureDoc) {
+      fail("--structure-doc is only valid for an implementation-phase dispatch");
+    }
+  } else {
+    if (options.phase && options.phase !== "implementation") {
+      fail("a single-phase lane uses only rNNN artifacts; --phase structure is not valid");
+    }
+    if (options.structureDoc) fail("--structure-doc is not valid for a single-phase lane");
+    options.phase = "implementation";
+  }
+
+  const reviewGate = options.phase === "structure" ? manifest.structure_checkpoint : manifest.review_checkpoint;
+  if (options.round > reviewGate) {
     fail(
-      `round ${options.round} crosses the review checkpoint at ${manifest.review_checkpoint}; `
+      `round ${options.round} crosses the ${options.phase} review checkpoint at ${reviewGate}; `
         + `run the tech-design-workflow/author-convergence assessment in the round notes, `
         + `then advance the checkpoint on convergence evidence or report the structural risk to the user and stop`,
       3,
@@ -242,14 +320,21 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     );
   }
 
-  const expectedArtifact = expectedArtifactPath(manifest.author_session_id, options.round);
+  const expectedArtifact = expectedArtifactPath(manifest.author_session_id, options.round, options.phase);
   if (options.artifact !== expectedArtifact) fail(`--artifact must equal ${expectedArtifact}`);
   const artifactFile = resolveWorkspaceFile(workdir, options.artifact, "artifact");
   if (options.round === 1 && options.previousArtifact) fail("--previous-artifact is not valid for round 1");
   if (options.round > 1) {
-    const expectedPrevious = expectedArtifactPath(manifest.author_session_id, options.round - 1);
+    const expectedPrevious = expectedArtifactPath(manifest.author_session_id, options.round - 1, options.phase);
     if (options.previousArtifact !== expectedPrevious) fail(`--previous-artifact must equal ${expectedPrevious}`);
     resolveWorkspaceFile(workdir, options.previousArtifact, "previous artifact");
+  }
+  const pruningApplies = !twoPhase || options.phase === "structure";
+  if (!pruningApplies) {
+    if (options.prunerOnly || options.prunerBaselineArtifact || options.majorStructureChange
+      || options.prunerSessionId || options.prunerToAddress) {
+      fail("implementation-phase dispatches never include the pruner; structure changes route through an sNNN amendment");
+    }
   }
   if (options.prunerOnly && (options.prunerBaselineArtifact || options.majorStructureChange)) {
     fail("--pruner-only cannot be combined with baseline or structural-change options");
@@ -259,12 +344,13 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   if (options.prunerBaselineArtifact) {
     if (manifest.pruner_policy === "never") fail("--pruner-baseline-artifact is not valid with never policy");
     const prefix = path.posix.join(".agent-artifacts", "design-spec", manifest.author_session_id);
-    const match = /^r([0-9]{3,})\.md$/.exec(path.posix.basename(options.prunerBaselineArtifact));
+    const letter = options.phase === "structure" ? "s" : "r";
+    const match = new RegExp(`^${letter}([0-9]{3,})\\.md$`).exec(path.posix.basename(options.prunerBaselineArtifact));
     const baselineRound = match ? Number(match[1]) : 0;
     if (path.posix.dirname(options.prunerBaselineArtifact) !== prefix
       || !baselineRound || baselineRound >= options.round
-      || options.prunerBaselineArtifact !== expectedArtifactPath(manifest.author_session_id, baselineRound)) {
-      fail("--pruner-baseline-artifact must be an earlier immutable artifact for this author");
+      || options.prunerBaselineArtifact !== expectedArtifactPath(manifest.author_session_id, baselineRound, options.phase)) {
+      fail("--pruner-baseline-artifact must be an earlier immutable same-phase artifact for this author");
     }
     baselineFile = resolveWorkspaceFile(workdir, options.prunerBaselineArtifact, "pruner baseline artifact");
   }
@@ -290,7 +376,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   let rationale = "";
   if (options.rationaleFile) {
     if (options.round === 1) fail("--rationale-file is not valid for round 1");
-    const expectedRationale = expectedNotesPath(manifest.author_session_id, options.round);
+    const expectedRationale = expectedNotesPath(manifest.author_session_id, options.round, options.phase);
     if (options.rationaleFile !== expectedRationale) {
       fail(`--rationale-file must equal ${expectedRationale}`);
     }
@@ -307,11 +393,11 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const thresholdReached = metrics.lines >= policy.maxLines || metrics.chars >= policy.maxChars;
   const growthThresholdReached = Boolean(baselineFile)
     && (growth.addedLines >= policy.recheckAddedLines || growth.addedChars >= policy.recheckAddedChars);
-  const pruner = resolvePruner(manifest, options, {
+  const pruner = pruningApplies ? resolvePruner(manifest, options, {
     thresholdReached,
     baselineArtifact: options.prunerBaselineArtifact,
     growthThresholdReached
-  });
+  }) : null;
 
   const sendOptions = {
     fromAddress: manifest.author_to_address,
@@ -335,11 +421,12 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       stderr: dependencies.stderr || process.stderr
     });
   };
+  const letter = options.phase === "structure" ? "s" : "r";
   const reviewer = options.prunerOnly ? null : await send(
     sendDesignSpecReviewRequestedMessage,
     manifest.reviewer_session_id,
     manifest.reviewer_to_address,
-    `design-spec review: ${manifest.task_id} r${options.round}`,
+    `design-spec review: ${manifest.task_id} ${letter}${options.round}`,
     reviewMessage(designSpecReviewRequestedMessage, manifest, options, rationale),
     "design review"
   );
@@ -349,7 +436,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       sendDesignPruneRequestedMessage,
       pruner.sessionId,
       pruner.address,
-      `design prune: ${manifest.task_id} r${options.round}`,
+      `design prune: ${manifest.task_id} ${letter}${options.round}`,
       reviewMessage(designPruneRequestedMessage, manifest, options, rationale),
       "design prune"
     );
@@ -357,6 +444,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const summary = {
     status: "sent",
     artifact: options.artifact,
+    phase: options.phase,
+    structure_doc: manifest.structure_doc || null,
     round: options.round,
     rationale_file: options.rationaleFile || null,
     lines: metrics.lines,
@@ -376,8 +465,8 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     ? ` pruner_delivery_id=${prunerResult.receipt.delivery_id} pruner_notify_status=${prunerResult.notification.status}`
     : "";
   const textSummary = options.prunerOnly
-    ? `Pruner-only dispatch: ${manifest.task_id} r${options.round}${prunerText}\n`
-    : `Design review dispatched: ${manifest.task_id} r${options.round} reviewer_delivery_id=${reviewer.receipt.delivery_id} reviewer_notify_status=${reviewer.notification.status}${prunerText}\n`;
+    ? `Pruner-only dispatch: ${manifest.task_id} ${letter}${options.round}${prunerText}\n`
+    : `Design review dispatched: ${manifest.task_id} ${letter}${options.round} reviewer_delivery_id=${reviewer.receipt.delivery_id} reviewer_notify_status=${reviewer.notification.status}${prunerText}\n`;
   process.stdout.write(options.json
     ? `${JSON.stringify(summary)}\n`
     : textSummary);

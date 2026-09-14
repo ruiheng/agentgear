@@ -22,18 +22,21 @@ import {
   measureGrowth
 } from "../skills/tech-design-workflow/scripts/dispatch-design-review.mjs";
 import { main as advanceReviewCheckpoint } from "../skills/tech-design-workflow/scripts/advance-design-review-checkpoint.mjs";
+import { main as recordDesignStructure } from "../skills/tech-design-workflow/scripts/record-design-structure.mjs";
 import {
   loadWorkflowPolicy,
   parseWorkflowPolicyToml
 } from "../skills/tech-design-workflow/scripts/workflow-policy.mjs";
 import { hasStickyTaskContextMarker } from "../skills/multi-agent-protocol/scripts/compact-memory-shared.mjs";
 
-function fixture() {
+function fixture({ phases = "single" } = {}) {
   const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-design-dispatch-"));
   const messageDir = path.join(workdir, ".agent-artifacts", "message");
   fs.mkdirSync(messageDir, { recursive: true });
   const contractFile = path.join(messageDir, "task.md");
-  fs.writeFileSync(contractFile, "Context Revision: 1\n\n## Original Request\nBuild it.\n");
+  fs.writeFileSync(contractFile, phases === "two"
+    ? "Context Revision: 1\nDesign Phases: structure → implementation\n\n## Original Request\nBuild it.\n"
+    : "Context Revision: 1\n\n## Original Request\nBuild it.\n");
   const manifestRelative = ".agent-artifacts/design-spec-dispatch/design-task.lock/lane.json";
   return {
     workdir,
@@ -53,6 +56,7 @@ function fixture() {
       "--author-to-address", "waypost/author-1",
       "--reviewer-to-address", "waypost/reviewer-1",
       "--contract-file", contractFile,
+      ...(phases === "single" ? ["--design-phases", "single"] : []),
       "--json"
     ]
   };
@@ -85,17 +89,17 @@ function successfulWaypost(records, hook) {
   };
 }
 
-function writeArtifact(item, round, source) {
-  const relative = expectedArtifactPath("author-1", round);
+function writeArtifact(item, round, source, phase = "implementation") {
+  const relative = expectedArtifactPath("author-1", round, phase);
   const artifact = path.join(item.workdir, relative);
   fs.mkdirSync(path.dirname(artifact), { recursive: true });
   fs.writeFileSync(artifact, source);
-  if (round > 1) writeNotes(item, round);
+  if (round > 1) writeNotes(item, round, undefined, phase);
   return { relative, artifact };
 }
 
-function writeNotes(item, round, source = "## Finding Dispositions\n- None\n") {
-  const relative = expectedNotesPath("author-1", round);
+function writeNotes(item, round, source = "## Finding Dispositions\n- None\n", phase = "implementation") {
+  const relative = expectedNotesPath("author-1", round, phase);
   fs.writeFileSync(path.join(item.workdir, relative), source);
   return relative;
 }
@@ -158,14 +162,26 @@ function failedNudge(records) {
   };
 }
 
-function reviewArgs(item, round = 1, { notes = round > 1 } = {}) {
+function reviewArgs(item, round = 1, { notes = round > 1, phase, structureDoc } = {}) {
+  const series = phase || "implementation";
   return [
     "--lane-manifest", item.manifestRelative,
-    "--artifact", expectedArtifactPath("author-1", round),
-    ...(round > 1 ? ["--previous-artifact", expectedArtifactPath("author-1", round - 1)] : []),
-    ...(notes ? ["--rationale-file", expectedNotesPath("author-1", round)] : []),
+    ...(phase ? ["--phase", phase] : []),
+    "--artifact", expectedArtifactPath("author-1", round, series),
+    ...(structureDoc ? ["--structure-doc", structureDoc] : []),
+    ...(round > 1 ? ["--previous-artifact", expectedArtifactPath("author-1", round - 1, series)] : []),
+    ...(notes ? ["--rationale-file", expectedNotesPath("author-1", round, series)] : []),
     "--round", String(round),
     "--context-revision", "1",
+    "--json"
+  ];
+}
+
+function recordArgs(item, extra) {
+  return [
+    "--workdir", item.workdir,
+    "--lane-manifest", item.manifestRelative,
+    ...extra,
     "--json"
   ];
 }
@@ -217,6 +233,7 @@ test("initial dispatch writes one stable manifest and notifies reviewer before a
     const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
     assert.equal(manifest.schema_version, 2);
     assert.equal(manifest.pruner_policy, "auto");
+    assert.equal(manifest.design_phases, "single");
     assert.equal(manifest.context_file, ".agent-artifacts/message/task.md");
     assert.equal(manifest.review_checkpoint, 5);
     assert.equal(manifest.review_checkpoint_interval, 2);
@@ -1306,5 +1323,474 @@ test("review dispatch rejects symlinked manifest and artifact parents", async ()
       fs.rmSync(item.workdir, { recursive: true, force: true });
       fs.rmSync(external, { recursive: true, force: true });
     }
+  }
+});
+
+test("a two-phase lane starts the author at s001 with the structure phase", async () => {
+  const item = fixture({ phases: "two" });
+  const records = [];
+  try {
+    await createLane(item, records);
+    assert.deepEqual(records.map(record => actionFrom(record.body)), [
+      "design_spec_review_context",
+      "design_spec_draft_requested"
+    ]);
+    const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
+    assert.equal(manifest.design_phases, "two");
+    assert.equal(manifest.structure_checkpoint, 5);
+    assert.equal(manifest.initial_review_checkpoint, 5);
+    assert.equal(manifest.review_checkpoint, 5);
+    assert.equal("structure_doc" in manifest, false);
+    assert.equal("structure_amendment_pending" in manifest, false);
+    const draft = records[1].body;
+    assert.match(draft, /^Artifact: \.agent-artifacts\/design-spec\/author-1\/s001\.md$/m);
+    assert.match(draft, /^Phase: structure$/m);
+    assert.match(draft, /^Round: 1$/m);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("two-phase is the default and requires the contract declaration", async () => {
+  const item = fixture();
+  try {
+    const args = item.args.filter((argument, index) =>
+      argument !== "--design-phases" && item.args[index - 1] !== "--design-phases");
+    await assert.rejects(dispatchDraft(args, {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }), /two-phase lane requires the contract to declare/);
+
+    fs.writeFileSync(item.contractFile,
+      "Context Revision: 1\nDesign Phases: single\n\n## Original Request\nBuild it.\n");
+    await assert.rejects(dispatchDraft(args, {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }), /two-phase lane requires the contract to declare/);
+    await assert.rejects(dispatchDraft([...args, "--design-phases", "two"], {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }), /two-phase lane requires the contract to declare/);
+    await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }));
+    assert.equal(JSON.parse(fs.readFileSync(item.manifestFile, "utf8")).design_phases, "single");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+
+  const mismatched = fixture({ phases: "two" });
+  try {
+    await assert.rejects(dispatchDraft([...mismatched.args, "--design-phases", "single"], {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }), /does not match --design-phases single/);
+  } finally {
+    fs.rmSync(mismatched.workdir, { recursive: true, force: true });
+  }
+});
+
+test("structure rounds review sNNN with the pruner; implementation requires the recorded structure", async () => {
+  const item = fixture({ phases: "two" });
+  const policy = { maxLines: 3, maxChars: 1000 };
+  try {
+    await captureStdout(() => dispatchDraft([
+      ...item.args,
+      "--pruner-policy", "always",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], { requireCommand() {}, runWaypost: successfulWaypost([]) }));
+
+    writeArtifact(item, 1, "# Structure\n\nBoundaries.\nOwnership.\nFlow.\n", "structure");
+    const structureRecords = [];
+    const structure = JSON.parse(await captureStdout(() => dispatchReview(
+      reviewArgs(item, 1, { phase: "structure" }),
+      {
+        cwd: item.workdir,
+        requireCommand() {},
+        runWaypost: successfulWaypost(structureRecords),
+        loadPolicy: () => policy
+      }
+    )));
+    assert.deepEqual(structureRecords.map(record => actionFrom(record.body)), [
+      "design_spec_review_requested", "design_prune_requested"
+    ]);
+    for (const record of structureRecords) {
+      assert.match(record.body, /^Phase: structure$/m);
+      assert.match(record.body, /^Artifact: \.agent-artifacts\/design-spec\/author-1\/s001\.md$/m);
+    }
+    assert.equal(structure.phase, "structure");
+
+    writeArtifact(item, 1, "# Implementation\n", "implementation");
+    await assert.rejects(dispatchReview(reviewArgs(item, 1, { phase: "implementation" }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => policy
+    }), /requires an accepted structure document/);
+
+    const recorded = JSON.parse(await captureStdout(() => recordDesignStructure(
+      recordArgs(item, ["--structure-doc", expectedArtifactPath("author-1", 1, "structure")])
+    )));
+    assert.equal(recorded.structure_doc, expectedArtifactPath("author-1", 1, "structure"));
+    assert.equal(JSON.parse(fs.readFileSync(item.manifestFile, "utf8")).structure_doc,
+      expectedArtifactPath("author-1", 1, "structure"));
+
+    await assert.rejects(dispatchReview(reviewArgs(item, 1, { phase: "implementation" }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => policy
+    }), /--structure-doc is required/);
+
+    const implRecords = [];
+    const impl = JSON.parse(await captureStdout(() => dispatchReview(
+      reviewArgs(item, 1, {
+        phase: "implementation",
+        structureDoc: expectedArtifactPath("author-1", 1, "structure")
+      }),
+      {
+        cwd: item.workdir,
+        requireCommand() {},
+        runWaypost: successfulWaypost(implRecords),
+        loadPolicy: () => policy
+      }
+    )));
+    assert.deepEqual(implRecords.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
+    assert.match(implRecords[0].body, /^Phase: implementation$/m);
+    assert.match(implRecords[0].body,
+      /^Structure: \.agent-artifacts\/design-spec\/author-1\/s001\.md$/m);
+    assert.equal(impl.pruner_requested, false);
+    assert.equal(impl.phase, "implementation");
+
+    for (const extra of [
+      ["--pruner-only"],
+      ["--pruner-baseline-artifact", expectedArtifactPath("author-1", 1, "structure")],
+      ["--pruner-session-id", "pruner-2", "--pruner-to-address", "waypost/pruner-2"]
+    ]) {
+      await assert.rejects(dispatchReview([
+        ...reviewArgs(item, 1, {
+          phase: "implementation",
+          structureDoc: expectedArtifactPath("author-1", 1, "structure")
+        }),
+        ...extra
+      ], {
+        cwd: item.workdir,
+        requireCommand() {},
+        runWaypost: successfulWaypost([]),
+        loadPolicy: () => policy
+      }), /never include the pruner/);
+    }
+
+    await assert.rejects(dispatchReview(reviewArgs(item, 1, {
+      phase: "implementation",
+      structureDoc: expectedArtifactPath("author-1", 2, "structure")
+    }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => policy
+    }), /does not match the lane manifest/);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("a structure amendment blocks implementation until the new structure is recorded", async () => {
+  const item = fixture({ phases: "two" });
+  const policy = { maxLines: 250, maxChars: 20000 };
+  const s001 = expectedArtifactPath("author-1", 1, "structure");
+  const s002 = expectedArtifactPath("author-1", 2, "structure");
+  try {
+    await createLane(item);
+    writeArtifact(item, 1, "# Structure v1\n", "structure");
+    await captureStdout(() => recordDesignStructure(recordArgs(item, ["--structure-doc", s001])));
+
+    writeArtifact(item, 1, "# Implementation v1\n", "implementation");
+    const implRecords = [];
+    await captureStdout(() => dispatchReview(
+      reviewArgs(item, 1, { phase: "implementation", structureDoc: s001 }),
+      {
+        cwd: item.workdir,
+        requireCommand() {},
+        runWaypost: successfulWaypost(implRecords),
+        loadPolicy: () => policy
+      }
+    ));
+    assert.deepEqual(implRecords.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
+
+    const opened = JSON.parse(await captureStdout(() => recordDesignStructure(
+      recordArgs(item, ["--open-amendment"])
+    )));
+    assert.equal(opened.structure_amendment_pending, true);
+
+    await assert.rejects(dispatchReview(
+      reviewArgs(item, 1, { phase: "implementation", structureDoc: s001 }),
+      {
+        cwd: item.workdir,
+        requireCommand() {},
+        runWaypost: successfulWaypost([]),
+        loadPolicy: () => policy
+      }
+    ), /amendment is in flight/);
+
+    writeArtifact(item, 2, "# Structure v2\n", "structure");
+    const amendmentRecords = [];
+    await captureStdout(() => dispatchReview(
+      reviewArgs(item, 2, { phase: "structure" }),
+      {
+        cwd: item.workdir,
+        requireCommand() {},
+        runWaypost: successfulWaypost(amendmentRecords),
+        loadPolicy: () => policy
+      }
+    ));
+    assert.deepEqual(amendmentRecords.map(record => actionFrom(record.body)), [
+      "design_spec_review_requested"
+    ]);
+    assert.match(amendmentRecords[0].body, /^Artifact: .*s002\.md$/m);
+
+    const recorded = JSON.parse(await captureStdout(() => recordDesignStructure(
+      recordArgs(item, ["--structure-doc", s002])
+    )));
+    assert.equal(recorded.structure_doc, s002);
+    assert.equal(recorded.structure_amendment_pending, false);
+    const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
+    assert.equal("structure_amendment_pending" in manifest, false);
+
+    writeArtifact(item, 2, "# Implementation v2\n", "implementation");
+    const resumed = JSON.parse(await captureStdout(() => dispatchReview(
+      reviewArgs(item, 2, { phase: "implementation", structureDoc: s002 }),
+      {
+        cwd: item.workdir,
+        requireCommand() {},
+        runWaypost: successfulWaypost([]),
+        loadPolicy: () => policy
+      }
+    )));
+    assert.equal(resumed.round, 2);
+    assert.equal(resumed.structure_doc, s002);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("record-design-structure validates phase, artifact, and direction", async () => {
+  const item = fixture({ phases: "two" });
+  const s001 = expectedArtifactPath("author-1", 1, "structure");
+  const s002 = expectedArtifactPath("author-1", 2, "structure");
+  try {
+    await createLane(item);
+    await assert.rejects(recordDesignStructure(recordArgs(item, ["--open-amendment"])),
+      /no structure document is recorded yet/);
+    await assert.rejects(recordDesignStructure(recordArgs(item, [])),
+      /exactly one of --structure-doc or --open-amendment/);
+    writeArtifact(item, 1, "# Structure v1\n", "structure");
+    writeArtifact(item, 2, "# Structure v2\n", "structure");
+    await assert.rejects(
+      recordDesignStructure(recordArgs(item, ["--structure-doc", expectedArtifactPath("author-1", 1)])),
+      /must be an sNNN\.md artifact/);
+    await assert.rejects(
+      recordDesignStructure(recordArgs(item, ["--structure-doc", ".agent-artifacts/design-spec/other-1/s001.md"])),
+      /must be an sNNN\.md artifact/);
+    await assert.rejects(
+      recordDesignStructure(recordArgs(item, ["--structure-doc", expectedArtifactPath("author-1", 3, "structure")])),
+      /is not a safe regular file/);
+    await captureStdout(() => recordDesignStructure(recordArgs(item, ["--structure-doc", s002])));
+    await assert.rejects(
+      recordDesignStructure(recordArgs(item, ["--structure-doc", s001])),
+      /must not move the accepted structure backwards/);
+    await captureStdout(() => recordDesignStructure(recordArgs(item, ["--open-amendment"])));
+    await captureStdout(() => recordDesignStructure(recordArgs(item, ["--structure-doc", s002])));
+    assert.equal("structure_amendment_pending" in JSON.parse(fs.readFileSync(item.manifestFile, "utf8")), false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+
+  const single = fixture();
+  try {
+    await createLane(single);
+    writeArtifact(single, 1, "# Design\n");
+    await assert.rejects(
+      recordDesignStructure(recordArgs(single, ["--structure-doc", expectedArtifactPath("author-1", 1)])),
+      /only valid for a two-phase lane/);
+  } finally {
+    fs.rmSync(single.workdir, { recursive: true, force: true });
+  }
+});
+
+test("two-phase checkpoints advance independently per series", async () => {
+  const item = fixture({ phases: "two" });
+  try {
+    await createLane(item);
+    await assert.rejects(advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--expected-current-checkpoint", "5"
+    ]), /--phase is required/);
+
+    writeArtifact(item, 5, "# Structure five\n", "structure");
+    writeArtifact(item, 6, "# Structure six\n", "structure");
+    const blocked = [];
+    await assert.rejects(dispatchReview(reviewArgs(item, 6, { phase: "structure" }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(blocked),
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), error => error.prefix === "USER_CHECKPOINT_REQUIRED");
+    assert.deepEqual(blocked, []);
+
+    await captureStdout(() => advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--phase", "structure",
+      "--expected-current-checkpoint", "5"
+    ]));
+    let manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
+    assert.equal(manifest.structure_checkpoint, 7);
+    assert.equal(manifest.review_checkpoint, 5);
+    await captureStdout(() => dispatchReview(reviewArgs(item, 6, { phase: "structure" }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }));
+
+    writeArtifact(item, 1, "# Structure\n", "structure");
+    await captureStdout(() => recordDesignStructure(
+      recordArgs(item, ["--structure-doc", expectedArtifactPath("author-1", 1, "structure")])
+    ));
+    writeArtifact(item, 5, "# Impl five\n", "implementation");
+    writeArtifact(item, 6, "# Impl six\n", "implementation");
+    await assert.rejects(dispatchReview(reviewArgs(item, 6, {
+      phase: "implementation",
+      structureDoc: expectedArtifactPath("author-1", 1, "structure")
+    }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), error => error.prefix === "USER_CHECKPOINT_REQUIRED");
+    await captureStdout(() => advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--phase", "implementation",
+      "--expected-current-checkpoint", "5"
+    ]));
+    manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
+    assert.equal(manifest.review_checkpoint, 7);
+    assert.equal(manifest.structure_checkpoint, 7);
+    await captureStdout(() => dispatchReview(reviewArgs(item, 6, {
+      phase: "implementation",
+      structureDoc: expectedArtifactPath("author-1", 1, "structure")
+    }), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }));
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("a legacy manifest without design_phases reruns as a single-phase lane", async () => {
+  const item = fixture();
+  try {
+    await createLane(item);
+    const manifest = JSON.parse(fs.readFileSync(item.manifestFile, "utf8"));
+    delete manifest.design_phases;
+    const legacy = `${JSON.stringify(manifest)}\n`;
+    fs.writeFileSync(item.manifestFile, legacy);
+    const args = item.args.filter((argument, index) =>
+      argument !== "--design-phases" && item.args[index - 1] !== "--design-phases");
+    const records = [];
+    await captureStdout(() => dispatchDraft(args, {
+      requireCommand() {}, runWaypost: successfulWaypost(records)
+    }));
+    assert.equal(fs.readFileSync(item.manifestFile, "utf8"), legacy);
+    const draft = records.at(-1);
+    assert.equal(actionFrom(draft.body), "design_spec_draft_requested");
+    assert.match(draft.body, /^Artifact: \.agent-artifacts\/design-spec\/author-1\/r001\.md$/m);
+    assert.doesNotMatch(draft.body, /^Phase:/m);
+    assert.equal(draft.args[draft.args.indexOf("--subject") + 1], "design-spec draft: design-task r1");
+    await assert.rejects(dispatchDraft([...args, "--design-phases", "two"], {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }), /different design_phases/);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("the design phases declaration requires the canonical structure-first order", async () => {
+  const item = fixture();
+  const args = item.args.filter((argument, index) =>
+    argument !== "--design-phases" && item.args[index - 1] !== "--design-phases");
+  try {
+    fs.writeFileSync(item.contractFile,
+      "Context Revision: 1\nDesign Phases: implementation → structure\n\n## Original Request\nBuild it.\n");
+    await assert.rejects(dispatchDraft(args, {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }), /two-phase lane requires the contract to declare/);
+    fs.writeFileSync(item.contractFile,
+      "Context Revision: 1\nDesign Phases: structure -> implementation\n\n## Original Request\nBuild it.\n");
+    await captureStdout(() => dispatchDraft(args, {
+      requireCommand() {}, runWaypost: successfulWaypost([])
+    }));
+    assert.equal(JSON.parse(fs.readFileSync(item.manifestFile, "utf8")).design_phases, "two");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("a structure checkpoint advance reports structure fields only", async () => {
+  const item = fixture({ phases: "two" });
+  try {
+    await createLane(item);
+    const structure = JSON.parse(await captureStdout(() => advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--phase", "structure",
+      "--expected-current-checkpoint", "5",
+      "--json"
+    ])));
+    assert.equal(structure.phase, "structure");
+    assert.equal(structure.previous_structure_checkpoint, 5);
+    assert.equal(structure.structure_checkpoint, 7);
+    assert.equal("review_checkpoint" in structure, false);
+    assert.equal("previous_review_checkpoint" in structure, false);
+    const implementation = JSON.parse(await captureStdout(() => advanceReviewCheckpoint([
+      "--workdir", item.workdir,
+      "--lane-manifest", item.manifestRelative,
+      "--phase", "implementation",
+      "--expected-current-checkpoint", "5",
+      "--json"
+    ])));
+    assert.equal(implementation.previous_review_checkpoint, 5);
+    assert.equal(implementation.review_checkpoint, 7);
+    assert.equal("structure_checkpoint" in implementation, false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("a single-phase prune request keeps the rNNN subject", async () => {
+  const item = fixture();
+  try {
+    await createLane(item);
+    writeArtifact(item, 1, "# Small design\n");
+    const records = [];
+    await captureStdout(() => dispatchReview([
+      ...reviewArgs(item),
+      "--pruner-only",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "waypost/pruner-1"
+    ], {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      loadPolicy: () => ({
+        maxLines: 250, maxChars: 20000, recheckAddedLines: 50, recheckAddedChars: 4000
+      })
+    }));
+    const prune = records.find(record => actionFrom(record.body) === "design_prune_requested");
+    assert.equal(prune.args[prune.args.indexOf("--subject") + 1], "design prune: design-task r1");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
   }
 });

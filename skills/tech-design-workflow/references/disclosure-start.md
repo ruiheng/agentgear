@@ -13,7 +13,7 @@ Use `agentgear skill get multi-agent-protocol multi-agent-protocol/shared-protoc
 - New review-existing lane: retrieve `agentgear skill get tech-design-workflow/review-existing`.
 - `design_spec_draft_requested`: retrieve `agentgear skill get tech-design-workflow/author-round`.
 - `design_task_context_revision`: retrieve `agentgear skill get tech-design-workflow/task-context-revision`.
-- `design_spec_review_report` or `design_prune_report`: retrieve `agentgear skill get tech-design-workflow/report-handling`.
+- `design_spec_review_report`, `design_prune_report`, or `design_spec_delivery_rejected`: retrieve `agentgear skill get tech-design-workflow/report-handling`.
 - `design_spec_review_context_rejected`: retrieve `agentgear skill get tech-design-workflow/context-correction`.
 - `design_spec_delivered`: retrieve `agentgear skill get tech-design-workflow/requester-delivery`.
 - After the accepted design is authoritative: retrieve `agentgear skill get tech-design-workflow/closeout`.
@@ -24,17 +24,20 @@ For a new request, choose draft-review when no defensible committed specificatio
 
 - The user owns task authority. Resolve technical questions from evidence. The blocked role asks the user directly. In draft-review, the author records exact answers; in review-existing, the requester records them.
 - The requester starts the lane and delivers the result. The author drafts and revises; the reviewer independently assesses each dispatched snapshot.
+- A lane declares `Design Phases:` in its contract. `two` (the default) reviews and delivers a structure specification (`sNNN.md`) first — boundaries, ownership, data flow, consumed interfaces — then reviews and delivers an implementation specification (`rNNN.md`) that elaborates the accepted structure into coder-facing detail. `single` keeps one `rNNN.md` series covering both.
+- The pruner reviews only structure: on a two-phase lane it sees `sNNN` rounds, never `rNNN` rounds. On a single-phase lane it sees `rNNN` rounds as before.
+- Implementation-phase evidence that the accepted structure is wrong rolls back through a structure amendment: the author opens the amendment, drafts the next `sNNN`, re-reviews and re-delivers structure, then resumes `rNNN` rounds against the new baseline. Prior `rNNN` snapshots stay immutable and are superseded, never patched.
 - Draft-review may add one `design_pruner` that only removes unnecessary design. `always` starts it immediately and ignores the initial size threshold; `auto` starts it at that threshold; `never` uses none.
 - The pruner is contract-first and adversarial: derive the minimum required structure independently before evaluating the artifact; author decomposition and rationale are proposals, not authority.
 - On every author revision, re-derive the minimum architecture before applying feedback. The author records a per-finding disposition — accept, rebut with evidence, or escalate — in a notes file riding the next dispatch. Escalate to the user only after evidence-based resolution fails: a scope or authority decision, contradictory role requirements with no Contract-faithful intersection, or measurable non-convergence.
 - Reviewer and pruner acceptance are review signals, not task goals; the author optimizes for the user-authoritative Contract.
-- With `auto` or `always`, recheck after `MINIMAL` only for author-declared major structural change or substantial cumulative growth. Delivery requires correctness and pruning acceptance for the artifact being delivered; minor fixes go only to the reviewer until one becomes the delivered artifact.
+- With `auto` or `always`, recheck after `MINIMAL` only for author-declared major structural change or substantial cumulative growth. Delivery requires correctness and, for artifacts the pruner reviews, pruning acceptance; minor fixes go only to the reviewer until one becomes the delivered artifact.
 - In draft-review, author, reviewer, and an enabled pruner are distinct sibling sessions. Lazy activation creates the pruner as another sibling before review dispatch.
-- The lane manifest holds compact lane metadata and the current review checkpoint. Participant routes stay stable.
+- The lane manifest holds compact lane metadata, the per-phase review checkpoints, and the recorded structure document. Participant routes stay stable.
 - The requester creates the Canonical Contract. After draft dispatch, the author maintains it. Reviewer and pruner remain read-only.
 - Preserve the original request or authoritative handoff verbatim in the Canonical Design Task Contract. Keep requester normalization separate.
 - Store that contract once under `.agent-artifacts/message/` and reference it from `.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`. Keep the manifest and contract through closeout.
-- Store complete draft rounds under `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. A dispatched round is review evidence, so revisions use the next numbered snapshot.
+- Store complete draft rounds under `.agent-artifacts/design-spec/<author_session_id>/` as `sNNN.md` (structure) or `rNNN.md` (implementation and single-phase). A dispatched round is review evidence, so revisions use the next numbered snapshot in the same series.
 - Each participant keeps a per-role evidence ledger under `.agent-artifacts/evidence/<task_id>/` per `multi-agent-protocol/evidence-ledger`: shared read, single-writer.
 - Keep drafting read-only with respect to Git state and workspace ownership.
 - Review checkpoints are author-only convergence assessments. At each one the author records the unresolved-finding trend, reopened finding families, and unresolved role contradictions in the round notes. A converging lane self-advances and continues; a non-converging lane stops and reports the risk and affected outcome to the user. NEEDS_INPUT and same-snapshot review do not increment the round.
@@ -48,6 +51,7 @@ Use this form and omit empty optional sections:
 
 ```markdown
 Context Revision: 1
+Design Phases: structure → implementation
 
 ## Original Request
 [Verbatim original wording, or authoritative handoff text and its source.]
@@ -68,6 +72,9 @@ Context Revision: 1
 [Requester emphasis; reviewers still assess the full goal.]
 ```
 
+`Design Phases: structure → implementation` selects the default two-phase lane;
+`Design Phases: single` — or `--design-phases single` with no declaration —
+keeps one artifact series.
 In draft-review, the author appends exact product or scope answers as User
 Decision Deltas and increments Context Revision. In review-existing, the
 requester does so. Treat the contract and exact answers as authority; the design

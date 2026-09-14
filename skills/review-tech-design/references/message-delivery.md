@@ -56,6 +56,7 @@ For draft-round, insert this after `Action`:
 ```markdown
 Lane Manifest: <workspace-relative lane manifest>
 Artifact: <reviewed artifact>
+Phase: <request's phase — two-phase lanes only>
 ```
 
 Draft-round resolves participant identity and contract path from the manifest,
@@ -66,7 +67,8 @@ rounds. Message reports use only their routed mode; direct-use sets
 `Mode: direct`. Never require draft-only state from committed-docs.
 
 Send the complete form to the request `sender_address` from the bound reviewer
-address, subject `design-spec review report: <task_id> r<round>`. Keep
+address, subject `design-spec review report: <task_id> <s|r><round>` matching
+the reviewed artifact's series. Keep
 `Action: design_spec_review_report` in the initial header. Draft-review's author
 records confirmed User Decision Deltas; committed-docs' requester records them.
 Record exact answers only. Follow the shared Message delivery and continuation rule.

@@ -11,12 +11,20 @@ Resolve requester identity from explicit input, then current session context. In
 
 Resolve archive branch from explicit input, or use the current branch when it is clearly the formal-doc landing branch. Ask when detached HEAD or ambiguity prevents a safe choice.
 
+Resolve `design_phases` once: the default `two` delivers an accepted structure
+specification (`sNNN.md`) before implementation rounds (`rNNN.md`) elaborate it
+into coder-facing detail; `single` keeps one `rNNN.md` series. Two-phase
+requires the contract declaration `Design Phases: structure → implementation`;
+`single` takes `Design Phases: single` or `--design-phases single` alone.
+
 Resolve `pruner_policy` once: explicit `always` creates the pruner now and skips
 the initial size threshold; explicit `never` uses no pruner, including at
 delivery; otherwise use `auto` and create it lazily at that threshold. After
 `MINIMAL`, enabled policies recheck only for author-declared major structural
-change or configured cumulative growth. When enabled, delivery requires
-correctness and pruning acceptance for the artifact being delivered.
+change or configured cumulative growth. On a two-phase lane the pruner reviews
+only structure rounds. When enabled, delivery requires correctness and, for
+artifacts the pruner reviews, pruning acceptance for the artifact being
+delivered.
 
 Resolve `architect_author`, `architect_reviewer`, and an explicitly enabled `design_pruner`
 through the shared Tool Resolution Contract with the target workdir. Keep launch
@@ -31,8 +39,9 @@ Resolve deterministic refs, defaulting to `architect-author-<task_id>`, `archite
 ## Contract and Dispatch
 
 Write one Canonical Design Task Contract under `.agent-artifacts/message/` with
-`Context Revision: 1`. After dispatch, the author records later product or scope
-answers at higher revisions. The wrapper creates the lane manifest at
+`Context Revision: 1` and the `Design Phases:` declaration. After dispatch, the
+author records later product or scope answers at higher revisions. The wrapper
+creates the lane manifest at
 `.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`.
 Preserve Original Request separately from requester normalization.
 
@@ -53,12 +62,15 @@ agentgear run tech-design-workflow send-design-draft-with-review-context.mjs \
   --author-to-address "<author address>" \
   --reviewer-to-address "<reviewer address>" \
   --pruner-policy "<auto|always|never>" \
+  --design-phases "<two|single>" \
   --contract-file "<canonical contract file>" \
   --json
 ```
 
 Policy `always` also supplies `--pruner-session-id` and `--pruner-to-address`;
-the other policies omit them.
+the other policies omit them. `--design-phases` must match the contract's
+`Design Phases:` declaration and defaults to `two` for a new lane; an existing
+lane keeps its recorded phases regardless of the flag default.
 
 Run with host permission. The wrapper writes the manifest, then sends reviewer
 and enabled-pruner context before notifying the author. Sends are sequential and

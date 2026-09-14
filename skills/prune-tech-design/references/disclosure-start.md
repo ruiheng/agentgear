@@ -22,12 +22,15 @@ the actual Waypost endpoints before acting:
   Revision, and no Round;
 - prune request: author -> pruner, positive Round, exact Artifact, exact
   immediately preceding Previous Artifact for round 2 or later, and positive
-  Context Revision.
+  Context Revision. On a two-phase lane the request carries `Phase: structure`
+  and an `sNNN` artifact; a `Phase: implementation` request is invalid —
+  implementation detail is never pruned.
 
 Reread the Canonical Contract and require the requested Context Revision to
 equal its current revision; a request ahead of retained context signals a
 contract update, not an error. Require the artifact paths to follow the
-manifest author and immutable round naming.
+manifest author and immutable round naming (`sNNN` structure rounds on a
+two-phase lane, `rNNN` on a single-phase lane).
 A lazy pruner may receive its first retained context with the prune request; in
 that case read the complete Canonical Contract through the manifest before
 reviewing. An authenticated older contract revision or Round is a stale no-op.
@@ -98,6 +101,7 @@ In message mode send the complete report to the inbound sender:
 Task: <task_id>
 Action: design_prune_report
 Lane Manifest: <workspace-relative lane manifest>
+Phase: <request's phase — two-phase lanes only>
 Input Kind: <prune-request | context-initial>
 Context Revision: <received revision>
 Round: <positive round | context>

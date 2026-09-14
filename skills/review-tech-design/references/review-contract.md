@@ -37,7 +37,8 @@ implementation is internally coherent.
 ## Decision Rules
 
 Tag every finding `(blocking|advisory)`; for round 2 and later also
-`(regression|standing)`:
+`(regression|standing)`; on an implementation-phase target a blocking finding
+may also be `(structural)`:
 
 - `blocking`: the design violates the Contract or a user decision, or leaves a
   decision the spec must own — persisted shapes, wire/API contracts, ownership,
@@ -49,6 +50,9 @@ Tag every finding `(blocking|advisory)`; for round 2 and later also
 - `standing`: the gap predates this revision. On content unchanged across two
   or more reviewed rounds, state the new evidence or why earlier review missed
   it; a standing finding without that justification is weak.
+- `structural`: on a two-phase implementation target, the finding cannot be
+  resolved within the recorded structure document — the fix is a structure
+  amendment, not an `rNNN` revision.
 
 Decide:
 

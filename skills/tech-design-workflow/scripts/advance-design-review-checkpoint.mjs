@@ -20,6 +20,12 @@ Required:
   --expected-current-checkpoint <positive-integer>
 
 Optional:
+  --phase <structure|implementation>
+                                  Required on a two-phase lane. 'structure'
+                                  advances structure_checkpoint (sNNN rounds);
+                                  'implementation' advances review_checkpoint
+                                  (rNNN rounds). A single-phase lane has only
+                                  review_checkpoint.
   --json
   -h, --help`;
 
@@ -43,7 +49,7 @@ function resolveManifest(workdir, relativePath) {
 
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const options = parseArgs(argv, {
-    values: ["--workdir", "--lane-manifest", "--expected-current-checkpoint"],
+    values: ["--workdir", "--lane-manifest", "--expected-current-checkpoint", "--phase"],
     flags: ["--json"],
     defaults: { json: false }
   });
@@ -72,23 +78,40 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     fail("lane manifest review_checkpoint_interval is invalid");
   }
 
+  let checkpointField = "review_checkpoint";
+  if (manifest.design_phases === "two") {
+    if (!options.phase) fail("--phase is required for a two-phase lane");
+    if (!["structure", "implementation"].includes(options.phase)) {
+      fail("--phase must be structure or implementation");
+    }
+    if (options.phase === "structure") {
+      checkpointField = "structure_checkpoint";
+      if (!Number.isInteger(manifest[checkpointField]) || manifest[checkpointField] <= 0) {
+        fail("lane manifest structure_checkpoint is invalid");
+      }
+    }
+  } else if (options.phase && options.phase !== "implementation") {
+    fail("a single-phase lane has only the implementation review_checkpoint");
+  }
+
   const expected = positiveInteger(options.expectedCurrentCheckpoint, "--expected-current-checkpoint");
-  if (manifest.review_checkpoint !== expected) {
-    fail("review checkpoint changed; reread the manifest before advancing it");
+  if (manifest[checkpointField] !== expected) {
+    fail(`${checkpointField} changed; reread the manifest before advancing it`);
   }
   const next = expected + manifest.review_checkpoint_interval;
 
-  manifest.review_checkpoint = next;
+  manifest[checkpointField] = next;
   (dependencies.writeJsonAtomic || writeJsonAtomic)(manifestFile, manifest);
   const summary = {
     status: "updated",
-    previous_review_checkpoint: expected,
-    review_checkpoint: next,
+    phase: options.phase || "implementation",
+    [`previous_${checkpointField}`]: expected,
+    [checkpointField]: next,
     review_checkpoint_interval: manifest.review_checkpoint_interval
   };
   process.stdout.write(options.json
     ? `${JSON.stringify(summary)}\n`
-    : `Design review checkpoint advanced: ${expected} -> ${next}\n`);
+    : `Design review checkpoint advanced (${checkpointField}): ${expected} -> ${next}\n`);
 }
 
 if (isMain(import.meta.url)) execute(main);

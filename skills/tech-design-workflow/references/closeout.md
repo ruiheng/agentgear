@@ -5,7 +5,7 @@ selector-summary: Close out an accepted technical-design workflow.
 
 # Design Workflow Closeout
 
-The requester that receives the terminal delivery or review report owns successful closeout. Run cleanup only after the accepted design is authoritative: after the archive commit for draft-review, or after the accepted design branch merge for review-existing. Never clean up while revision, decision, commit, merge, or conflict work remains.
+The requester that receives the terminal delivery or review report owns successful closeout. On a two-phase lane the terminal delivery is the implementation one; an accepted structure delivery only opens the implementation phase. Run cleanup only after the accepted design is authoritative: after the archive commit for draft-review — on a two-phase lane, both the recorded structure document and the accepted implementation document are committed — or after the accepted design branch merge for review-existing. Never clean up while revision, decision, commit, merge, or conflict work remains.
 
 Use exact recorded real IDs and the shared host-neutral cleanup entry point.
 

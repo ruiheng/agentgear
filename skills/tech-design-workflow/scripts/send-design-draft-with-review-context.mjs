@@ -42,6 +42,15 @@ Required:
 Optional:
   --pruner-policy <auto|always|never>
                                   Default: always with pruner args; auto otherwise
+  --design-phases <two|single>   Default: two for a new lane; an existing lane
+                                  keeps its recorded phases, and a manifest
+                                  written before this field existed is a
+                                  single-phase lane. A two-phase lane reviews
+                                  and delivers a structure specification
+                                  (sNNN.md) before implementation specification
+                                  rounds (rNNN.md); the contract must declare
+                                  'Design Phases: structure → implementation'.
+                                  'single' keeps one artifact series.
   --review-checkpoint-interval <positive-integer>  Default: 2
   --pruner-session-id <id>      Enable the pruner; requires --pruner-to-address
   --pruner-to-address <address> Enable the pruner; requires --pruner-session-id
@@ -125,15 +134,16 @@ function requireSinglePathSegment(value, label) {
   }
 }
 
-export function expectedArtifactPath(authorSessionId, round = 1) {
+export function expectedArtifactPath(authorSessionId, round = 1, phase = "implementation") {
+  const letter = phase === "structure" ? "s" : "r";
   return path.posix.join(
     ".agent-artifacts", "design-spec", authorSessionId,
-    `r${String(round).padStart(3, "0")}.md`
+    `${letter}${String(round).padStart(3, "0")}.md`
   );
 }
 
-export function expectedNotesPath(authorSessionId, round) {
-  return expectedArtifactPath(authorSessionId, round).replace(/\.md$/, ".notes.md");
+export function expectedNotesPath(authorSessionId, round, phase = "implementation") {
+  return expectedArtifactPath(authorSessionId, round, phase).replace(/\.md$/, ".notes.md");
 }
 
 export function requireSymlinkFreeContainedPath(root, candidate, label) {
@@ -193,13 +203,15 @@ function prunerBody(options) {
 }
 
 function authorBody(options) {
+  const twoPhase = options.designPhases === "two";
   return laneNotification(
     designSpecDraftRequestedMessage,
     [{ name: "Task", value: options.taskId }],
     [
       { name: "Lane Manifest", value: options.laneManifestFile },
-      { name: "Artifact", value: expectedArtifactPath(options.authorSessionId) },
-      { name: "Round", value: "1" }
+      { name: "Artifact", value: expectedArtifactPath(options.authorSessionId, 1, twoPhase ? "structure" : "implementation") },
+      { name: "Round", value: "1" },
+      ...(twoPhase ? [{ name: "Phase", value: "structure" }] : [])
     ]
   );
 }
@@ -406,6 +418,11 @@ function initialManifest(options) {
     session_host: options.sessionHost,
     context_file: options.contextFile,
     archive_branch: options.archiveBranch,
+    design_phases: options.designPhases,
+    ...(options.designPhases === "two" ? {
+      initial_review_checkpoint: options.reviewCheckpoint,
+      structure_checkpoint: options.reviewCheckpoint
+    } : {}),
     review_checkpoint: options.reviewCheckpoint,
     review_checkpoint_interval: options.reviewCheckpointInterval
   };
@@ -436,6 +453,9 @@ function validateOptions(options) {
   if (options.prunerPolicy === "auto" && options.prunerSessionId) {
     fail("--pruner-policy auto must defer pruner creation to review dispatch");
   }
+  if (options.designPhases && !["two", "single"].includes(options.designPhases)) {
+    fail("--design-phases must be two or single");
+  }
   const ids = [options.requesterSessionId, options.authorSessionId, options.reviewerSessionId];
   if (options.prunerSessionId) ids.push(options.prunerSessionId);
   if (new Set(ids).size !== ids.length) fail("requester, author, reviewer, and pruner session ids must be distinct");
@@ -455,12 +475,13 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       "--review-checkpoint", "--review-checkpoint-interval", "--archive-branch", "--from-address",
       "--author-to-address", "--reviewer-to-address", "--contract-file", "--artifact-root",
       "--pruner-policy", "--pruner-session-id", "--pruner-to-address", "--content-type", "--schema-version",
-      "--send-timeout-ms"
+      "--send-timeout-ms", "--design-phases"
     ],
     flags: ["--json"],
     defaults: {
       artifactRoot: "",
       contentType: "text/markdown",
+      designPhases: "",
       schemaVersion: "1",
       reviewCheckpointInterval: "2",
       sendTimeoutMs: String(DEFAULT_SEND_TIMEOUT_MS),
@@ -500,6 +521,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   options.contractFile = fs.realpathSync(options.contractFile);
   const contract = readContract(options.contractFile, fs.readFileSync, false);
   options.contextRevision = contract.revision;
+  const declaredPhases = /^Design Phases:[ \t]*([^\r\n]+)$/m.exec(contract.contract)?.[1].trim();
   const messageRoot = path.join(options.workdir, ".agent-artifacts", "message");
   if (!pathIsInside(messageRoot, options.contractFile)) fail("--contract-file must be under <workdir>/.agent-artifacts/message/");
   options.contextFile = path.relative(options.workdir, options.contractFile).split(path.sep).join(path.posix.sep);
@@ -524,11 +546,31 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   options.laneManifestFile = path.relative(options.workdir, manifestFile).split(path.sep).join(path.posix.sep);
   if (/[\r\n]/.test(options.laneManifestFile)) fail("--artifact-root path must not contain CR or LF");
   const existing = fs.lstatSync(laneDir, { throwIfNoEntry: false });
+  let existingManifest = null;
   if (existing) {
     requireSymlinkFreeContainedPath(options.workdir, laneDir, "design lane directory");
     const manifestInfo = fs.lstatSync(manifestFile, { throwIfNoEntry: false });
     if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) fail(`unsafe design lane manifest: ${manifestFile}`);
-    validateExistingManifest(readJson(manifestFile), options);
+    existingManifest = readJson(manifestFile);
+    // An existing lane keeps its recorded phases; a manifest written before
+    // design_phases existed is a single-phase lane.
+    const recordedPhases = stringField(existingManifest, "design_phases") || "single";
+    if (options.designPhases && options.designPhases !== recordedPhases) {
+      fail("existing design lane manifest has a different design_phases");
+    }
+    options.designPhases = recordedPhases;
+  } else {
+    options.designPhases = options.designPhases || "two";
+  }
+  if (options.designPhases === "two"
+    && !/^structure\s*(?:→|->)\s*implementation$/i.test(declaredPhases || "")) {
+    fail("a two-phase lane requires the contract to declare `Design Phases: structure → implementation`");
+  }
+  if (options.designPhases === "single" && declaredPhases && !/^single$/i.test(declaredPhases)) {
+    fail("the contract's `Design Phases:` declaration does not match --design-phases single");
+  }
+  if (existing) {
+    validateExistingManifest(existingManifest, options);
   } else {
     if (contract.revision !== 1) fail("a new design lane requires Context Revision: 1");
     fs.mkdirSync(laneDir, { recursive: false });
@@ -582,7 +624,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     sendDesignSpecDraftRequestedMessage,
     options.authorSessionId,
     options.authorToAddress,
-    `design-spec draft: ${options.taskId} r1`,
+    `design-spec draft: ${options.taskId} ${options.designPhases === "two" ? "s" : "r"}1`,
     authorBody(options),
     "author draft"
   );

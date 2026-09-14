@@ -8,7 +8,10 @@ selector-summary: Complete assess-tech-design instructions, part 1.
 Start from the original problem; assess the current technical design specification against the latest accepted goals, constraints, and decisions—not the drafting history.
 
 Use this assessment for an explicit standalone request or as the mandatory final
-requester gate after `tech-design-workflow` delivers an accepted artifact. In the
+requester gate after `tech-design-workflow` delivers an accepted artifact. A
+two-phase lane gates twice: assess the structure specification for minimal
+complete structure and lane boundary discipline, then assess the implementation
+specification for coder-facing completeness inside the recorded structure. In the
 workflow gate, remain advisory and return material concerns to the caller; the
 requester owns routing, archival, and closeout.
 
