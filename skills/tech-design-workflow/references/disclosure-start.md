@@ -35,6 +35,7 @@ For a new request, choose draft-review when no defensible committed specificatio
 - Preserve the original request or authoritative handoff verbatim in the Canonical Design Task Contract. Keep requester normalization separate.
 - Store that contract once under `.agent-artifacts/message/` and reference it from `.agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json`. Keep the manifest and contract through closeout.
 - Store complete draft rounds under `.agent-artifacts/design-spec/<author_session_id>/rNNN.md`. A dispatched round is review evidence, so revisions use the next numbered snapshot.
+- Each participant keeps a per-role evidence ledger under `.agent-artifacts/evidence/<task_id>/` per `multi-agent-protocol/evidence-ledger`: shared read, single-writer.
 - Keep drafting read-only with respect to Git state and workspace ownership.
 - Review checkpoints are author-only convergence assessments. At each one the author records the unresolved-finding trend, reopened finding families, and unresolved role contradictions in the round notes. A converging lane self-advances and continues; a non-converging lane stops and reports the risk and affected outcome to the user. NEEDS_INPUT and same-snapshot review do not increment the round.
 - On round 2 and later, include the immediately preceding dispatched snapshot. Use diff-first evidence after that snapshot completed review; otherwise review the current artifact in full and use the diff for navigation.

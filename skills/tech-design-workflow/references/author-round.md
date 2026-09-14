@@ -22,7 +22,9 @@ blocker prevents the next authorized action.
 
 For round 1, inspect the repository. In later rounds, reread the
 Canonical Contract and sketch the minimum architecture from repository evidence
-before reading the prior artifact or reports. Treat the prior design and
+before reading the prior artifact or reports. Keep verified repository facts in
+your task evidence ledger and reuse them per
+`multi-agent-protocol/evidence-ledger`. Treat the prior design and
 reports as evidence, not authority or a patch list. Success means satisfying
 the user-authoritative Contract with an implementable design; reviewer and
 pruner approval is not a design objective.

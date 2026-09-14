@@ -16,12 +16,13 @@ judge the target.
 
 For round 2 and later, require the message to name the existing immediately
 preceding immutable artifact. Read its ordinary diff to the current target. If
-your retained conversation and reports show that you reviewed that snapshot
-under the same Context Revision and user decisions, map changes to prior
-findings, reuse unchanged evidence, reinspect affected or contradictory source,
-and scan the complete current artifact for consistency. Otherwise derive the
-review frame again and review the complete target independently. The diff is
-navigation, not inherited approval.
+your reports and evidence ledger show that you reviewed that snapshot under
+the same Context Revision and user decisions, map changes to prior findings,
+reuse unchanged ledger evidence per `multi-agent-protocol/evidence-ledger`,
+reinspect affected or contradictory source, and scan the complete current
+artifact for consistency. Otherwise derive the review frame again and review
+the complete target independently. The diff is navigation, not inherited
+approval.
 
 A round 2 and later draft-round request carries author notes below the
 headers: per-finding dispositions (`accept`/`rebut`/`escalate`) and sometimes

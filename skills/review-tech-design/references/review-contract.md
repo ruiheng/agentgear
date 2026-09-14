@@ -13,6 +13,7 @@ selector-summary: Apply the canonical authority, independence, decision, and rou
 - Retain user context by task. Missing context is a completeness failure, not permission to infer.
 - Remain review-only. Do not edit a review target or reviewer-external state.
 - For draft-review, write reviewer state only under `.agent-artifacts/design-review/<reviewer_session_id>/<task_id>/`; the author must not write it.
+- Record verified repository facts in your task evidence ledger per `multi-agent-protocol/evidence-ledger`; facts held only in conversation do not survive context compaction.
 - Require a readable, self-contained target. A complete current target remains mandatory even when later-round review starts from a diff.
 - Require a coder-facing specification of the current intended change, not a
   record of drafting, review, questions, or exploration. Require accepted

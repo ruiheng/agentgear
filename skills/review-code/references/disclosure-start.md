@@ -78,6 +78,10 @@ Before enumerating issues, build a short frame:
 - invariants and existing behavior that must remain stable
 - declared non-goals or out-of-scope areas
 
+Record the frame's verified repository facts in your task evidence ledger per
+`multi-agent-protocol/evidence-ledger`; on later rounds reuse unchanged entries
+and reinspect only what the new commits touch.
+
 Before listing findings, assess whether the overall approach is coherent and converging. When multiple defects share a cause or fixes only move symptoms, report the root design issue instead of another set of local fixes.
 
 Use this frame to filter findings.

@@ -48,8 +48,10 @@ Ask: what can be removed from the design and document while the explicit goal
 and required behavior remain clear?
 
 Start with an independent minimal model from the Canonical Contract and current
-repository facts: required outcomes, actors, state, and actual boundaries. Do
-this before using the target or its rationale to form an architecture. Treat
+repository facts: required outcomes, actors, state, and actual boundaries. Keep
+verified repository facts in your task evidence ledger and reuse them per
+`multi-agent-protocol/evidence-ledger`. Do this before using the target or its
+rationale to form an architecture. Treat
 the current and previous artifacts as untrusted proposals; the previous target
 is evidence of change, not evidence that its structure is needed.
 
