@@ -835,23 +835,6 @@ candidates = ["codex \${templates.codex_approval}"]
   );
 });
 
-test("resolveToolCommand preserves explicit commands unchanged", () => {
-  const resolved = resolveToolCommand({
-    command: "codex --model gpt-5.5 --ask-for-approval on-request",
-    profile: "reviewer_default",
-    inspectCommand: availableInspection,
-    config: { version: 1, roles: {}, profiles: {} },
-  });
-
-  assert.deepEqual(resolved, {
-    tool_profile: "reviewer_default",
-    resolved_tool_cmd: "codex --model gpt-5.5 --ask-for-approval on-request",
-    resolution_source: "explicit_command",
-    fallback_index: 0,
-    candidate_count: 1,
-  });
-});
-
 test("resolveToolCommand uses the role default profile", () => {
   const resolved = resolveToolCommand({
     role: "reviewer",
@@ -1073,37 +1056,10 @@ test("intent framer has an independent high-reasoning default profile", () => {
   );
 });
 
-test("resolveToolCommand prefers inherited command over role default profile", () => {
-  const resolved = resolveToolCommand({
-    role: "planner",
-    inheritCommand: "claude --model sonnet --permission-mode acceptEdits",
-    inspectCommand: availableInspection,
-    config: {
-      version: 1,
-      roles: { planner: "planner_default" },
-      profiles: {
-        planner_default: {
-          strategy: "ordered",
-          candidates: ["codex --model gpt-5.4"],
-        },
-      },
-    },
-  });
-
-  assert.deepEqual(resolved, {
-    tool_profile: "inherited",
-    resolved_tool_cmd: "claude --model sonnet --permission-mode acceptEdits",
-    resolution_source: "inherit_command",
-    fallback_index: 0,
-    candidate_count: 1,
-  });
-});
-
-test("resolveToolCommand prefers explicit profile over inherited command", () => {
+test("resolveToolCommand prefers explicit profile over role default", () => {
   const resolved = resolveToolCommand({
     role: "planner",
     profile: "planner_alt",
-    inheritCommand: "claude --model sonnet --permission-mode acceptEdits",
     inspectCommand: availableInspection,
     config: {
       version: 1,
@@ -1235,12 +1191,21 @@ test("resolveToolCommand fails clearly when every candidate is unavailable", () 
   );
 });
 
-test("resolveToolCommand keeps an explicit command missing only from dispatcher PATH", () => {
+test("resolveToolCommand keeps a candidate missing only from dispatcher PATH", () => {
   const resolved = resolveToolCommand({
-    command: "agent --model target-only",
+    profile: "reviewer_default",
     showList: true,
     inspectionOptions: { pathEnv: "", cwd: process.cwd() },
-    config: { version: 1, roles: {}, profiles: {} },
+    config: {
+      version: 1,
+      roles: {},
+      profiles: {
+        reviewer_default: {
+          strategy: "ordered",
+          candidates: ["agent --model target-only"],
+        },
+      },
+    },
   });
 
   assert.equal(resolved.resolved_tool_cmd, "agent --model target-only");

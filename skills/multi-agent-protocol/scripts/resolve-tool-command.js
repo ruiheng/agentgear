@@ -57,13 +57,11 @@ const ROLE_COMPATIBILITY_ALIASES = Object.freeze({
 
 const HELP_TEXT = `Usage: resolve-tool-command.js [options]
 
-Resolve ordered launch candidates from an explicit command, profile, inherited command, or role default.
+Resolve ordered launch candidates from a profile or role default.
 
 Options:
   --role <role>                  Resolve the profile configured for a role
   --profile <profile>            Resolve an explicit profile
-  --command <command>            Use an explicit full command line
-  --inherit-command <command>    Use an existing inherited full command line
   --show-list                    Include all usable tool candidates
   --list-roles                   List configured role names
   --workdir <path>               Inspect commands in the target workdir
@@ -1132,56 +1130,15 @@ function resolveProfileCommand(
   return resolved;
 }
 
-function resolveSingleToolCommand(
-  toolCmd,
-  toolProfile,
-  resolutionSource,
-  showList,
-  inspectCommand,
-  inspectionOptions
-) {
-  const inspection = inspectCommand(toolCmd, inspectionOptions);
-  if (inspection.availability === "unavailable") {
-    throw noUsableToolCommandsError(toolProfile, [toolCommandDiagnostic(inspection, 0)]);
-  }
-  const resolved = {
-    tool_profile: toolProfile,
-    resolved_tool_cmd: toolCmd,
-    resolution_source: resolutionSource,
-    fallback_index: 0,
-    candidate_count: 1,
-  };
-  if (inspection.availability === "unverified") {
-    resolved.unverified_tool_cmds = [toolCommandDiagnostic(inspection, 0)];
-  }
-  if (showList) {
-    resolved.tool_candidates = [{ command: toolCmd }];
-  }
-  return resolved;
-}
-
 function resolveToolCommand(options = {}) {
   const {
     role = "",
     profile = "",
-    command = "",
-    inheritCommand = "",
     showList = false,
     inspectCommand = inspectToolCommand,
     inspectionOptions = {},
     config = loadToolConfig(),
   } = options;
-
-  if (command) {
-    return resolveSingleToolCommand(
-      command,
-      profile || "explicit",
-      "explicit_command",
-      showList,
-      inspectCommand,
-      inspectionOptions
-    );
-  }
 
   const resolvedProfile = resolveProfileName(config, "", profile);
   if (resolvedProfile) {
@@ -1189,17 +1146,6 @@ function resolveToolCommand(options = {}) {
       config,
       resolvedProfile,
       "explicit_profile",
-      showList,
-      inspectCommand,
-      inspectionOptions
-    );
-  }
-
-  if (inheritCommand) {
-    return resolveSingleToolCommand(
-      inheritCommand,
-      "inherited",
-      "inherit_command",
       showList,
       inspectCommand,
       inspectionOptions
@@ -1218,7 +1164,7 @@ function resolveToolCommand(options = {}) {
     );
   }
 
-  throw new Error("tool resolution requires an explicit command, profile, inherited command, or role default");
+  throw new Error("tool resolution requires a profile or a role default");
 }
 
 function listConfiguredRoles(config) {
@@ -1229,8 +1175,6 @@ function parseArgs(argv) {
   const options = {
     role: "",
     profile: "",
-    command: "",
-    inheritCommand: "",
     showList: false,
     listRoles: false,
     workdir: "",
@@ -1250,10 +1194,6 @@ function parseArgs(argv) {
       options.role = argv[++i] || "";
     } else if (arg === "--profile") {
       options.profile = argv[++i] || "";
-    } else if (arg === "--command") {
-      options.command = argv[++i] || "";
-    } else if (arg === "--inherit-command") {
-      options.inheritCommand = argv[++i] || "";
     } else if (arg === "--show-list") {
       options.showList = true;
     } else if (arg === "--list-roles") {
@@ -1368,8 +1308,6 @@ function runCli(argv) {
   const resolved = resolveToolCommand({
     role: options.role,
     profile: options.profile,
-    command: options.command,
-    inheritCommand: options.inheritCommand,
     showList: options.showList,
     inspectionOptions,
     config,

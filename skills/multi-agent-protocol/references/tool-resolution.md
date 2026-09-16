@@ -18,8 +18,8 @@ Waypost does not map roles or read this configuration.
   agentgear resolve-tool-command --role <role> --profile <profile> --workdir <target_workdir> --show-list --format json
   ```
 
-  Omit `--profile` when none is set. Keep an explicit full command unchanged
-  when an action accepts one.
+  Omit `--profile` when none is set. When an action accepts an explicit full
+  command, use it unchanged instead of resolving.
 - List configured roles with:
 
   ```bash
