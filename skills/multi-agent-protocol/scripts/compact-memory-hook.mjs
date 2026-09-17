@@ -322,6 +322,38 @@ function memoryFailureOutput(action, error) {
   };
 }
 
+const PENDING_CONTEXT_FILE = "pending-context.json";
+
+function pendingContextFile(root) {
+  return path.join(root, PENDING_CONTEXT_FILE);
+}
+
+// PostCompaction context output is ignored by some hosts (Devin accepts the
+// hook output but never injects its additionalContext). Marking the session
+// pending lets the next PostToolUse or UserPromptSubmit event deliver the
+// reminder through an event whose additionalContext is honored.
+function markPendingContext(root) {
+  writeJsonAtomic(pendingContextFile(root), { marked_at: new Date().toISOString() });
+}
+
+function takePendingContext(root) {
+  const file = pendingContextFile(root);
+  if (!fs.existsSync(file)) return false;
+  fs.rmSync(file, { force: true });
+  return true;
+}
+
+function takePendingSession(input, env) {
+  if (typeof input.session_id !== "string" || !input.session_id) return false;
+  return takePendingContext(sessionMemoryDirectory(input.session_id, env));
+}
+
+function contextOutput(sessionId, hookEventName, options) {
+  const additionalContext = compactAdditionalContext(sessionId, options);
+  if (!additionalContext) return null;
+  return { hookSpecificOutput: { hookEventName, additionalContext } };
+}
+
 export function compactAdditionalContext(sessionId, { env = process.env } = {}) {
   const root = sessionMemoryDirectory(sessionId, env);
   const memory = readMemory(root);
@@ -345,32 +377,59 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
   return lines.join("\n");
 }
 
+export const HANDLED_EVENTS = Object.freeze([
+  "PostToolUse",
+  "UserPromptSubmit",
+  "SessionStart",
+  "PostCompaction"
+]);
+
 export function handleHook(input, options = {}) {
   if (!isPlainObject(input)) throw new Error("hook input must be a JSON object");
+  const env = options.env || process.env;
+  if (!HANDLED_EVENTS.includes(input.hook_event_name)) return null;
   if (input.hook_event_name === "PostToolUse") {
+    let failure = null;
     try {
       handlePostToolUse(input, options);
     } catch (error) {
-      return memoryFailureOutput("updated", error);
+      failure = memoryFailureOutput("updated", error);
     }
-    return null;
-  }
-  const recovery = input.hook_event_name === "PostCompaction"
-    || (input.hook_event_name === "SessionStart" && input.source === "compact");
-  if (!recovery) return null;
-  let additionalContext;
-  try {
-    additionalContext = compactAdditionalContext(input.session_id, options);
-  } catch (error) {
-    return memoryFailureOutput("restored", error);
-  }
-  if (!additionalContext) return null;
-  return {
-    hookSpecificOutput: {
-      hookEventName: input.hook_event_name,
-      additionalContext
+    try {
+      if (!takePendingSession(input, env)) return failure;
+      return contextOutput(input.session_id, "PostToolUse", options) ?? failure;
+    } catch (error) {
+      return failure ?? memoryFailureOutput("restored", error);
     }
-  };
+  }
+  if (input.hook_event_name === "UserPromptSubmit") {
+    try {
+      if (!takePendingSession(input, env)) return null;
+      return contextOutput(input.session_id, "UserPromptSubmit", options);
+    } catch (error) {
+      return memoryFailureOutput("restored", error);
+    }
+  }
+  if (input.hook_event_name === "SessionStart") {
+    try {
+      const pending = takePendingSession(input, env);
+      if (!pending && input.source === "startup") return null;
+      return contextOutput(input.session_id, "SessionStart", options);
+    } catch (error) {
+      return memoryFailureOutput("restored", error);
+    }
+  }
+  if (input.hook_event_name === "PostCompaction") {
+    try {
+      const context = compactAdditionalContext(input.session_id, options);
+      if (!context) return null;
+      markPendingContext(sessionMemoryDirectory(input.session_id, env));
+      return { hookSpecificOutput: { hookEventName: "PostCompaction", additionalContext: context } };
+    } catch (error) {
+      return memoryFailureOutput("restored", error);
+    }
+  }
+  return null;
 }
 
 export function runCompactMemoryHook({ stdin = process.stdin, stdout = process.stdout, env = process.env } = {}) {

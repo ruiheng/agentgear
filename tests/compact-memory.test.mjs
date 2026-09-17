@@ -9,6 +9,7 @@ import {
   agentgearSkillGetArgv,
   compactAdditionalContext,
   handleHook,
+  HANDLED_EVENTS,
   sessionMemoryDirectory,
   STICKY_MESSAGE_LIMIT
 } from "../skills/multi-agent-protocol/scripts/compact-memory-hook.mjs";
@@ -33,6 +34,7 @@ import {
   installDevinCompactMemory,
   uninstallDevinCompactMemory
 } from "../providers/devin-compact-memory.mjs";
+import { isManagedCompactMemoryGroup } from "../providers/managed-hook-command.mjs";
 import { loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
 
 function fixture() {
@@ -824,12 +826,12 @@ test("Devin compact memory hooks merge into Devin config without touching user c
     const document = JSON.parse(fs.readFileSync(configPath, "utf8"));
     assert.equal(document.permissions.allow.includes("Exec(git status)"), true);
     assert.deepEqual(document.hooks.PreToolUse, [userHook]);
-    for (const event of ["SessionStart", "PostCompaction", "PostToolUse"]) {
+    for (const event of ["SessionStart", "PostCompaction", "PostToolUse", "UserPromptSubmit"]) {
       assert.equal(document.hooks[event].length, 1, event);
       assert.equal(document.hooks[event][0].hooks[0].type, "command");
       assert.match(document.hooks[event][0].hooks[0].command, /compact-memory-hook$/);
+      assert.equal(document.hooks[event][0].matcher, "", event);
     }
-    assert.equal(document.hooks.PostToolUse[0].matcher, "^(?:exec|mcp__waypost__waypost_(?:recv|read))$");
 
     assert.equal(installDevinCompactMemory({ env: item.env, launcher }).changed, false);
     assert.deepEqual(doctorDevinCompactMemory({ env: item.env, launcher }).missing, []);
@@ -1209,6 +1211,29 @@ test("compact memory hook handles Devin exec and PostCompaction payloads", () =>
     assert.doesNotMatch(recovery.hookSpecificOutput.additionalContext, /delivery-2/);
     assert.match(recovery.hookSpecificOutput.additionalContext, /handoff/);
 
+    // Devin ignores PostCompaction additionalContext, so the hook marks the
+    // session pending and the next PostToolUse of any tool delivers it once.
+    const root = sessionMemoryDirectory("devin-session", item.env);
+    assert.deepEqual(fs.readdirSync(root).sort(), ["memory.json", "pending-context.json"]);
+    const delivered = handleHook({
+      session_id: "devin-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "read",
+      tool_input: { file_path: "/tmp/anything" },
+      tool_response: { success: true, output: "" }
+    }, { env: item.env });
+    assert.equal(delivered.hookSpecificOutput.hookEventName, "PostToolUse");
+    assert.match(delivered.hookSpecificOutput.additionalContext, /delivery-1/);
+    assert.match(delivered.hookSpecificOutput.additionalContext, /handoff/);
+    assert.deepEqual(fs.readdirSync(root), ["memory.json"]);
+    assert.equal(handleHook({
+      session_id: "devin-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "read",
+      tool_input: { file_path: "/tmp/other" },
+      tool_response: { success: true, output: "" }
+    }, { env: item.env }), null);
+
     const sessionStart = handleHook(
       { session_id: "devin-session", hook_event_name: "SessionStart", source: "compact" },
       { env: item.env }
@@ -1219,6 +1244,104 @@ test("compact memory hook handles Devin exec and PostCompaction payloads", () =>
       { env: item.env }
     );
     assert.equal(startup, null);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("pending compact memory is delivered once through UserPromptSubmit or resumed SessionStart", () => {
+  const item = fixture();
+  try {
+    const sessionId = "thread-pending";
+    handleHook({
+      session_id: sessionId,
+      hook_event_name: "PostToolUse",
+      tool_name: "exec",
+      tool_input: { command: "agentgear skill get handoff" },
+      tool_response: { success: true, output: "" }
+    }, { env: item.env });
+    assert.equal(handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "continue"
+    }, { env: item.env }), null);
+
+    handleHook(
+      { session_id: sessionId, hook_event_name: "PostCompaction" },
+      { env: item.env }
+    );
+    const prompted = handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "continue"
+    }, { env: item.env });
+    assert.equal(prompted.hookSpecificOutput.hookEventName, "UserPromptSubmit");
+    assert.match(prompted.hookSpecificOutput.additionalContext, /handoff/);
+    assert.equal(handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "again"
+    }, { env: item.env }), null);
+
+    handleHook(
+      { session_id: sessionId, hook_event_name: "PostCompaction" },
+      { env: item.env }
+    );
+    const resumed = handleHook(
+      { session_id: sessionId, hook_event_name: "SessionStart", source: "resume" },
+      { env: item.env }
+    );
+    assert.equal(resumed.hookSpecificOutput.hookEventName, "SessionStart");
+    assert.match(resumed.hookSpecificOutput.additionalContext, /handoff/);
+
+    handleHook(
+      { session_id: sessionId, hook_event_name: "PostCompaction" },
+      { env: item.env }
+    );
+    const compacted = handleHook(
+      { session_id: sessionId, hook_event_name: "SessionStart", source: "compact" },
+      { env: item.env }
+    );
+    assert.equal(compacted.hookSpecificOutput.hookEventName, "SessionStart");
+
+    const startup = handleHook(
+      { session_id: sessionId, hook_event_name: "SessionStart", source: "startup" },
+      { env: item.env }
+    );
+    assert.equal(startup, null);
+    const other = handleHook(
+      { session_id: "thread-never-compacted", hook_event_name: "SessionStart", source: "resume" },
+      { env: item.env }
+    );
+    assert.equal(other, null);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("every provider-managed hook event is handled by the compact-memory hook", () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.chmodSync(launcher, 0o755);
+    const hosts = [
+      { install: installDevinCompactMemory, file: path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json") },
+      { install: installClaudeCompactMemory, file: path.join(item.env.HOME, ".claude", "settings.json") },
+      { install: installCodexCompactMemory, file: path.join(item.env.CODEX_HOME, "hooks.json") }
+    ];
+    for (const { install, file } of hosts) {
+      install({ env: item.env, launcher });
+      const document = JSON.parse(fs.readFileSync(file, "utf8"));
+      const managedEvents = Object.entries(document.hooks ?? {})
+        .filter(([, groups]) => groups.some(isManagedCompactMemoryGroup))
+        .map(([event]) => event);
+      assert.ok(managedEvents.length > 0, file);
+      for (const event of managedEvents) {
+        assert.ok(HANDLED_EVENTS.includes(event), `${file}: unhandled event ${event}`);
+      }
+    }
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }

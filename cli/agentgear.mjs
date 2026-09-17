@@ -830,7 +830,7 @@ function hooks(argumentsList) {
   for (const host of hosts) {
     const result = host.doctor({ launcher });
     print(`Agentgear ${host.label} capture hook: ${result.missing.includes("PostToolUse") ? "missing" : "configured"}`);
-    print(`Agentgear ${host.label} recovery hook: ${result.missing.some(event => event === "SessionStart" || event === "PostCompaction") ? "missing" : "configured"}`);
+    print(`Agentgear ${host.label} recovery hook: ${result.missing.some(event => event !== "PostToolUse") ? "missing" : "configured"}`);
     print(`Agentgear launcher: ${result.launcherUsable ? "available" : "unusable"}`);
     print(`${host.label} hook trust: not checked; verify with /hooks in ${host.label}`);
     print(`Hooks file: ${result.path}`);
