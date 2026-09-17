@@ -39,6 +39,12 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
    The wrapper also creates or attaches the recorded task branch from the
    integration branch before sending. Run it with host permission.
 
+   Before acquiring the lock, the wrapper verifies each hosted recipient's
+   session id through the host CLI for its address scheme (agent-deck,
+   thurbox); a missing, mismatched, or unverifiable target stops dispatch
+   before any send. Re-resolve the stale role through the shared session
+   contract and rerun with the returned id and address.
+
    ```bash
    agentgear run multi-agent-protocol send-delegate-with-active-task-lock.mjs \
      --workdir "<worker_workspace>" \

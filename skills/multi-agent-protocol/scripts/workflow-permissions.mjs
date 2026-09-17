@@ -1189,7 +1189,7 @@ function configureCodexWaypostMcpPermissions(waypost, paths) {
 function codexRulesSource(waypost) {
   return [
     "# Agentgear workflow - generated approval rules\n",
-    codexRule(["agent-deck"], "Agent Deck session-host commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck workflow dispatch",\n    ]'),
+    codexRule(["agent-deck"], "Agent Deck session-host commands", '\n    match = [\n        "agent-deck",\n        "agent-deck status",\n        "agent-deck session current",\n        "agent-deck session show",\n        "agent-deck workflow dispatch",\n    ]'),
     codexRule(["printf"], "Shell formatting helper commands"),
     ...launcherForms().flatMap(command => workflowLauncherSkills.map(skill => codexRule([command, "run", skill], "Workflow scripts through the managed agentgear launcher"))),
     ...launcherForms().map(command => codexRule([command, "skill", "get"], "Read canonical Agentgear skill instructions through the managed launcher")),

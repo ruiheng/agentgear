@@ -2,6 +2,7 @@ import childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sessionProbeOutcome, sessionProbeSpec } from "../../../providers/session-hosts.mjs";
 
 export class WorkflowError extends Error {
   constructor(message, exitCode = 2, prefix = "ERROR") {
@@ -293,6 +294,147 @@ export function commandJson(command, args, options = {}) {
 
 export function agentDeckArgs(profile, args) {
   return profile ? ["-p", profile, ...args] : args;
+}
+
+export const DEFAULT_SEND_TIMEOUT_MS = 0;
+
+function optionalOutputString(value) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+export function sendOutputFrom(output) {
+  const payload = JSON.parse(output.trim().split(/\r?\n/, 1)[0]);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("waypost send returned a non-object JSON payload");
+  }
+  const receipt = {};
+  for (const key of ["delivery_id", "message_id", "blob_id"]) {
+    const value = optionalOutputString(payload[key]);
+    if (value) receipt[key] = value;
+  }
+  const notifyStatus = optionalOutputString(payload.notify_status);
+  return {
+    receipt,
+    notification: {
+      status: notifyStatus || "unknown",
+      scheme: optionalOutputString(payload.notify_scheme),
+      detail: optionalOutputString(payload.notify_detail),
+      error: optionalOutputString(payload.notify_error)
+        || (notifyStatus ? null : "waypost send --notify returned no notify_status")
+    }
+  };
+}
+
+export function receiptFrom(output) {
+  try {
+    return sendOutputFrom(output).receipt;
+  } catch {
+    const receipt = {};
+    for (const token of output.split(/\s+/)) {
+      const match = token.match(/^(delivery_id|message_id|blob_id)=(.*)$/);
+      if (match) receipt[match[1]] = match[2];
+    }
+    return receipt;
+  }
+}
+
+// classifyWaypostSend turns a raw waypost send --notify result into one of
+// sent / failed / interrupted / receipt_unknown. A spawn timeout or signal can
+// still follow a persisted delivery, so receipts are recovered from partial
+// stdout before reporting the send as interrupted.
+export function classifyWaypostSend(send) {
+  if (send.timedOut || send.signal) {
+    try {
+      const parsed = sendOutputFrom(send.stdout || "");
+      if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
+    } catch {}
+    const receipt = receiptFrom(send.stdout || "");
+    if (receipt.delivery_id) {
+      return {
+        status: "sent",
+        receipt,
+        notification: { status: "unknown", scheme: null, detail: null, error: "Waypost receipt recovered after interruption" }
+      };
+    }
+    return { status: "interrupted", signal: send.signal || "SIGTERM", timedOut: send.timedOut };
+  }
+  if (send.error) {
+    return { status: "failed", detail: `waypost send --notify could not start: ${send.error.message}` };
+  }
+  if (send.status !== 0) {
+    const stream = send.stderr.trim() ? "stderr" : "stdout";
+    const detail = (send.stderr || send.stdout).trim() || `exit code ${send.status}`;
+    return { status: "failed", detail: `waypost send --notify exited ${send.status} (${stream}): ${detail}` };
+  }
+  const raw = send.stdout + send.stderr;
+  let parsed;
+  try {
+    parsed = sendOutputFrom(send.stdout);
+  } catch {
+    const receipt = receiptFrom(send.stdout);
+    return receipt.delivery_id
+      ? { status: "sent", receipt, notification: { status: "unknown", scheme: null, detail: null, error: "Waypost receipt used legacy text parsing" } }
+      : { status: "receipt_unknown", raw };
+  }
+  return parsed.receipt.delivery_id ? { status: "sent", ...parsed } : { status: "receipt_unknown", raw };
+}
+
+export function sessionAddressId(address) {
+  const separator = address.indexOf("/");
+  if (separator <= 0 || separator === address.length - 1) return null;
+  return { scheme: address.slice(0, separator), id: address.slice(separator + 1) };
+}
+
+// dispatchProbeDeps maps the shared workflow dependency bag onto the
+// verifyDispatchTarget option names so each workflow does not rebuild it.
+export function dispatchProbeDeps(dependencies, sessionHost) {
+  return {
+    sessionHost,
+    stderr: dependencies.stderr || process.stderr,
+    runCommand: dependencies.runSessionProbe,
+    commandExists: dependencies.probeCommandExists
+  };
+}
+
+// verifyDispatchTarget probes the host CLI embedded in a scheme/id address
+// before a dispatch sends to it, so a dead hosted session fails the run before
+// any state is created or Waypost delivery is persisted. Schemes without a
+// probe are skipped because there is no read-only host check to run. It returns
+// the verified target binding; send helpers take that value so a send cannot
+// silently skip this check.
+export function verifyDispatchTarget(role, address, sessionId, {
+  sessionHost,
+  stderr = process.stderr,
+  runCommand = run,
+  commandExists = resolveCommand
+} = {}) {
+  const target = sessionAddressId(address);
+  if (!target) {
+    fail(`${role} target address is not a scheme/id address: ${address}`, 6, "TARGET_SESSION_UNVERIFIED");
+  }
+  const spec = sessionProbeSpec({ host: target.scheme, sessionId: target.id });
+  if (!spec) {
+    stderr.write(`${role} target check skipped: no session probe for scheme '${target.scheme}'\n`);
+    return Object.freeze({ role, address, sessionId, host: sessionHost || null });
+  }
+  if (sessionId !== target.id) {
+    fail(`${role} session id '${sessionId}' does not match its ${target.scheme} address id '${target.id}'`, 6, "TARGET_SESSION_MISMATCH");
+  }
+  if (sessionHost && sessionHost !== target.scheme) {
+    fail(`${role} session host '${sessionHost}' does not match its address scheme '${target.scheme}'`, 6, "TARGET_SESSION_MISMATCH");
+  }
+  if (!commandExists(spec.command)) {
+    fail(`cannot verify ${role} session '${target.id}': ${spec.command} is not in PATH`, 6, "TARGET_SESSION_UNVERIFIED");
+  }
+  const outcome = sessionProbeOutcome(target.scheme, runCommand(spec.command, spec.args, { timeoutMs: spec.timeoutMs }));
+  if (outcome.status === "not_found") {
+    fail(`${role} session '${target.id}' does not exist on ${target.scheme}: ${outcome.detail || "session probe reported not found"}`, 6, "TARGET_SESSION_NOT_FOUND");
+  }
+  if (outcome.status !== "exists") {
+    fail(`could not verify ${role} session '${target.id}' on ${target.scheme}: ${outcome.error || outcome.detail || "session probe inconclusive"}`, 6, "TARGET_SESSION_UNVERIFIED");
+  }
+  stderr.write(`verified ${role} session ${target.scheme}/${target.id}\n`);
+  return Object.freeze({ role, address, sessionId: target.id, host: target.scheme });
 }
 
 export function invokeNodeScript(scriptPath, args = [], options = {}) {

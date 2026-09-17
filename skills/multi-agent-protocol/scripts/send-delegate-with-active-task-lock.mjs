@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic
+  classifyWaypostSend, currentScriptDirectory, DEFAULT_SEND_TIMEOUT_MS, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, verifyDispatchTarget, writeJsonAtomic
 } from "./workflow-lib.mjs";
 import {
   executeDelegateTaskMessage,
@@ -70,46 +70,6 @@ function validateEnvelopeOptions(options) {
   ]) {
     if (key.startsWith("reviewer") && options.reviewContext !== "required") continue;
     requirePlainHeaderText(options[key], label);
-  }
-}
-
-function optionalOutputString(value) {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-export function sendOutputFrom(output) {
-  const payload = JSON.parse(output.trim().split(/\r?\n/, 1)[0]);
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("waypost send returned a non-object JSON payload");
-  }
-  const receipt = {};
-  for (const key of ["delivery_id", "message_id", "blob_id"]) {
-    const value = optionalOutputString(payload[key]);
-    if (value) receipt[key] = value;
-  }
-  const notifyStatus = optionalOutputString(payload.notify_status);
-  return {
-    receipt,
-    notification: {
-      status: notifyStatus || "unknown",
-      scheme: optionalOutputString(payload.notify_scheme),
-      detail: optionalOutputString(payload.notify_detail),
-      error: optionalOutputString(payload.notify_error)
-        || (notifyStatus ? null : "waypost send --notify returned no notify_status")
-    }
-  };
-}
-
-export function receiptFrom(output) {
-  try {
-    return sendOutputFrom(output).receipt;
-  } catch {
-    const receipt = {};
-    for (const token of output.split(/\s+/)) {
-      const match = token.match(/^(delivery_id|message_id|blob_id)=(.*)$/);
-      if (match) receipt[match[1]] = match[2];
-    }
-    return receipt;
   }
 }
 
@@ -241,8 +201,6 @@ function nonNegativeInteger(value, label) {
   return Number(value);
 }
 
-export const DEFAULT_SEND_TIMEOUT_MS = 0;
-
 function stdinUnavailable(detail = "") {
   const suffix = detail ? ` (${detail})` : "";
   fail(`--brief-file - requires piped non-TTY stdin${suffix}; use a file under .agent-artifacts/message/ from an interactive command tool`, 2, "STDIN_UNAVAILABLE");
@@ -262,9 +220,9 @@ export function readDelegateBody(bodyFile, { stdinIsTTY = Boolean(process.stdin.
   }
 }
 
-async function sendDeclaredActionMessage(sendMessage, options, toAddress, subject, message, onReceipt) {
+async function sendDeclaredActionMessage(sendMessage, options, target, subject, message, onReceipt) {
   const send = await sendMessage(message, {
-    toAddress,
+    toAddress: target.address,
     fromAddress: options.fromAddress,
     subject,
     contentType: options.contentType,
@@ -272,40 +230,7 @@ async function sendDeclaredActionMessage(sendMessage, options, toAddress, subjec
     sendTimeoutMs: options.sendTimeoutMs,
     onReceipt
   });
-  // spawnSync may report a timeout after Waypost persisted the send. Preserve
-  // a receipt that was already written to stdout instead of discarding it.
-  if (send.timedOut || send.signal) {
-    try {
-      const parsed = sendOutputFrom(send.stdout || "");
-      if (parsed.receipt.delivery_id) return { status: "sent", ...parsed };
-    } catch {}
-    const receipt = receiptFrom(send.stdout || "");
-    if (receipt.delivery_id) {
-      return {
-        status: "sent",
-        receipt,
-        notification: { status: "unknown", scheme: null, detail: null, error: "Waypost receipt recovered after interruption" }
-      };
-    }
-    return { status: "interrupted", signal: send.signal || "SIGTERM", timedOut: send.timedOut };
-  }
-  if (send.error) return { status: "failed", detail: `waypost send --notify could not start: ${send.error.message}` };
-  if (send.status !== 0) {
-    const stream = send.stderr.trim() ? "stderr" : "stdout";
-    const detail = (send.stderr || send.stdout).trim() || `exit code ${send.status}`;
-    return { status: "failed", detail: `waypost send --notify exited ${send.status} (${stream}): ${detail}` };
-  }
-  const raw = send.stdout + send.stderr;
-  let parsed;
-  try {
-    parsed = sendOutputFrom(send.stdout);
-  } catch {
-    const receipt = receiptFrom(send.stdout);
-    return receipt.delivery_id
-      ? { status: "sent", receipt, notification: { status: "unknown", scheme: null, detail: null, error: "Waypost receipt used legacy text parsing" } }
-      : { status: "receipt_unknown", raw };
-  }
-  return parsed.receipt.delivery_id ? { status: "sent", ...parsed } : { status: "receipt_unknown", raw };
+  return classifyWaypostSend(send);
 }
 
 function recordNotification(lock, prefix, notification) {
@@ -381,6 +306,11 @@ export async function main(argv = process.argv.slice(2), { stdout = process.stdo
   const brief = readDelegateBody(options.briefFile);
   if (!brief.trim()) fail("task brief is empty");
 
+  const coderTarget = verifyDispatchTarget("coder", options.toAddress, options.coderSessionId, { sessionHost: options.sessionHost, stderr });
+  const reviewerTarget = options.reviewContext === "required"
+    ? verifyDispatchTarget("reviewer", options.reviewerToAddress, options.reviewerSessionId, { sessionHost: options.sessionHost, stderr })
+    : null;
+
   const scriptDir = currentScriptDirectory(import.meta.url);
   const lockResult = invokeNodeScript(path.join(scriptDir, "acquire-active-task-lock.mjs"), [
     "--workdir", options.workdir,
@@ -430,7 +360,7 @@ export async function main(argv = process.argv.slice(2), { stdout = process.stdo
         lock.reviewer_subject = options.reviewerSubject;
       });
       stderr.write("sending reviewer...\n");
-      const reviewSent = await sendDeclaredActionMessage(sendReviewTaskContextMessage, options, options.reviewerToAddress, options.reviewerSubject, reviewerBody(options, brief),
+      const reviewSent = await sendDeclaredActionMessage(sendReviewTaskContextMessage, options, reviewerTarget, options.reviewerSubject, reviewerBody(options, brief),
         receipt => stderr.write(`reviewer delivery_id=${receipt.delivery_id} durable; notify pending\n`));
       if (reviewSent.status === "interrupted") {
         retainInterrupted("reviewer", reviewSent);
@@ -454,7 +384,7 @@ export async function main(argv = process.argv.slice(2), { stdout = process.stdo
     }
 
     stderr.write("sending coder...\n");
-    const coderSent = await sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, options.toAddress, options.subject, coderBody(options, brief),
+    const coderSent = await sendDeclaredActionMessage(sendExecuteDelegateTaskMessage, options, coderTarget, options.subject, coderBody(options, brief),
       receipt => stderr.write(`coder delivery_id=${receipt.delivery_id} durable; notify pending\n`));
     if (coderSent.status === "interrupted") {
       retainInterrupted("coder", coderSent);
