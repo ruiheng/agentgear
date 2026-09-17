@@ -4,6 +4,9 @@ import path from "node:path";
 import process from "node:process";
 import { sessionNudgeOutcome, sessionNudgeSpec } from "../../../providers/session-hosts.mjs";
 import {
+  classifyWaypostSend,
+  DEFAULT_SEND_TIMEOUT_MS,
+  dispatchProbeDeps,
   execute,
   fail,
   isMain,
@@ -12,6 +15,7 @@ import {
   requireCommand,
   run,
   stringField,
+  verifyDispatchTarget,
   writeJsonAtomic
 } from "../../multi-agent-protocol/scripts/workflow-lib.mjs";
 import {
@@ -68,7 +72,6 @@ unless the delivery is already leased or acknowledged. Failure to inspect
 delivery state does not block that one replay. An unconfirmed nudge is not
 replayed because delivery may already have been attempted.`;
 
-export const DEFAULT_SEND_TIMEOUT_MS = 0;
 export const DELIVERY_STATE_TIMEOUT_MS = 5000;
 export const NUDGE_MESSAGE = "NOTICE: There might be new message in waypost.";
 
@@ -84,33 +87,6 @@ function requirePlainHeaderText(value, label) {
   if (typeof value !== "string" || value.length === 0 || /[\r\n\0]/.test(value)) {
     fail(`${label} has an unsafe header value`);
   }
-}
-
-function optionalOutputString(value) {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-export function sendOutputFrom(output) {
-  const payload = JSON.parse(output.trim().split(/\r?\n/, 1)[0]);
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("waypost send returned a non-object JSON payload");
-  }
-  const receipt = {};
-  for (const key of ["delivery_id", "message_id", "blob_id"]) {
-    const value = optionalOutputString(payload[key]);
-    if (value) receipt[key] = value;
-  }
-  const notifyStatus = optionalOutputString(payload.notify_status);
-  return {
-    receipt,
-    notification: {
-      status: notifyStatus || "unknown",
-      scheme: optionalOutputString(payload.notify_scheme),
-      detail: optionalOutputString(payload.notify_detail),
-      error: optionalOutputString(payload.notify_error)
-        || (notifyStatus ? null : "waypost send --notify returned no notify_status")
-    }
-  };
 }
 
 function positiveInteger(value, label) {
@@ -216,9 +192,9 @@ function authorBody(options) {
   );
 }
 
-export function sendWaypost(sendMessage, options, toAddress, subject, message, runCommand = run, onReceipt) {
+export function sendWaypost(sendMessage, options, target, subject, message, runCommand = run, onReceipt) {
   const sent = sendMessage(message, {
-    toAddress,
+    toAddress: target.address,
     fromAddress: options.fromAddress,
     subject,
     contentType: options.contentType,
@@ -227,36 +203,7 @@ export function sendWaypost(sendMessage, options, toAddress, subject, message, r
     runCommand,
     onReceipt
   });
-  const processResult = (sent) => {
-    if (sent.timedOut || sent.signal) {
-      // The transport can persist the Waypost delivery before the notify phase
-      // exceeds the diagnostic timeout. Keep any receipt present in stdout.
-      try {
-        const parsed = sendOutputFrom(sent.stdout || "");
-        if (parsed.receipt.delivery_id) {
-          return {
-            status: "sent",
-            ...parsed,
-          };
-        }
-      } catch {}
-      return { status: "interrupted", signal: sent.signal || "SIGTERM", timedOut: sent.timedOut };
-    }
-    if (sent.error) return { status: "failed", detail: sent.error.message };
-    if (sent.status !== 0) {
-      return { status: "failed", detail: (sent.stderr || sent.stdout).trim() || `exit code ${sent.status}` };
-    }
-    let parsed;
-    try {
-      parsed = sendOutputFrom(sent.stdout);
-    } catch {
-      return { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
-    }
-    return parsed.receipt.delivery_id
-      ? { status: "sent", ...parsed }
-      : { status: "receipt_unknown", raw: sent.stdout + sent.stderr };
-  };
-  return sent && typeof sent.then === "function" ? sent.then(processResult) : processResult(sent);
+  return sent && typeof sent.then === "function" ? sent.then(classifyWaypostSend) : classifyWaypostSend(sent);
 }
 
 export function failDelivery(label, result) {
@@ -332,11 +279,9 @@ function retryNudge(result, sessionHost, sessionId, readDeliveryCommand, runNudg
 
 export async function sendWaypostWithNudgeRetry({
   label,
-  sessionHost,
-  sessionId,
+  target,
   sender,
   sendOptions,
-  toAddress,
   subject,
   message,
   runCommand = run,
@@ -351,11 +296,28 @@ export async function sendWaypostWithNudgeRetry({
     receiptReported = true;
     stderr.write(`${label} delivery_id=${deliveryId} durable${suffix}\n`);
   };
-  const sent = await sendWaypost(sender, sendOptions, toAddress, subject, message, runCommand,
+  const sent = await sendWaypost(sender, sendOptions, target, subject, message, runCommand,
     receipt => reportReceipt(receipt?.delivery_id, "; notify pending"));
   if (sent.status !== "sent") failDelivery(label, sent);
   reportReceipt(sent.receipt?.delivery_id, "");
-  return retryNudge(sent, sessionHost, sessionId, readDeliveryCommand, runNudgeCommand);
+  return retryNudge(sent, target.host, target.sessionId, readDeliveryCommand, runNudgeCommand);
+}
+
+// dispatchSender binds the injected waypost/nudge runners once so each send
+// site only supplies the verified target and the message.
+export function dispatchSender(dependencies, sendOptions) {
+  return (sender, target, subject, body, label) => sendWaypostWithNudgeRetry({
+    label,
+    target,
+    sender,
+    sendOptions,
+    subject,
+    message: body,
+    runCommand: dependencies.runWaypost,
+    readDeliveryCommand: dependencies.runWaypostRead,
+    runNudgeCommand: dependencies.runNudge,
+    stderr: dependencies.stderr || process.stderr
+  });
 }
 
 export function stageSummary(prefix, result) {
@@ -467,7 +429,6 @@ function validateOptions(options) {
 }
 
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
-  const runWaypost = dependencies.runWaypost || run;
   const options = parseArgs(argv, {
     values: [
       "--workdir", "--task-id", "--requester-session-id",
@@ -537,6 +498,13 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     options.artifactRoot = path.join(options.workdir, relative);
   }
   options.artifactRoot = path.resolve(options.artifactRoot);
+  const probe = dispatchProbeDeps(dependencies, options.sessionHost);
+  const reviewerTarget = verifyDispatchTarget("reviewer", options.reviewerToAddress, options.reviewerSessionId, probe);
+  const prunerTarget = options.prunerSessionId
+    ? verifyDispatchTarget("pruner", options.prunerToAddress, options.prunerSessionId, probe)
+    : null;
+  const authorTarget = verifyDispatchTarget("author", options.authorToAddress, options.authorSessionId, probe);
+
   requireSymlinkFreeContainedPath(options.workdir, options.artifactRoot, "--artifact-root");
   fs.mkdirSync(options.artifactRoot, { recursive: true });
   requireSymlinkFreeContainedPath(options.workdir, options.artifactRoot, "--artifact-root");
@@ -583,37 +551,20 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     }
   }
 
-  const send = async (sender, sessionId, address, subject, body, label) => {
-    return sendWaypostWithNudgeRetry({
-      label,
-      sessionHost: options.sessionHost,
-      sessionId,
-      sender,
-      sendOptions: options,
-      toAddress: address,
-      subject,
-      message: body,
-      runCommand: runWaypost,
-      readDeliveryCommand: dependencies.runWaypostRead || run,
-      runNudgeCommand: dependencies.runNudge || run,
-      stderr: dependencies.stderr || process.stderr
-    });
-  };
+  const send = dispatchSender(dependencies, options);
 
   const reviewer = await send(
     sendDesignSpecReviewContextMessage,
-    options.reviewerSessionId,
-    options.reviewerToAddress,
+    reviewerTarget,
     `design-spec context: ${options.taskId} -> reviewer`,
     reviewerBody(options),
     "reviewer context"
   );
   let pruner = null;
-  if (options.prunerSessionId) {
+  if (prunerTarget) {
     pruner = await send(
       sendDesignPruneContextMessage,
-      options.prunerSessionId,
-      options.prunerToAddress,
+      prunerTarget,
       `design-spec context: ${options.taskId} -> pruner`,
       prunerBody(options),
       "pruner context"
@@ -622,8 +573,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
 
   const author = await send(
     sendDesignSpecDraftRequestedMessage,
-    options.authorSessionId,
-    options.authorToAddress,
+    authorTarget,
     `design-spec draft: ${options.taskId} ${options.designPhases === "two" ? "s" : "r"}1`,
     authorBody(options),
     "author draft"

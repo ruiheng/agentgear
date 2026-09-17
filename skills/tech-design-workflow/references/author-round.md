@@ -35,7 +35,7 @@ reviewer and pruner approval is not a design objective.
 On a two-phase lane the request's `Phase` selects the series:
 
 - `structure` — `sNNN.md`: the minimum complete structural specification —
-  boundaries, ownership, data flow, lifecycle and rollback boundaries, and the
+  boundaries, ownership, data flow, lifecycle/rollback boundaries, and the
   interfaces this lane consumes or exposes. Consume other lanes through
   interfaces only; keep coder-level detail out.
 - `implementation` — `rNNN.md` against the manifest's recorded `structure_doc`:
@@ -50,21 +50,21 @@ Write the smallest complete artifact at
 
 **IMMUTABILITY INVARIANT:** Once an `sNNN.md` or `rNNN.md` snapshot is
 dispatched, committed, or included in a review request, it is immutable: never
-edit, overwrite, or reformat that path. Any revision, including a wording fix,
+edit, overwrite, or reformat it. Any revision, including a wording fix,
 goes to the next numbered snapshot in the same series as a separate artifact.
 The same holds for a dispatched `sNNN.notes.md` or `rNNN.notes.md`.
 
 Write for a coder who did not observe the workflow: the current intended change
-and only the decisions, boundaries, and consequences material to safe
+and the decisions, boundaries, and consequences material to safe
 implementation; rationale only for non-obvious choices. The artifact is a
-specification, not drafting history — omit review dialogue, question-and-answer
-transcripts, exploration notes, workflow metadata, and discarded ideas.
+specification, not drafting history — omit review dialogue, Q&A transcripts,
+exploration notes, workflow metadata, and discarded ideas.
 
 Resolve technical questions from evidence. If a product or scope choice blocks
 drafting, ask the user directly.
 
 Before dispatching a revision, write `sNNN.notes.md` or `rNNN.notes.md` next to
-the snapshot — one disposition per finding in the reports and any requester
+the snapshot — one disposition per finding in the reports and requester
 rejection findings, `None` when there were none:
 
 - `accept`: valid under the Contract and repository evidence; apply it. A
@@ -79,9 +79,9 @@ Stop conditions, in order — ask the user only after evidence fails:
 
 1. A product, scope, or authority decision the Contract and repository cannot
    answer — including one conflicting with a user requirement, non-goal,
-   compatibility boundary, or core trade-off.
+   compatibility boundary, or trade-off.
 2. Reviewer and pruner demand contradictory resolutions of one decision with
-   no Contract-faithful intersection; report the intersection you tried or why
+   no Contract-faithful intersection; report the intersection tried or why
    none exists, both positions, and the evidence.
 3. Measurable non-convergence: unresolved findings did not shrink across two
    consecutive reviewed rounds, or a finding family recurred after an accepted
@@ -93,7 +93,7 @@ Context Revision before resuming.
 If the just-reviewed round reached its phase checkpoint (`structure_checkpoint`
 for `sNNN`, `review_checkpoint` for `rNNN`), first retrieve
 `agentgear skill get tech-design-workflow/author-convergence`; its convergence
-assessment goes into the next round's notes file before dispatch.
+assessment goes into the next round's notes before dispatch.
 
 ## Review Dispatch
 
@@ -111,14 +111,14 @@ agentgear run tech-design-workflow dispatch-design-review.mjs \
   --json
 ```
 
-`--phase` is required on a two-phase lane and selects the series and its
+`--phase` is required on a two-phase lane and selects the series and
 checkpoint; a single-phase lane omits it. An implementation dispatch also
 requires `--structure-doc <recorded sNNN path>` equal to the manifest. Omit
 `--previous-artifact` for round 1 of a series; later it is the immediately
-preceding snapshot of that same series.
+preceding snapshot.
 
-From round 2 the dispatch requires `--rationale-file` — this round's own notes
-file — carrying your dispositions to each role. After `MINIMAL`, pass that
+From round 2 the dispatch requires `--rationale-file`, this round's own notes
+file carrying your dispositions to each role. After `MINIMAL`, pass that
 exact snapshot as `--pruner-baseline-artifact` on later same-phase dispatches.
 Add `--major-structure-change` when the revision materially reorganizes
 boundaries, ownership, data flow, rollout, or another defining structure;
@@ -131,7 +131,8 @@ post-acceptance gate. A structural concern rides `structure-amendment`.
 `USER_CHECKPOINT_REQUIRED` means no request was sent; use `author-convergence`.
 
 `PRUNER_REQUIRED` means nothing was sent. Resolve or recover the lane's one
-`design_pruner`, then rerun with its session ID and address.
+`design_pruner`, then rerun with its session ID and address. `TARGET_SESSION_*`
+means nothing was sent; re-resolve that role's session and rerun.
 
 Receipts and nudge outcomes are transport diagnostics. Sends are sequential and
 each notify step is slow, so a run can take about a minute; it reports `sending

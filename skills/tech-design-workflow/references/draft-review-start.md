@@ -72,8 +72,12 @@ the other policies omit them. `--design-phases` must match the contract's
 `Design Phases:` declaration and defaults to `two` for a new lane; an existing
 lane keeps its recorded phases regardless of the flag default.
 
-Run with host permission. The wrapper writes the manifest, then sends reviewer
-and enabled-pruner context before notifying the author. Sends are sequential and
+Run with host permission. Before writing the manifest or sending, the wrapper
+verifies every hosted recipient through the host CLI resolved from the address
+scheme (`agent-deck`, `thurbox`); a missing, mismatched, or unverifiable session
+stops the run before any state or send — re-resolve that role through the shared
+session contract and rerun with its returned values. The wrapper then sends
+reviewer and enabled-pruner context before notifying the author. Sends are sequential and
 each notify step is slow, so the whole run can take about a minute; it reports
 `sending <stage>...` and `delivery_id=` on stderr as each send becomes durable.
 If the call returns while it is still running, keep polling that same session

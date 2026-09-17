@@ -5,16 +5,18 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  DEFAULT_SEND_TIMEOUT_MS,
   DELIVERY_STATE_TIMEOUT_MS,
   NUDGE_MESSAGE,
   expectedArtifactPath,
   expectedNotesPath,
   main as dispatchDraft,
   readContract,
-  sendOutputFrom,
   sendWaypost
 } from "../skills/tech-design-workflow/scripts/send-design-draft-with-review-context.mjs";
+import {
+  DEFAULT_SEND_TIMEOUT_MS,
+  sendOutputFrom
+} from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
 import { AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS } from "../providers/session-hosts.mjs";
 import {
   main as dispatchReview,
@@ -214,7 +216,7 @@ test("send parsing keeps delivery receipts as transport results", () => {
   const sent = sendWaypost(
     (message, options) => options.runCommand("waypost", ["send"], { input: message }),
     { fromAddress: "from", contentType: "text/markdown", schemaVersion: "1", sendTimeoutMs: 0 },
-    "to", "subject", "body",
+    { address: "to" }, "subject", "body",
     () => ({ status: 0, stdout: "{\"delivery_id\":\"d1\"}", stderr: "", error: null, signal: null, timedOut: false })
   );
   assert.equal(sent.status, "sent");
@@ -1868,6 +1870,269 @@ test("a single-phase prune request keeps the rNNN subject", async () => {
     }));
     const prune = records.find(record => actionFrom(record.body) === "design_prune_requested");
     assert.equal(prune.args[prune.args.indexOf("--subject") + 1], "design prune: design-task r1");
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+function hostedLaneArgs(item, { scheme = "agent-deck", extra = [] } = {}) {
+  const args = [...item.args];
+  for (const flag of ["--from-address", "--author-to-address", "--reviewer-to-address", "--session-host"]) {
+    const index = args.indexOf(flag);
+    if (index < 0) continue;
+    args[index + 1] = flag === "--session-host" ? scheme : `${scheme}/${args[index + 1].split("/").pop()}`;
+  }
+  return [...args, ...extra];
+}
+
+function sessionProbe({ missing = [], failing = [], records = [] } = {}) {
+  return (command, args) => {
+    records.push({ command, args });
+    const sessionId = args.filter(argument => !argument.startsWith("-")).at(-1);
+    if (failing.includes(sessionId)) {
+      return { status: 1, stdout: "", stderr: "simulated probe failure", error: null, signal: null, timedOut: false };
+    }
+    if (missing.includes(sessionId)) {
+      return command === "agent-deck"
+        ? { status: 2, stdout: "", stderr: `session ${sessionId} not found`, error: null, signal: null, timedOut: false }
+        : { status: 1, stdout: "", stderr: `session not found: ${sessionId}`, error: null, signal: null, timedOut: false };
+    }
+    return { status: 0, stdout: JSON.stringify({ success: true, id: sessionId }), stderr: "", error: null, signal: null, timedOut: false };
+  };
+}
+
+const probeAvailable = () => "/stub/host-cli";
+
+function stderrRecorder() {
+  const chunks = [];
+  return {
+    text: () => chunks.join(""),
+    write(chunk) { chunks.push(String(chunk)); return true; }
+  };
+}
+
+test("lane creation verifies hosted sessions before writing state or sending", async () => {
+  const item = fixture();
+  const records = [];
+  const probeCalls = [];
+  const stderr = stderrRecorder();
+  try {
+    await captureStdout(() => dispatchDraft(hostedLaneArgs(item), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ records: probeCalls }),
+      probeCommandExists: probeAvailable,
+      stderr
+    }));
+    assert.deepEqual(records.map(record => actionFrom(record.body)), [
+      "design_spec_review_context", "design_spec_draft_requested"
+    ]);
+    assert.deepEqual(
+      probeCalls.map(call => call.args.filter(argument => !argument.startsWith("-")).at(-1)),
+      ["reviewer-1", "author-1"]
+    );
+    assert.match(stderr.text(), /verified reviewer session agent-deck\/reviewer-1\nverified author session agent-deck\/author-1\n/);
+    assert.equal(fs.statSync(item.manifestFile).isFile(), true);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("lane creation rejects a missing reviewer session before any state or send", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    await assert.rejects(dispatchDraft(hostedLaneArgs(item), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ missing: ["reviewer-1"] }),
+      probeCommandExists: probeAvailable
+    }), error => error.prefix === "TARGET_SESSION_NOT_FOUND" && error.exitCode === 6 && /reviewer-1/.test(error.message));
+    assert.deepEqual(records, []);
+    assert.equal(fs.existsSync(item.manifestFile), false);
+    assert.equal(fs.existsSync(path.join(item.workdir, ".agent-artifacts", "design-spec-dispatch")), false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("lane creation rejects a missing author session before any send", async () => {
+  const item = fixture();
+  const records = [];
+  const probeCalls = [];
+  try {
+    await assert.rejects(dispatchDraft(hostedLaneArgs(item), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ missing: ["author-1"], records: probeCalls }),
+      probeCommandExists: probeAvailable
+    }), error => error.prefix === "TARGET_SESSION_NOT_FOUND" && error.exitCode === 6 && /author-1/.test(error.message));
+    assert.deepEqual(records, []);
+    assert.deepEqual(
+      probeCalls.map(call => call.args.filter(argument => !argument.startsWith("-")).at(-1)),
+      ["reviewer-1", "author-1"]
+    );
+    assert.equal(fs.existsSync(item.manifestFile), false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("lane creation rejects a missing thurbox session before any send", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    await assert.rejects(dispatchDraft(hostedLaneArgs(item, { scheme: "thurbox" }), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ missing: ["reviewer-1"] }),
+      probeCommandExists: probeAvailable
+    }), error => error.prefix === "TARGET_SESSION_NOT_FOUND" && error.exitCode === 6 && /reviewer-1/.test(error.message));
+    assert.deepEqual(records, []);
+    assert.equal(fs.existsSync(item.manifestFile), false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("lane creation rejects a hosted address that does not match its session id", async () => {
+  const item = fixture();
+  const records = [];
+  const probeCalls = [];
+  try {
+    await assert.rejects(dispatchDraft(hostedLaneArgs(item, {
+      extra: ["--author-to-address", "agent-deck/someone-else"]
+    }), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ records: probeCalls }),
+      probeCommandExists: probeAvailable
+    }), error => error.prefix === "TARGET_SESSION_MISMATCH" && error.exitCode === 6 && /author-1/.test(error.message));
+    assert.deepEqual(records, []);
+    assert.equal(probeCalls.length, 1);
+    assert.equal(fs.existsSync(item.manifestFile), false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("lane creation rejects an inconclusive session probe before any send", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    await assert.rejects(dispatchDraft(hostedLaneArgs(item), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ failing: ["reviewer-1"] }),
+      probeCommandExists: probeAvailable
+    }), error => error.prefix === "TARGET_SESSION_UNVERIFIED" && error.exitCode === 6 && /reviewer-1/.test(error.message));
+    assert.deepEqual(records, []);
+    assert.equal(fs.existsSync(item.manifestFile), false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("lane creation rejects when the host probe CLI is unavailable", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    await assert.rejects(dispatchDraft(hostedLaneArgs(item), {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({}),
+      probeCommandExists: () => null
+    }), error => error.prefix === "TARGET_SESSION_UNVERIFIED" && error.exitCode === 6 && /not in PATH/.test(error.message));
+    assert.deepEqual(records, []);
+    assert.equal(fs.existsSync(item.manifestFile), false);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("lane creation skips the session probe for non-hosted addresses", async () => {
+  const item = fixture();
+  const records = [];
+  const probeCalls = [];
+  try {
+    await captureStdout(() => dispatchDraft(item.args, {
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ records: probeCalls }),
+      probeCommandExists: () => null
+    }));
+    assert.equal(probeCalls.length, 0);
+    assert.deepEqual(records.map(record => actionFrom(record.body)), [
+      "design_spec_review_context", "design_spec_draft_requested"
+    ]);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("review dispatch rejects a missing reviewer session before sending", async () => {
+  const item = fixture();
+  const records = [];
+  try {
+    await captureStdout(() => dispatchDraft(hostedLaneArgs(item), {
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      runSessionProbe: sessionProbe({}),
+      probeCommandExists: probeAvailable
+    }));
+    writeArtifact(item, 1, "# Design\n\nOne.\nTwo.\n");
+    await assert.rejects(dispatchReview(reviewArgs(item), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ missing: ["reviewer-1"] }),
+      probeCommandExists: probeAvailable,
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }), error => error.prefix === "TARGET_SESSION_NOT_FOUND" && error.exitCode === 6 && /reviewer-1/.test(error.message));
+    assert.deepEqual(records, []);
+    const manifest = fs.readFileSync(item.manifestFile, "utf8");
+    await captureStdout(() => dispatchReview(reviewArgs(item), {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({}),
+      probeCommandExists: probeAvailable,
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })
+    }));
+    assert.deepEqual(records.map(record => actionFrom(record.body)), ["design_spec_review_requested"]);
+    assert.equal(fs.readFileSync(item.manifestFile, "utf8"), manifest);
+  } finally {
+    fs.rmSync(item.workdir, { recursive: true, force: true });
+  }
+});
+
+test("pruner-only dispatch rejects a missing pruner session before sending", async () => {
+  const item = fixture();
+  const records = [];
+  const probeCalls = [];
+  try {
+    await captureStdout(() => dispatchDraft(hostedLaneArgs(item), {
+      requireCommand() {},
+      runWaypost: successfulWaypost([]),
+      runSessionProbe: sessionProbe({}),
+      probeCommandExists: probeAvailable
+    }));
+    writeArtifact(item, 1, "# Design\n\nOne.\nTwo.\n");
+    await assert.rejects(dispatchReview([
+      ...reviewArgs(item),
+      "--pruner-only",
+      "--pruner-session-id", "pruner-1",
+      "--pruner-to-address", "agent-deck/pruner-1"
+    ], {
+      cwd: item.workdir,
+      requireCommand() {},
+      runWaypost: successfulWaypost(records),
+      runSessionProbe: sessionProbe({ missing: ["pruner-1"], records: probeCalls }),
+      probeCommandExists: probeAvailable,
+      loadPolicy: () => ({ maxLines: 250, maxChars: 20000, recheckAddedLines: 50, recheckAddedChars: 4000 })
+    }), error => error.prefix === "TARGET_SESSION_NOT_FOUND" && error.exitCode === 6 && /pruner-1/.test(error.message));
+    assert.deepEqual(records, []);
+    assert.equal(probeCalls.length, 1);
   } finally {
     fs.rmSync(item.workdir, { recursive: true, force: true });
   }

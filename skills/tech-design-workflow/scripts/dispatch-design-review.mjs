@@ -3,12 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
+  dispatchProbeDeps,
   execute,
   fail,
   isMain,
   parseArgs,
   readJson,
-  requireCommand
+  requireCommand,
+  verifyDispatchTarget
 } from "../../multi-agent-protocol/scripts/workflow-lib.mjs";
 import {
   designPruneRequestedMessage,
@@ -17,11 +19,11 @@ import {
   sendDesignSpecReviewRequestedMessage
 } from "./action-producers.mjs";
 import {
+  dispatchSender,
   expectedArtifactPath,
   expectedNotesPath,
   readContract,
   requireSymlinkFreeContainedPath,
-  sendWaypostWithNudgeRetry,
   stageSummary
 } from "./send-design-draft-with-review-context.mjs";
 import { loadWorkflowPolicy } from "./workflow-policy.mjs";
@@ -407,43 +409,34 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     growthThresholdReached
   }) : null;
 
+  const probe = dispatchProbeDeps(dependencies, manifest.session_host);
+  const reviewerTarget = options.prunerOnly
+    ? null
+    : verifyDispatchTarget("reviewer", manifest.reviewer_to_address, manifest.reviewer_session_id, probe);
+  const prunerTarget = pruner
+    ? verifyDispatchTarget("pruner", pruner.address, pruner.sessionId, probe)
+    : null;
+
   const sendOptions = {
     fromAddress: manifest.author_to_address,
     contentType: options.contentType,
     schemaVersion: options.schemaVersion,
     sendTimeoutMs: options.sendTimeoutMs
   };
-  const send = async (sender, sessionId, address, subject, body, label) => {
-    return sendWaypostWithNudgeRetry({
-      label,
-      sessionHost: manifest.session_host,
-      sessionId,
-      sender,
-      sendOptions,
-      toAddress: address,
-      subject,
-      message: body,
-      runCommand: dependencies.runWaypost,
-      readDeliveryCommand: dependencies.runWaypostRead,
-      runNudgeCommand: dependencies.runNudge,
-      stderr: dependencies.stderr || process.stderr
-    });
-  };
+  const send = dispatchSender(dependencies, sendOptions);
   const letter = options.phase === "structure" ? "s" : "r";
-  const reviewer = options.prunerOnly ? null : await send(
+  const reviewer = reviewerTarget && await send(
     sendDesignSpecReviewRequestedMessage,
-    manifest.reviewer_session_id,
-    manifest.reviewer_to_address,
+    reviewerTarget,
     `design-spec review: ${manifest.task_id} ${letter}${options.round}`,
     reviewMessage(designSpecReviewRequestedMessage, manifest, options, rationale),
     "design review"
   );
   let prunerResult = null;
-  if (pruner) {
+  if (prunerTarget) {
     prunerResult = await send(
       sendDesignPruneRequestedMessage,
-      pruner.sessionId,
-      pruner.address,
+      prunerTarget,
       `design prune: ${manifest.task_id} ${letter}${options.round}`,
       reviewMessage(designPruneRequestedMessage, manifest, options, rationale),
       "design prune"
