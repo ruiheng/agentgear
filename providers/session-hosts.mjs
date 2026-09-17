@@ -4,6 +4,8 @@ function fail(message) {
 
 export const AGENT_DECK_NUDGE_PROCESS_TIMEOUT_MS = 15000;
 export const THURBOX_NUDGE_PROCESS_TIMEOUT_MS = 5000;
+export const AGENT_DECK_PROBE_PROCESS_TIMEOUT_MS = 10000;
+export const THURBOX_PROBE_PROCESS_TIMEOUT_MS = 5000;
 
 export function sessionNudgeSpec(options) {
   if (options.host === "agent-deck") {
@@ -139,4 +141,74 @@ export function sessionDeletionSpec(options) {
     };
   }
   fail("Unsupported session host: " + options.host + ". Use agent-deck or thurbox.");
+}
+
+// sessionProbeSpec returns the read-only host command that reports whether a
+// hosted session id currently exists, or null when the host has no probe.
+export function sessionProbeSpec(options) {
+  if (options.host === "agent-deck") {
+    return {
+      command: "agent-deck",
+      timeoutMs: AGENT_DECK_PROBE_PROCESS_TIMEOUT_MS,
+      args: ["session", "show", options.sessionId, "--json"]
+    };
+  }
+  if (options.host === "thurbox") {
+    return {
+      command: "thurbox-cli",
+      timeoutMs: THURBOX_PROBE_PROCESS_TIMEOUT_MS,
+      args: ["session", "get", "--json", options.sessionId]
+    };
+  }
+  return null;
+}
+
+export function sessionProbeOutcome(host, result) {
+  if (result.timedOut || result.signal) {
+    return {
+      status: "unknown",
+      scheme: host,
+      detail: result.timedOut
+        ? "probe command timed out"
+        : `probe command terminated by ${result.signal}`,
+      error: null
+    };
+  }
+  if (result.error) {
+    return { status: "unknown", scheme: host, detail: null, error: result.error.message };
+  }
+  if (host === "agent-deck") {
+    if (result.status === 2) {
+      return { status: "not_found", scheme: host, detail: commandError(result), error: null };
+    }
+    if (result.status !== 0) {
+      return { status: "unknown", scheme: host, detail: null, error: commandError(result) };
+    }
+    let payload;
+    try {
+      payload = JSON.parse(result.stdout);
+    } catch {
+      return { status: "unknown", scheme: host, detail: null, error: "agent-deck session show returned invalid JSON" };
+    }
+    if (payload && payload.success === false) {
+      return {
+        status: "unknown",
+        scheme: host,
+        detail: null,
+        error: optionalText(payload.error) || "agent-deck session show reported failure with exit code 0"
+      };
+    }
+    return { status: "exists", scheme: host, detail: null, error: null };
+  }
+  if (host === "thurbox") {
+    if (result.status === 0) {
+      return { status: "exists", scheme: host, detail: null, error: null };
+    }
+    const detail = commandError(result);
+    if (result.status === 1 && /session not found/i.test(detail)) {
+      return { status: "not_found", scheme: host, detail, error: null };
+    }
+    return { status: "unknown", scheme: host, detail: null, error: detail };
+  }
+  return { status: "unknown", scheme: host, detail: null, error: `unsupported session host: ${host}` };
 }
