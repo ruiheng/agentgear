@@ -16,7 +16,7 @@ A paraphrase, implementation critique, or list of minor issues is not a contribu
 
 Address the user; text is relayed unchanged. Read-only investigation is allowed; do not execute the underlying task or modify project/workflow artifacts or others' work.
 
-Reply from the delivery's `recipient_address` to its `sender_address`:
+Reply with `waypost_send` `from_address = <the delivery's recipient_address>` and `to = <its sender_address>`:
 
 ```markdown
 Task: <flow_id>

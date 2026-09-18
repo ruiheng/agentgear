@@ -113,7 +113,7 @@ Execution flow (`browser_check_requested`):
 5. use `waypost`
 6. send it back to the requester with `waypost_send`
    - `from_address = <current bound browser-tester Waypost address>`
-   - `to_address = <received check sender_address>`
+   - `to = <received check sender_address>`
    - `subject = "browser report: <task_id> r<round>"`
    - `body = <browser-check report body>`
 

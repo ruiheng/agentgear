@@ -152,7 +152,7 @@ Execution flow in multi-agent mode:
 3. use `waypost`
 4. send the report back with `waypost_send`
    - `from_address = <current bound refactor-reviewer Waypost address>`
-   - `to_address = <received sender_address>`
+   - `to = <received sender_address>`
    - `subject = "refactor review report: <task_id> r<round>"`
    - `body = <refactor review report body>`
 

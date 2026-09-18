@@ -139,7 +139,7 @@ Execution flow in multi-agent mode:
 2. produce one advisory `simplify_review_report`
 3. send the report with `waypost_send`
    - `from_address = <current bound simplify-reviewer Waypost address>`
-   - `to_address = <received sender_address>`
+   - `to = <received sender_address>`
    - `subject = "simplify review report: <task_id> r<round>"`
    - `body = <simplify review report body>`
 

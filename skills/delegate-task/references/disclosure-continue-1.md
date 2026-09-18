@@ -42,10 +42,10 @@ Round: final
 - [item or `None`]
 ```
 
-- Call `waypost_send` from the retained inbound `recipient_address` to its
-  `sender_address`, subject `delegated task result: <task_id>`; ack the claimed
-  input only after it succeeds. On failure, do not ack; settle it under the
-  shared Receiver Contract.
+- Call `waypost_send` with `from_address = <retained inbound recipient_address>`
+  and `to = <its sender_address>`, subject `delegated task result: <task_id>`;
+  ack the claimed input only after it succeeds. On failure, do not ack; settle
+  it under the shared Receiver Contract.
 
 For direct user-owned code sessions only:
 

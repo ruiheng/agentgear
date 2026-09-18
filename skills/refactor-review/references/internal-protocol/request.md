@@ -130,7 +130,7 @@ Use the `waypost` MCP tools:
 5. use the returned real id as the authoritative `refactor_reviewer_session_id`
 6. compose the final body and call `waypost_send` with:
    - `from_address = waypost_status.default_sender`
-   - `to_address = <refactor reviewer returned address>`
+   - `to = <refactor reviewer returned address>`
    - `subject = "refactor review request: <task_id> r<round>"`
    - `body = <refactor review request body>`
 

@@ -33,6 +33,6 @@ Browser Check: <browser_check_id>
 Preserve the received Task, Round, and Browser Check. Never send secrets through
 Waypost.
 
-Use the received delivery's `recipient_address` as sender and `sender_address`
-as recipient, with subject `browser setup: <task_id> r<round>`. A send failure
-leaves the claim unacknowledged for Receiver Contract settlement.
+Send with `from_address = <received delivery's recipient_address>` and
+`to = <its sender_address>`, with subject `browser setup: <task_id> r<round>`.
+A send failure leaves the claim unacknowledged for Receiver Contract settlement.

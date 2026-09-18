@@ -110,7 +110,7 @@ Execution flow in multi-agent mode:
 3. use `waypost`
 4. send the report back with `waypost_send`
    - `from_address = <current bound code-health-reviewer Waypost address>`
-   - `to_address = <received sender_address>`
+   - `to = <received sender_address>`
    - `subject = "code health review report: <task_id> r<round>"`
    - `body = <code health review report body>`
 5. do not naturally end after drafting the report; this workflow turn is complete only after the required `waypost_send` back to the requester has succeeded

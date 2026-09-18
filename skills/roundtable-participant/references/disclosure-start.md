@@ -34,7 +34,7 @@ If `group_address`, `participant_person`, or `role` is missing, do not guess. As
    - Stop after 100 messages and note that the response is based on the first 100 unread messages.
 4. Compose one group reply.
 5. Send the reply with `waypost_send`:
-   - `to_address = group_address`
+   - `to = group_address`
    - `from_address = participant_person`
    - `as_person = participant_person`
    - `group = true`

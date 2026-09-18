@@ -69,7 +69,7 @@ If required values are resolved:
 3. if the current role is Planner, do not send a Waypost message; pass the generated body directly to `planner-closeout` and continue locally in this turn
 4. if the current role is Reviewer or another designated closeout executor:
    - call `session_require` for `planner_session_id` with `workdir = <planner_workspace>` and retain its returned real id and Waypost address
-   - call `waypost_send` from the current bound address to that planner address with the selected subject and generated body
+   - call `waypost_send` with `from_address = <current bound address>` and `to = <that planner address>` with the selected subject and generated body
 5. if the current role is unclear, report the missing workflow-role context and stop
 
 Do not call `session_require` for the current closeout executor merely to validate its id or workspace.

@@ -109,7 +109,7 @@ Workflow send sequence:
 6. record the returned host, real id, and sole address as the authoritative reviewer route; for a task lane, require that host to match the recorded task session host
 7. compose the final body and call `waypost_send` with:
    - `from_address = waypost_status.default_sender`
-   - `to_address = <reviewer returned address>`
+   - `to = <reviewer returned address>`
    - `subject = "review request: <task_id> r<round>"`
    - `body = <review-request message body>`
 

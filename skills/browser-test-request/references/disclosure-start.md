@@ -144,7 +144,7 @@ Use the `waypost` MCP tools:
   `browser_tester_session_id` route
 - call `waypost_send` with:
   - `from_address = waypost_status.default_sender`
-  - `to_address = <browser tester returned address>`
+  - `to = <browser tester returned address>`
   - `subject = "browser check: <task_id> r<round>"`
   - `body = <browser-check message body>`
 

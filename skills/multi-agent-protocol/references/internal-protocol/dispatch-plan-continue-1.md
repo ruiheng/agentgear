@@ -31,7 +31,7 @@ selector-summary: Apply the internal supervisor-to-planner dispatch protocol, pa
 13. fill `{{TO_SESSION_ID}}`
 14. send with:
    - `from_address = waypost_status.default_sender`
-   - `to_address = <planner returned address>`
+   - `to = <planner returned address>`
    - `subject = "plan dispatch: <plan_id>"`
    - `body = <execute-plan message body>`
 15. follow the shared Message delivery and continuation rule for planner reports
