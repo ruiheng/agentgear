@@ -28,7 +28,7 @@ For task, insert after `Original Task`, or after `Review Context` when delegated
 ## Workspace Handoff
 - Worker workspace: [worker_workspace]
 - Task dir: [task_dir]
-- Workspace lifecycle: [shared; cleanup=none | temporary; cleanup=planner]
+- Workspace lifecycle: [shared; cleanup=none | dedicated; cleanup=none | temporary; cleanup=planner]
 ```
 
 Round `>1` to the same reviewer session: send only delta.
@@ -90,7 +90,7 @@ For task, insert after `Delta Since Last Review`:
 ## Workspace Handoff
 - Worker workspace: [worker_workspace]
 - Task dir: [task_dir]
-- Workspace lifecycle: [shared; cleanup=none | temporary; cleanup=planner]
+- Workspace lifecycle: [shared; cleanup=none | dedicated; cleanup=none | temporary; cleanup=planner]
 ```
 
 ## Waypost Message Send + Wakeup

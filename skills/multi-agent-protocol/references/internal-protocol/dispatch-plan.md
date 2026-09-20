@@ -33,8 +33,8 @@ When allocating a new planner lane:
 
 ## Rules
 
-- one planner lane owns one session, workspace lifecycle, integration branch, and serial task decomposition in one workspace
-- set `planner_workspace = worker_workspace = workspace`; do not switch workspace or start another active lane there except an explicit resume
+- one planner lane owns one session, workspace lifecycle, integration branch, and task decomposition in one workspace; parallel task lanes run only in their own lane-exclusive workspaces
+- set `planner_workspace = workspace`; do not switch workspace or start another active lane there except an explicit resume; the planner may still give a delegated task its own confirmed workspace
 - workspace reservation records prepare task closeout; they do not schedule planner-lane exclusivity
 - create the planner as a child of the supervisor through the selected session host; do not expose host grouping in the workflow contract
 - when creating a new planner session and no planner title/ref is provided, use `planner-YYYYMMDD-HHMM-<slug>`; do not use bare `planner`
@@ -75,7 +75,7 @@ Apply the `route-waypost-action` skill.
 - Integration branch: [integration_branch]
 - Review base: [full commit OID]
   Source commit used to create this integration branch; use it for final integration review.
-- Execution model: planner-owned decomposition; serial tasks in one workspace
+- Execution model: planner-owned decomposition; serial tasks in one workspace (parallel lanes only via lane-exclusive workspaces)
 - Completion rule: planner is complete only after finishing the assigned goal and successfully sending `plan_report_delivered` to supervisor
 
 ## Review Policy
@@ -84,11 +84,11 @@ Apply the `route-waypost-action` skill.
 
 ## Planning Contract
 - Planner owns task decomposition and sequencing inside this workspace
-- Keep task execution serial in this workspace
+- Keep task execution serial within one workspace; a parallel task lane uses its own lane-exclusive workspace
 - Do not rely on workspace reservation records as cross-task locks; prepare the workspace again for each task closeout path
 - Use `delegate-task` Selection-Only: Direct only after its gate passes; otherwise use a native harness, independently justified persistent Waypost session via `delegate-code-task`, or planner-owned nonpersistent delivery. Never generic Dispatch.
 - Planner owns branch, commit, review, and closeout for local, harness, and nonpersistent delivery.
-- Planner-local execution and any later delegated work both stay in the one workspace recorded above
+- Planner-local execution stays in the recorded workspace; a delegated task lane may instead use its own confirmed workspace
 - Any self-implemented code change still requires workspace prep, explicit task branch from `integration_branch`, commit, any required review, closeout merge, and final supervisor report
 - Routine branch, commit, review-request, closeout, and final-report actions are workflow-authorized; ask the user only for real scope/tradeoff decisions or explicit human gates
 - In unattended mode, execute those authorized phases continuously; do not stop for a progress report after each action. The first implementation is not completion when inspection, repair, review, or closeout remains.

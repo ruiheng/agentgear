@@ -11,7 +11,7 @@ Use `delegate-task` in Selection-Only Use first when another action owns surface
 ## Code Scope
 
 - Use this only for the workflow-owned Waypost code lane. Local, harness-subagent, and explicit user-owned direct work retain their own lifecycle.
-- Keep code tasks serial.
+- Keep code tasks serial within one workspace; a parallel lane runs only in its own lane-exclusive workspace.
 
 ## Decomposition Gate
 
@@ -23,7 +23,7 @@ Before session, workspace, or brief work, decide whether the request is one inde
 - A dispatchable task has one engineering objective and checkpoint-specific acceptance criteria; it does not ask the coder to choose sequencing among sibling objectives. Split distinct objectives and dependency boundaries, not files, layers, or implementation steps.
 - Task completion does not require release readiness or every build and test to pass. For an intentional intermediate state, record the exact expected failures, why they are acceptable at this checkpoint, and the later queued task that restores them. Treat other failures as unplanned.
 - Keep changes together only when separating them would not create a coherent engineering checkpoint. Include prerequisites or boundaries only when relevant. Ask only when splitting changes scope, priority, or tradeoffs.
-- Dispatch only the first ready unit and keep the queue serial. The planner owns cross-task decomposition; the coder owns implementation breakdown within that unit.
+- Dispatch only ready units; keep them serial within one workspace and give each parallel lane its own exclusive workspace. The planner owns cross-task decomposition; the coder owns implementation breakdown within that unit.
 
 ## Brief Quality
 
@@ -44,15 +44,15 @@ Use the shared context priority. Resolve before dispatch:
 - `planner_session_id`: explicit -> context -> bound Waypost sender -> ask
 - `planner_workspace`: explicit -> workflow context -> current workspace -> ask
 - `worker_workspace`: explicit -> workflow context -> `planner_workspace`
-  - do not invent a separate workspace outside an explicitly confirmed temporary worktree
+  - do not invent a separate workspace outside an explicitly confirmed lane-exclusive workspace
   - from `execute-plan`, keep `worker_workspace = planner_workspace`
 - `task_dir`: explicit -> workflow context -> `worker_workspace`
   - for `temporary; cleanup=planner`, it must resolve to the same path as `worker_workspace`; stop on mismatch
 - `workspace_lifecycle`: explicit -> `shared; cleanup=none`
-  - a temporary worktree needs explicit user confirmation and `temporary; cleanup=planner`
-  - a temporary worktree gives the task's coder/reviewer pair an exclusive checkout for parallel lanes; the integration branch may then diverge, so closeout can land with a merge commit rather than fast-forward
-  - place it under a stable path, not a system temp dir a long task may outlive
-  - it contains only versioned files; name required untracked inputs (e.g., `.env`) in the brief so the coder can copy them from `planner_workspace`
+  - a lane-exclusive workspace needs explicit user confirmation; record `temporary; cleanup=planner` when planner removes it at closeout, otherwise `dedicated; cleanup=none`
+  - a lane-exclusive workspace enables parallel lanes; the integration branch may then diverge, so closeout can land with a merge commit rather than fast-forward
+  - place a temporary worktree under a stable path, not a system temp dir a long task may outlive
+  - a fresh worktree contains only versioned files; name required untracked inputs (e.g., `.env`) in the brief so the coder can copy them from `planner_workspace`
 - `session_reason`: explicit -> infer one concrete persistence, control, or user-interaction reason -> ask
 - branch plan:
   - `integration_branch`: the existing non-task landing branch; never `task/*`

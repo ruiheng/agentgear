@@ -20,8 +20,8 @@ Provide `execute_plan`, or a matching `integration_final` result plus plan conte
 
 ## Core Model
 
-- this planner lane owns one session, workspace lifecycle, integration branch, review base, and internal task decomposition; tasks execute serially in one workspace
-- workspace reservation records are prepared per task and released by closeout; planner-lane exclusivity comes from this serial execution contract, not from keeping a record across task gaps
+- this planner lane owns one session, workspace lifecycle, integration branch, review base, and internal task decomposition; tasks execute serially within one workspace, and a parallel lane runs only in its own lane-exclusive workspace
+- workspace reservation records are keyed per task workspace, prepared per task, and released by closeout; workspace exclusivity comes from the per-workspace serial contract, not from keeping a record across task gaps
 - planner default role is coordinator, not coder
 - the planner resolves routine decomposition and technical choices from the goal and repository evidence, then auto-advances through the required delivery steps
 - if a blocker cannot be resolved locally, stop and ask the user directly
@@ -60,8 +60,8 @@ Final-review continuation:
 1. read the goal, workspace contract, and review policy from the message body
    - set internal `planner_workspace = workspace` and `worker_workspace = workspace`
 2. run `agentgear run multi-agent-protocol prepare-workspaces.mjs --worker-workspace <worker_workspace> --planner-workspace <planner_workspace> --integration-branch <integration_branch> --planner-session-id <planner_session_id> --supervisor-session-id <supervisor_session_id>`
-3. decompose the goal into the smallest reasonable serial task sequence for this workspace
-4. execute that task sequence serially
+3. decompose the goal into the smallest reasonable task sequence for this workspace
+4. execute that sequence serially; a parallel lane runs only in its own lane-exclusive workspace
 5. for each implementation task:
    - before starting the task, run workspace prepare for the recorded workspace and integration branch
    - use `delegate-task` Selection-Only; never generic Dispatch

@@ -94,7 +94,7 @@ Optional command additions:
 - add repeatable `--target <role>=<session_id>` for task-scoped predecessor or replacement sessions retained in the authenticated task context; when using it for a role, put every session for that role in `--target` entries instead of also using the role-specific option
 - add `--ack-delivery-id <delivery_id> --ack-lease-token <lease_token>` when handling a claimed workspace-closeout delivery
 - add `--merge-mode ff|no-ff` when a merge commit is wanted instead of the default `ff-only` fast-forward: `ff` creates one only when fast-forward is impossible (typical when parallel task lanes advanced the integration branch), `no-ff` always
-- add `--override-planner-workspace` only after explicit user confirmation to replace the mirrored `planner-workspace.json` records
+- add `--override-planner-workspace` only after explicit user confirmation to replace this lane's workspace records
 
 ## Continue
 

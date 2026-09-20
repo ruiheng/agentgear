@@ -810,6 +810,128 @@ integrationTest("task-session cleanup fails closed when exact Thurbox UUID looku
   }
 });
 
+const prepareScript = path.join(rootDir, "skills/multi-agent-protocol/scripts/prepare-workspaces.mjs");
+
+function initRepoWithMain(temporary) {
+  const repository = path.join(temporary, "repository");
+  fs.mkdirSync(repository, { recursive: true });
+  assert.equal(run("git", ["init", "-b", "main"], { cwd: repository }).status, 0);
+  assert.equal(run("git", ["config", "user.email", "test@example.invalid"], { cwd: repository }).status, 0);
+  assert.equal(run("git", ["config", "user.name", "Agentgear Test"], { cwd: repository }).status, 0);
+  fs.writeFileSync(path.join(repository, "base.txt"), "base\n");
+  assert.equal(run("git", ["add", "base.txt"], { cwd: repository }).status, 0);
+  assert.equal(run("git", ["commit", "-m", "base"], { cwd: repository }).status, 0);
+  return fs.realpathSync(repository);
+}
+
+function addWorktree(repository, temporary, name, taskId, fileName) {
+  const worktree = path.join(temporary, name);
+  assert.equal(run("git", ["-C", repository, "worktree", "add", "--detach", worktree]).status, 0);
+  const realWorktree = fs.realpathSync(worktree);
+  assert.equal(run("git", ["-C", realWorktree, "switch", "-c", `task/${taskId}`]).status, 0);
+  fs.writeFileSync(path.join(realWorktree, fileName), `${fileName}\n`);
+  assert.equal(run("git", ["-C", realWorktree, "add", fileName]).status, 0);
+  assert.equal(run("git", ["-C", realWorktree, "commit", "-m", taskId]).status, 0);
+  return realWorktree;
+}
+
+function runPrepare(workerWorkspace, plannerWorkspace, env) {
+  return run(process.execPath, [
+    prepareScript,
+    "--worker-workspace", workerWorkspace,
+    "--planner-workspace", plannerWorkspace,
+    "--integration-branch", "main",
+    "--planner-session-id", "planner-1"
+  ], { env });
+}
+
+function runCloseout(taskId, workerWorkspace, plannerWorkspace, env, extra = []) {
+  return run(process.execPath, [
+    closeoutScript,
+    "--task-id", taskId,
+    "--task-branch", `task/${taskId}`,
+    "--integration-branch", "main",
+    "--worker-workspace", workerWorkspace,
+    "--planner-workspace", plannerWorkspace,
+    "--task-dir", workerWorkspace,
+    "--planner-session-id", "planner-1",
+    ...extra
+  ], { cwd: plannerWorkspace, env });
+}
+
+integrationTest("parallel task lanes use per-worktree keyed planner records", () => {
+  const taskA = "20260919-1000-lane-a";
+  const taskB = "20260919-1000-lane-b";
+  const fixture = makeFixture([
+    { id: "planner-1", title: "planner", tool: "shell", group: "", current: true }
+  ]);
+  try {
+    const repository = initRepoWithMain(fixture.temporary);
+    const wtA = addWorktree(repository, fixture.temporary, "lane-a", taskA, "lane-a.txt");
+    const wtB = addWorktree(repository, fixture.temporary, "lane-b", taskB, "lane-b.txt");
+    const laneDir = path.join(repository, ".agent-artifacts", "planner-workspaces");
+
+    const prepA = runPrepare(wtA, repository, fixture.env);
+    assert.equal(prepA.status, 0, prepA.stderr || prepA.stdout);
+    const prepB = runPrepare(wtB, repository, fixture.env);
+    assert.equal(prepB.status, 0, prepB.stderr || prepB.stdout);
+    assert.equal(fs.readdirSync(laneDir).length, 2);
+
+    const closeA = runCloseout(taskA, wtA, repository, fixture.env);
+    assert.equal(closeA.status, 0, closeA.stderr || closeA.stdout);
+    assert.equal(fs.readdirSync(laneDir).length, 1);
+
+    const closeB = runCloseout(taskB, wtB, repository, fixture.env, ["--merge-mode", "ff"]);
+    assert.equal(closeB.status, 0, closeB.stderr || closeB.stdout);
+    assert.equal(fs.existsSync(laneDir) ? fs.readdirSync(laneDir).length : 0, 0);
+    assert.equal(fs.existsSync(path.join(repository, "lane-a.txt")), true);
+    assert.equal(fs.existsSync(path.join(repository, "lane-b.txt")), true);
+    assert.equal(run("git", ["-C", repository, "rev-parse", "--verify", "HEAD^2"]).status, 0);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+integrationTest("a lane-keyed prepare preserves another lane's legacy workspace record", () => {
+  const taskA = "20260919-1001-legacy-a";
+  const taskB = "20260919-1001-lane-b";
+  const fixture = makeFixture([
+    { id: "planner-1", title: "planner", tool: "shell", group: "", current: true }
+  ]);
+  try {
+    const repository = initRepoWithMain(fixture.temporary);
+    const wtA = addWorktree(repository, fixture.temporary, "lane-a", taskA, "lane-a.txt");
+    const wtB = addWorktree(repository, fixture.temporary, "lane-b", taskB, "lane-b.txt");
+    const artifactRoot = path.join(repository, ".agent-artifacts");
+    const laneARecord = {
+      planner_session_id: "planner-1",
+      integration_branch: "main",
+      worker_workspace: wtA,
+      planner_workspace: repository
+    };
+    const legacyFile = path.join(artifactRoot, "planner-workspace.json");
+    fs.mkdirSync(artifactRoot, { recursive: true });
+    fs.writeFileSync(legacyFile, `${JSON.stringify(laneARecord, null, 2)}\n`);
+    const wtAArtifacts = path.join(wtA, ".agent-artifacts");
+    fs.mkdirSync(wtAArtifacts, { recursive: true });
+    fs.writeFileSync(path.join(wtAArtifacts, "planner-workspace.json"), `${JSON.stringify(laneARecord, null, 2)}\n`);
+    const laneDir = path.join(artifactRoot, "planner-workspaces");
+
+    const prepB = runPrepare(wtB, repository, fixture.env);
+    assert.equal(prepB.status, 0, prepB.stderr || prepB.stdout);
+    assert.deepEqual(JSON.parse(fs.readFileSync(legacyFile, "utf8")), laneARecord);
+    assert.equal(fs.readdirSync(laneDir).length, 1);
+
+    const closeA = runCloseout(taskA, wtA, repository, fixture.env);
+    assert.equal(closeA.status, 0, closeA.stderr || closeA.stdout);
+    assert.equal(fs.existsSync(legacyFile), false);
+    assert.equal(fs.existsSync(path.join(wtAArtifacts, "planner-workspace.json")), false);
+    assert.equal(fs.readdirSync(laneDir).length, 1);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 integrationTest("planner closeout retains its task lock when Thurbox inventory fails", () => {
   const taskId = "20260809-1204-thurbox-query-failure";
   const fixture = makeFixture([

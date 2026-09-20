@@ -18,7 +18,7 @@ Coder session: <coder_session_id>
 Planner workspace: <planner_workspace>
 Worker workspace: <worker_workspace>
 Task dir: <task_dir>
-Workspace lifecycle: <shared; cleanup=none | temporary; cleanup=planner>
+Workspace lifecycle: <shared; cleanup=none | dedicated; cleanup=none | temporary; cleanup=planner>
 Round: final
 Accepted Review By: reviewer <reviewer_session_id>
 

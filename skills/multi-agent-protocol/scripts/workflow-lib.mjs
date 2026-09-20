@@ -1,4 +1,5 @@
 import childProcess from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -435,6 +436,28 @@ export function verifyDispatchTarget(role, address, sessionId, {
   }
   stderr.write(`verified ${role} session ${target.scheme}/${target.id}\n`);
   return Object.freeze({ role, address, sessionId: target.id, host: target.scheme });
+}
+
+export function workspaceLaneKey(workerWorkspace) {
+  const hash = crypto.createHash("sha256").update(workerWorkspace).digest("hex").slice(0, 16);
+  const base = (path.basename(workerWorkspace) || "lane").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "lane";
+  return `${base}-${hash}`;
+}
+
+export function plannerLaneRecordPath(plannerArtifactRoot, workerWorkspace) {
+  return path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspaces", `${workspaceLaneKey(workerWorkspace)}.json`);
+}
+
+export function findPlannerLaneRecord(plannerArtifactRoot, workerWorkspace) {
+  const keyed = plannerLaneRecordPath(plannerArtifactRoot, workerWorkspace);
+  if (fs.existsSync(keyed)) return keyed;
+  const legacy = path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspace.json");
+  if (!fs.existsSync(legacy)) return null;
+  try {
+    return stringField(readJson(legacy), "worker_workspace") === workerWorkspace ? legacy : null;
+  } catch {
+    return null;
+  }
 }
 
 export function invokeNodeScript(scriptPath, args = [], options = {}) {

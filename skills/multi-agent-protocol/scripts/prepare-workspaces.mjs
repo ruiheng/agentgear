@@ -3,11 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  execute, fail, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic
+  execute, fail, findPlannerLaneRecord, isMain, nowIso, parseArgs, plannerLaneRecordPath, readJson, requireCommand, run, stringField, writeJsonAtomic
 } from "./workflow-lib.mjs";
 import { notifyWorkflowEvent } from "./notify-workflow-event.mjs";
 
-const usage = `Prepare worker/planner workspace records and the detached worker snapshot for one workflow.
+const usage = `Prepare worker/planner workspace records and the detached worker snapshot for one task lane.
+
+Planner-side records are keyed per worker workspace under .agent-artifacts/planner-workspaces/;
+a legacy single planner-workspace.json still serves the lane whose worker_workspace it records.
 
 Usage:
   prepare-workspaces.mjs [options]
@@ -162,8 +165,10 @@ export function main(argv = process.argv.slice(2)) {
   const workerArtifactRoot = options.workerArtifactRoot || path.join(workerWorkspace, ".agent-artifacts");
   const plannerArtifactRoot = options.plannerArtifactRoot || path.join(plannerWorkspace, ".agent-artifacts");
   const workerRecord = path.join(workerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspace.json");
-  const plannerRecord = path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspace.json");
-  const recordFiles = [...new Set([workerRecord, plannerRecord])];
+  const plannerRecord = plannerLaneRecordPath(plannerArtifactRoot, workerWorkspace);
+  const legacyPlannerRecord = path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspace.json");
+  const laneRecord = findPlannerLaneRecord(plannerArtifactRoot, workerWorkspace);
+  const recordFiles = [...new Set([workerRecord, laneRecord || plannerRecord])];
   const plannerSessionId = options.plannerSessionId;
 
   const releaseMatches = filePath => {
@@ -176,10 +181,20 @@ export function main(argv = process.argv.slice(2)) {
   };
 
   if (release) {
-    for (const filePath of recordFiles) if (fs.existsSync(filePath)) releaseMatches(filePath);
-    let removed = false;
-    for (const filePath of recordFiles) {
+    const targets = [...new Set([workerRecord, plannerRecord, legacyPlannerRecord])];
+    const deletable = [];
+    for (const filePath of targets) {
       if (!fs.existsSync(filePath)) continue;
+      if (filePath === legacyPlannerRecord && legacyPlannerRecord !== workerRecord) {
+        let legacy = null;
+        try { legacy = readJson(filePath); } catch { continue; }
+        if (value(legacy, "worker_workspace") !== workerWorkspace) continue;
+      }
+      releaseMatches(filePath);
+      deletable.push(filePath);
+    }
+    let removed = false;
+    for (const filePath of deletable) {
       fs.rmSync(filePath, { force: true });
       removed = true;
     }
@@ -193,10 +208,19 @@ export function main(argv = process.argv.slice(2)) {
   checkIntegrationBranchOwner(workerWorkspace, plannerWorkspace, options.integrationBranch);
   const existing = recordFiles.filter(filePath => fs.existsSync(filePath));
   const missingRecord = existing.length !== recordFiles.length;
-  const writeSet = status => recordFiles.forEach(filePath => writeRecord(filePath, {
-    plannerSessionId, integrationBranch: options.integrationBranch, supervisorSessionId: options.supervisorSessionId,
-    workerWorkspace, plannerWorkspace, status
-  }));
+  const writeSet = status => {
+    for (const filePath of new Set([workerRecord, plannerRecord])) {
+      writeRecord(filePath, {
+        plannerSessionId, integrationBranch: options.integrationBranch, supervisorSessionId: options.supervisorSessionId,
+        workerWorkspace, plannerWorkspace, status
+      });
+    }
+    if (legacyPlannerRecord !== workerRecord && fs.existsSync(legacyPlannerRecord)) {
+      try {
+        if (value(readJson(legacyPlannerRecord), "worker_workspace") === workerWorkspace) fs.rmSync(legacyPlannerRecord, { force: true });
+      } catch { /* leave an unreadable legacy record for its own lane */ }
+    }
+  };
   const output = (status, checkoutStatus) => {
     process.stdout.write("worker workspace git state: detached HEAD\n");
     process.stdout.write(`workspaces_prepared status=${status} checkout_status=${checkoutStatus} worker_record=${workerRecord} planner_record=${plannerRecord} planner=${plannerSessionId} integration_branch=${options.integrationBranch} integration_commit=${commit} worker_workspace=${workerWorkspace} planner_workspace=${plannerWorkspace}\n`);

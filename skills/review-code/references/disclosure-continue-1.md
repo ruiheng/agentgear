@@ -148,7 +148,7 @@ For task, append its Handoff unchanged after `Recorded Branch Plan`:
 ### Workspace Handoff
 - Worker workspace: [worker_workspace]
 - Task dir: [task_dir]
-- Workspace lifecycle: [shared; cleanup=none | temporary; cleanup=planner]
+- Workspace lifecycle: [shared; cleanup=none | dedicated; cleanup=none | temporary; cleanup=planner]
 ```
 
 For `integration_final` / `standalone`, omit Workspace Handoff and task Branch Plan.

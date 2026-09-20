@@ -53,7 +53,7 @@ Ask the user only for real scope/tradeoff decisions, explicit human gates, dirty
 - decompose by independently verifiable engineering checkpoints; keep related implementation, tests, contract fixes, and review repairs together. Do not create a new task for a local review finding or a small adjacent patch.
 - do not treat completed implementation, review, or closeout as plan completion; the plan completes only after `plan_report_delivered` is successfully sent to supervisor
 - if user input is needed for scope, priority, or tradeoff, ask the user directly and stop
-- do not rely on `.agent-artifacts/planner-workspace.json` as a cross-task lock; each task that can reach closeout must prepare its own reservation first
+- do not rely on workspace reservation records as a cross-task lock; each task that can reach closeout must prepare its own reservation first
 - do not ask for routine confirmation before planner-owned branch, commit, review-request, closeout, or final-report actions
 
 ## Final Report Template
@@ -85,9 +85,9 @@ Round: final
 
 ## Rules
 
-- keep plan execution serial inside this workspace
+- keep plan execution serial inside this workspace; a parallel lane runs only in its own lane-exclusive workspace
 - own the internal breakdown needed to complete the goal; do not ask supervisor to pre-split ordinary implementation tasks
-- keep `worker_workspace` and `planner_workspace` equal for the full dispatched plan; do not introduce a second workspace
+- keep `planner_workspace` equal to the dispatched workspace; `worker_workspace` is the same unless a task has an explicitly confirmed lane-exclusive workspace
 - preserve `integration_branch` and `review_base` for the full plan unless the user explicitly changes them
 - treat `integration_branch` as the planner-owned branch prepared for this dispatched plan; do not reinterpret it as the supervisor landing branch and do not silently jump onto some older leftover branch
 - run workspace prepare before each task that may later require closeout; treat the resulting detached-HEAD state in `worker_workspace` as authoritative until an explicit task branch is attached
@@ -95,7 +95,7 @@ Round: final
 - when self-implementing on the direct-work path, attach a real task branch from `integration_branch` before committing
 - treat workspace prep as an early closeout viability gate too: if another worktree already holds `integration_branch` and planner closeout later needs to attach it here, stop immediately instead of letting the plan fail only at final closeout
 - keep the planner workspace record aligned with the current planner session; if the workspace-prep script reports a live-session mismatch, stop instead of reusing the workspace
-- pass `--override-workspaces` only after explicit user confirmation to replace the mirrored `planner-workspace.json` records
+- pass `--override-workspaces` only after explicit user confirmation to replace this lane's workspace records
 - do not run ad hoc workspace record cleanup; closeout helpers own release and `prepare-workspaces.mjs --release-workspaces` is only for explicit script-reported cleanup recovery
 - do not naturally end after the last task if the final report to supervisor is still pending
 - if this turn owns a claimed `execute_plan` delivery, complete the final report and the delivery lifecycle step before ending

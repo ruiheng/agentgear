@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  currentScriptDirectory, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic, appendJsonLine
+  currentScriptDirectory, execute, fail, findPlannerLaneRecord, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, writeJsonAtomic, appendJsonLine
 } from "./workflow-lib.mjs";
 import { notifyWorkflowEvent } from "./notify-workflow-event.mjs";
 
@@ -165,8 +165,8 @@ export function main(argv = process.argv.slice(2)) {
     const prepared = invokeNodeScript(path.join(scriptDir, "prepare-workspaces.mjs"), prepareArgs);
     if (prepared.status !== 0) blocker("planner_closeout_workspace_prepare_failed", `failed to override workspace records: ${(prepared.stderr || prepared.stdout).trim()}`);
   }
-  const recordFile = path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspace.json");
-  if (!fs.existsSync(recordFile)) blocker("planner_closeout_workspace_record_missing", `planner workspace record missing: ${recordFile}`);
+  const recordFile = findPlannerLaneRecord(plannerArtifactRoot, workerWorkspace);
+  if (!recordFile) blocker("planner_closeout_workspace_record_missing", `planner workspace record missing for worker lane '${workerWorkspace}' under ${path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspaces")} (or legacy planner-workspace.json)`);
   const record = readJson(recordFile);
   const recordPlanner = stringField(record, "planner_session_id");
   const recordBranch = stringField(record, "integration_branch");
