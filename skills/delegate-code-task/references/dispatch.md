@@ -5,7 +5,7 @@ selector-summary: Dispatch a persistent code task to its coder.
 
 ## Dispatch
 
-For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to resolve to the same path before dispatch.
+For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to resolve to the same path before dispatch, and create the worktree before workspace preparation (e.g., `git worktree add --detach <task_dir>`).
 
 1. Resolve the coder id/ref through `agentgear skill get multi-agent-protocol/session-host`. When review is required, also resolve or create the reviewer before workspace preparation with the same planner parent, worker workspace, and session host.
 

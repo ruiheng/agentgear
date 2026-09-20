@@ -44,12 +44,15 @@ Use the shared context priority. Resolve before dispatch:
 - `planner_session_id`: explicit -> context -> bound Waypost sender -> ask
 - `planner_workspace`: explicit -> workflow context -> current workspace -> ask
 - `worker_workspace`: explicit -> workflow context -> `planner_workspace`
-  - do not invent a separate workspace
+  - do not invent a separate workspace outside an explicitly confirmed temporary worktree
   - from `execute-plan`, keep `worker_workspace = planner_workspace`
 - `task_dir`: explicit -> workflow context -> `worker_workspace`
   - for `temporary; cleanup=planner`, it must resolve to the same path as `worker_workspace`; stop on mismatch
 - `workspace_lifecycle`: explicit -> `shared; cleanup=none`
   - a temporary worktree needs explicit user confirmation and `temporary; cleanup=planner`
+  - a temporary worktree gives the task's coder/reviewer pair an exclusive checkout for parallel lanes; the integration branch may then diverge, so closeout can land with a merge commit rather than fast-forward
+  - place it under a stable path, not a system temp dir a long task may outlive
+  - it contains only versioned files; name required untracked inputs (e.g., `.env`) in the brief so the coder can copy them from `planner_workspace`
 - `session_reason`: explicit -> infer one concrete persistence, control, or user-interaction reason -> ask
 - branch plan:
   - `integration_branch`: the existing non-task landing branch; never `task/*`
