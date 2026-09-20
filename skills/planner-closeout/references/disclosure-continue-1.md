@@ -21,6 +21,7 @@ selector-summary: Complete planner-closeout instructions, part 2.
 - do not dispatch another planner lane into the same workspace merely because the reservation record was released; let the supervisor/dispatcher schedule lanes
 - if the shared workspace still shows active coder changes when closeout starts, stop and report the blocker instead of altering workspace state around those changes
 - if planner closeout fails, report the blocker and the exact manual action from the script output
+- on an `--ff-only` merge failure from a diverged integration branch, rerun the batch with `--merge-mode ff` or `no-ff` when a merge commit is the intended resolution; otherwise report the blocker
 - keep message JSON internal unless the user explicitly asks
 - do not end until batch succeeds or a concrete blocker is reported; report temporary cleanup as `complete` or `pending`
 
