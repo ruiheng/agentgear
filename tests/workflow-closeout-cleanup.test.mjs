@@ -932,6 +932,34 @@ integrationTest("a lane-keyed prepare preserves another lane's legacy workspace 
   }
 });
 
+integrationTest("planner closeout ignores another lane's legacy workspace record", () => {
+  const taskA = "20260919-1002-legacy-a";
+  const taskB = "20260919-1002-lane-b";
+  const fixture = makeFixture([
+    { id: "planner-1", title: "planner", tool: "shell", group: "", current: true }
+  ]);
+  try {
+    const repository = initRepoWithMain(fixture.temporary);
+    const wtA = addWorktree(repository, fixture.temporary, "lane-a", taskA, "lane-a.txt");
+    const wtB = addWorktree(repository, fixture.temporary, "lane-b", taskB, "lane-b.txt");
+    const artifactRoot = path.join(repository, ".agent-artifacts");
+    fs.mkdirSync(artifactRoot, { recursive: true });
+    fs.writeFileSync(path.join(artifactRoot, "planner-workspace.json"), `${JSON.stringify({
+      planner_session_id: "planner-1",
+      integration_branch: "main",
+      worker_workspace: wtA,
+      planner_workspace: repository
+    }, null, 2)}\n`);
+
+    const closeB = runCloseout(taskB, wtB, repository, fixture.env);
+    assert.notEqual(closeB.status, 0);
+    assert.match(`${closeB.stderr}\n${closeB.stdout}`, /record missing for worker lane/);
+    assert.equal(fs.existsSync(path.join(artifactRoot, "planner-workspace.json")), true);
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
 integrationTest("planner closeout retains its task lock when Thurbox inventory fails", () => {
   const taskId = "20260809-1204-thurbox-query-failure";
   const fixture = makeFixture([

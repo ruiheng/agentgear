@@ -24,8 +24,8 @@ Options:
   --worker-artifact-root <path>   Worker artifact root (default: <worker-workspace>/.agent-artifacts)
   --planner-artifact-root <path>  Planner artifact root (default: <planner-workspace>/.agent-artifacts)
   --allow-dirty                   Allow detaching worker workspace HEAD with local changes
-  --release-workspaces            Delete records owned by this planner from both roots
-  --override-workspaces           Replace mirrored records after explicit confirmation
+  --release-workspaces            Delete this lane's records from worker and planner roots
+  --override-workspaces           Replace this lane's records after explicit confirmation
   -h, --help                      Show help`;
 
 function blocker(event, message) {
@@ -103,7 +103,7 @@ function summary(filePath) {
 }
 
 function mismatch(field, canonicalFile, conflictingFile, plannerSessionRef) {
-  blocker("workspace_record_set_mismatch", `workspace record set mismatch: ${field} differs between mirrored records. current_planner_session='${plannerSessionRef}'. canonical { ${summary(canonicalFile)} }. conflicting { ${summary(conflictingFile)} }. If you intend to replace both mirrored records for this planner, rerun with --override-workspaces after explicit user confirmation.`);
+  blocker("workspace_record_set_mismatch", `workspace record set mismatch: ${field} differs between this lane's workspace records. current_planner_session='${plannerSessionRef}'. canonical { ${summary(canonicalFile)} }. conflicting { ${summary(conflictingFile)} }. If you intend to replace this lane's records, rerun with --override-workspaces after explicit user confirmation.`);
 }
 
 function validateRecordSet(canonicalFile, recordFiles, plannerSessionRef) {
@@ -181,20 +181,10 @@ export function main(argv = process.argv.slice(2)) {
   };
 
   if (release) {
-    const targets = [...new Set([workerRecord, plannerRecord, legacyPlannerRecord])];
-    const deletable = [];
-    for (const filePath of targets) {
-      if (!fs.existsSync(filePath)) continue;
-      if (filePath === legacyPlannerRecord && legacyPlannerRecord !== workerRecord) {
-        let legacy = null;
-        try { legacy = readJson(filePath); } catch { continue; }
-        if (value(legacy, "worker_workspace") !== workerWorkspace) continue;
-      }
-      releaseMatches(filePath);
-      deletable.push(filePath);
-    }
+    const targets = [...new Set([workerRecord, plannerRecord, laneRecord].filter(Boolean))].filter(filePath => fs.existsSync(filePath));
+    for (const filePath of targets) releaseMatches(filePath);
     let removed = false;
-    for (const filePath of deletable) {
+    for (const filePath of targets) {
       fs.rmSync(filePath, { force: true });
       removed = true;
     }
@@ -215,11 +205,7 @@ export function main(argv = process.argv.slice(2)) {
         workerWorkspace, plannerWorkspace, status
       });
     }
-    if (legacyPlannerRecord !== workerRecord && fs.existsSync(legacyPlannerRecord)) {
-      try {
-        if (value(readJson(legacyPlannerRecord), "worker_workspace") === workerWorkspace) fs.rmSync(legacyPlannerRecord, { force: true });
-      } catch { /* leave an unreadable legacy record for its own lane */ }
-    }
+    if (laneRecord === legacyPlannerRecord && laneRecord !== workerRecord) fs.rmSync(legacyPlannerRecord, { force: true });
   };
   const output = (status, checkoutStatus) => {
     process.stdout.write("worker workspace git state: detached HEAD\n");

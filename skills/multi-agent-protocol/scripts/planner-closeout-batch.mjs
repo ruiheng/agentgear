@@ -10,7 +10,7 @@ import { notifyWorkflowEvent } from "./notify-workflow-event.mjs";
 const usage = `Planner closeout batch with strict required-action ordering.
 
 Required actions (hard-fail): merge the task branch, then append a planner progress record.
-Optional actions: message acknowledgement, active-task-lock cleanup, task-session cleanup, mirrored workspace-record cleanup, branch pruning, and notifications.
+Optional actions: message acknowledgement, active-task-lock cleanup, task-session cleanup, lane workspace-record cleanup, branch pruning, and notifications.
 
 Usage:
   planner-closeout-batch.mjs [options]
@@ -174,6 +174,10 @@ export function main(argv = process.argv.slice(2)) {
   if (!recordBranch) blocker("planner_closeout_workspace_branch_missing", `planner workspace record missing integration_branch: ${recordFile}`);
   if (recordPlanner !== plannerSessionRef) blocker("planner_closeout_workspace_planner_mismatch", `planner workspace planner mismatch: record='${recordPlanner}' closeout='${plannerSessionRef}'`);
   if (recordBranch !== options.integrationBranch) blocker("planner_closeout_workspace_branch_mismatch", `planner workspace integration branch mismatch: record='${recordBranch}' closeout='${options.integrationBranch}'`);
+  const recordWorker = stringField(record, "worker_workspace");
+  const recordPlannerPath = stringField(record, "planner_workspace");
+  if (recordWorker && recordWorker !== workerWorkspace) blocker("planner_closeout_workspace_worker_mismatch", `planner workspace record worker mismatch: record='${recordWorker}' closeout='${workerWorkspace}'`);
+  if (recordPlannerPath && recordPlannerPath !== plannerWorkspace) blocker("planner_closeout_workspace_path_mismatch", `planner workspace record planner path mismatch: record='${recordPlannerPath}' closeout='${plannerWorkspace}'`);
 
   const original = git(plannerWorkspace, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   const startedBranch = original.status === 0 ? original.stdout.trim() : "detached";
@@ -317,7 +321,7 @@ export function main(argv = process.argv.slice(2)) {
   if (!workspaceReleaseBlocked) {
     const result = invokeNodeScript(path.join(scriptDir, "prepare-workspaces.mjs"), ["--worker-workspace", workerWorkspace, "--planner-workspace", plannerWorkspace, "--planner-session-id", plannerSessionRef, "--worker-artifact-root", workerArtifactRoot, "--planner-artifact-root", plannerArtifactRoot, "--release-workspaces"]);
     if (result.status === 0) workspaceRecordStatus = result.stdout.includes("status=already_absent") ? "already_absent" : "released";
-    else { workspaceRecordStatus = "failed"; optionalFails += 1; warn(`failed to release mirrored workspace records rc=${result.status}; rerun prepare-workspaces.mjs --release-workspaces with the same worker/planner workspace pair`); }
+    else { workspaceRecordStatus = "failed"; optionalFails += 1; warn(`failed to release lane workspace records rc=${result.status}; rerun prepare-workspaces.mjs --release-workspaces with the same worker/planner workspace pair`); }
   } else {
     workspaceRecordStatus = "skipped_optional_failures";
   }
