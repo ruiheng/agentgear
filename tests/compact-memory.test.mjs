@@ -6,7 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
-  agentgearSkillGetArgv,
+  agentgearSkillGetArgvs,
+  commandCallArgvs,
   compactAdditionalContext,
   handleHook,
   HANDLED_EVENTS,
@@ -245,7 +246,7 @@ test("sticky Waypost memory keeps the most recent bounded set", () => {
   }
 });
 
-test("PostToolUse remembers successful direct Agentgear skill gets only", () => {
+test("PostToolUse remembers successful Agentgear skill gets only", () => {
   const item = fixture();
   try {
     const base = {
@@ -256,7 +257,8 @@ test("PostToolUse remembers successful direct Agentgear skill gets only", () => 
     };
     handleHook({ ...base, tool_input: { command: "agentgear skill get delegate-code-task multi-agent-protocol/shared-protocol" } }, { env: item.env });
     handleHook({ ...base, tool_input: { command: "agentgear skill get delegate-code-task multi-agent-protocol/shared-protocol" } }, { env: item.env });
-    handleHook({ ...base, tool_input: { command: "agentgear skill get delegate-code-task && echo unsafe" } }, { env: item.env });
+    handleHook({ ...base, tool_input: { command: "cd /tmp && agentgear skill get handoff && agentgear skill get simplify-review" } }, { env: item.env });
+    handleHook({ ...base, tool_input: { command: 'echo "agentgear skill get explain-for-me"' } }, { env: item.env });
     handleHook({ ...base, tool_input: { command: "agentgear skill get search-files" }, tool_response: { exit_code: 1 } }, { env: item.env });
     const output = handleHook({
       session_id: "thread-skills", hook_event_name: "SessionStart", source: "compact"
@@ -264,8 +266,10 @@ test("PostToolUse remembers successful direct Agentgear skill gets only", () => 
     const context = output.hookSpecificOutput.additionalContext;
     assert.match(context, /Earlier `agentgear skill get` calls \(rerun if needed\):/);
     assert.match(context, /^- delegate-code-task multi-agent-protocol\/shared-protocol$/m);
+    assert.match(context, /^- handoff$/m);
+    assert.match(context, /^- simplify-review$/m);
     assert.equal(context.match(/agentgear skill get/g)?.length, 1);
-    assert.doesNotMatch(context, /echo unsafe|search-files/);
+    assert.doesNotMatch(context, /explain-for-me|search-files/);
     assert.doesNotMatch(context, /Sticky Waypost/);
     const root = sessionMemoryDirectory("thread-skills", item.env);
     assert.deepEqual(fs.readdirSync(root), ["memory.json"]);
@@ -274,19 +278,72 @@ test("PostToolUse remembers successful direct Agentgear skill gets only", () => 
   }
 });
 
-test("direct command recognition accepts only a leading PowerShell call operator", () => {
+test("command recognition accepts a leading PowerShell call operator and compound commands", () => {
   const windows = { platform: "win32" };
+  const handoff = [["agentgear", "skill", "get", "handoff"]];
+  assert.deepEqual(agentgearSkillGetArgvs("& agentgear skill get handoff", windows), handoff);
   assert.deepEqual(
-    agentgearSkillGetArgv("& agentgear skill get handoff", windows),
-    ["agentgear", "skill", "get", "handoff"]
+    agentgearSkillGetArgvs('& "C:\\Users\\Example User\\.local\\bin\\agentgear.cmd" skill get handoff', windows),
+    handoff
   );
+  assert.deepEqual(agentgearSkillGetArgvs("& agentgear skill get handoff", { platform: "linux" }), handoff);
+  assert.deepEqual(agentgearSkillGetArgvs("&agentgear skill get handoff", windows), handoff);
+  assert.deepEqual(agentgearSkillGetArgvs("& agentgear skill get handoff & echo unsafe", windows), handoff);
+  assert.deepEqual(agentgearSkillGetArgvs("agentgear skill get", windows), []);
+  assert.deepEqual(agentgearSkillGetArgvs('echo "agentgear skill get handoff"', windows), []);
   assert.deepEqual(
-    agentgearSkillGetArgv('& "C:\\Users\\Example User\\.local\\bin\\agentgear.cmd" skill get handoff', windows),
-    ["agentgear", "skill", "get", "handoff"]
+    agentgearSkillGetArgvs("agentgear skill get a && agentgear skill get b", windows),
+    [["agentgear", "skill", "get", "a"], ["agentgear", "skill", "get", "b"]]
   );
-  assert.equal(agentgearSkillGetArgv("& agentgear skill get handoff", { platform: "linux" }), null);
-  assert.equal(agentgearSkillGetArgv("&agentgear skill get handoff", windows), null);
-  assert.equal(agentgearSkillGetArgv("& agentgear skill get handoff & echo unsafe", windows), null);
+});
+
+test("commandCallArgvs resolves target invocations across shell syntax", () => {
+  const hits = [
+    ["waypost read --json", [["waypost", "read", "--json"]]],
+    ["cd /tmp && waypost read --json || echo no", [["waypost", "read", "--json"]]],
+    ["waypost read --json | jq .body", [["waypost", "read", "--json"]]],
+    ["env FOO=bar waypost read --json", [["waypost", "read", "--json"]]],
+    ["sudo -u root waypost read --json", [["waypost", "read", "--json"]]],
+    ["nice -n 5 waypost read --json", [["waypost", "read", "--json"]]],
+    ["xargs -0 waypost read --json", [["waypost", "read", "--json"]]],
+    ["exec waypost read --json", [["waypost", "read", "--json"]]],
+    ["sh -c 'waypost read --json'", [["waypost", "read", "--json"]]],
+    ["bash -lc 'waypost read --json'", [["waypost", "read", "--json"]]],
+    ["sudo sh -c 'waypost read --json'", [["waypost", "read", "--json"]]],
+    ["result=$(waypost read --json)", [["waypost", "read", "--json"]]],
+    ['echo "`waypost read --json`"', [["waypost", "read", "--json"]]],
+    ['x="$(waypost read --json)"', [["waypost", "read", "--json"]]],
+    ["x=${a:-$(waypost read --json)}", [["waypost", "read", "--json"]]],
+    ["( waypost read --json )", [["waypost", "read", "--json"]]],
+    ["{ waypost read --json; }", [["waypost", "read", "--json"]]],
+    ["f() { waypost read --json; }", [["waypost", "read", "--json"]]],
+    ["case x in y) waypost read --json;; esac", [["waypost", "read", "--json"]]],
+    ["while ! waypost recv --json; do sleep 0; done", [["waypost", "recv", "--json"]]],
+    ["FOO=bar waypost read --json", [["waypost", "read", "--json"]]],
+    ["waypost read --json > out.txt 2>&1", [["waypost", "read", "--json"]]],
+    ["waypost read --json 2> err.txt", [["waypost", "read", "--json"]]],
+    ["> /tmp/log waypost read --json", [["waypost", "read", "--json"]]],
+    ["waypost read --json && agentgear skill get handoff",
+      [["waypost", "read", "--json"], ["agentgear", "skill", "get", "handoff"]]],
+    ["agentgear skill list", [["agentgear", "skill", "list"]]]
+  ];
+  for (const [command, expected] of hits) {
+    assert.deepEqual(commandCallArgvs(command), expected, command);
+  }
+  const misses = [
+    "echo waypost read --json",
+    'echo "waypost read --json"',
+    "cat <<< 'waypost read --json'",
+    "echo hi > waypost read --json",
+    "waypost read --json 'unterminated",
+    "waypost read --json $(unterminated",
+    "waypost read --json\nwaypost list",
+    "printf '%s' waypost",
+    "echo 'agentgear skill get x'"
+  ];
+  for (const command of misses) {
+    assert.deepEqual(commandCallArgvs(command), [], command);
+  }
 });
 
 test("PowerShell direct Waypost reads can preserve sticky messages", () => {
@@ -304,6 +361,43 @@ test("PowerShell direct Waypost reads can preserve sticky messages", () => {
       }
     }, { env: item.env, platform: "win32" });
     assert.match(compactAdditionalContext("thread-powershell", { env: item.env }), /dlv_windows/);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("compound and wrapped Waypost reads preserve sticky messages", () => {
+  const item = fixture();
+  try {
+    const sticky = appendStickyTaskContextMarker("Compound task");
+    const run = (command, deliveryId) => handleHook({
+      session_id: "thread-compound",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+      tool_response: {
+        exit_code: 0,
+        output: JSON.stringify({ delivery_id: deliveryId, subject: "task", body: sticky })
+      }
+    }, { env: item.env });
+    const recorded = [
+      ["cd /tmp && waypost read --delivery dlv_cd --json", "dlv_cd"],
+      ["waypost read --delivery dlv_pipe --json | jq .body", "dlv_pipe"],
+      ["env FOO=bar waypost read --delivery dlv_env --json", "dlv_env"],
+      ["sudo waypost read --delivery dlv_sudo --json", "dlv_sudo"],
+      ["sh -c 'waypost read --delivery dlv_sh --json'", "dlv_sh"],
+      ["result=$(waypost read --delivery dlv_sub --json)", "dlv_sub"],
+      ["waypost read --delivery dlv_redir --json > /tmp/out.json", "dlv_redir"],
+      ["while ! waypost recv --json; do sleep 0; done", "dlv_loop"]
+    ];
+    const skipped = [
+      ["echo 'waypost read --delivery dlv_operand --json'", "dlv_operand"],
+      ["waypost read --delivery dlv_yaml --json --yaml", "dlv_yaml"]
+    ];
+    for (const [command, id] of [...recorded, ...skipped]) run(command, id);
+    const context = compactAdditionalContext("thread-compound", { env: item.env });
+    for (const [, id] of recorded) assert.match(context, new RegExp(id), id);
+    assert.doesNotMatch(context, /dlv_operand|dlv_yaml/);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }

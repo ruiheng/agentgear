@@ -179,72 +179,240 @@ export function recordStickyMessages(input, { env = process.env } = {}) {
   return recorded;
 }
 
-function splitDirectCommand(command, { platform = process.platform } = {}) {
-  if (typeof command !== "string" || !command.trim() || command.includes("\n") || command.includes("\0")) return null;
-  const words = [];
-  let source = command.trim();
-  if (source.startsWith("&")) {
-    if (platform !== "win32" || !/^&[ \t]+/u.test(source)) return null;
-    words.push("&");
-    source = source.slice(1).trimStart();
-    if (!source) return null;
-  }
+// A shell command line is recognized as the set of invocations it may run.
+// shellScan is the single lexical pass used for everything: it renders words
+// (quotes, escapes, and $( )/backquote/${ } spans stay atomic inside their
+// word), marks &&/||/;/|/&/( )/{ } operators as segment boundaries, and drops
+// redirections with their targets. commandCallArgvs splits the tokens into
+// segments and resolves each — keyword and VAR= prefixes, env/sudo-style
+// wrappers, sh -c strings — into candidate argvs.
+//
+// The recognizer is deliberately approximate: multi-line commands are not
+// recognized (keeping heredoc bodies out of scope), eval is not expanded, and
+// unparseable input yields no invocations. It exists to feed a fail-open
+// recorder — it must not be reused for denial or policy decisions, where
+// these gaps become bypasses.
+
+const SHELL_SEGMENT_BOUNDARIES = "&|;(){}";
+const SHELL_MAX_DEPTH = 64;
+
+// The wrapper, -c shell, and prefix tables mirror hookcore/command.go in
+// agent-mailbox (WaypostCommands); keep them in sync. `exec` is recognized
+// here in addition — `exec waypost ...` replaces the shell with the target.
+const SHELL_COMMAND_WRAPPERS = new Set([
+  "builtin", "command", "doas", "env", "exec",
+  "nice", "nohup", "stdbuf", "sudo", "time", "watch", "xargs"
+]);
+const SHELL_DASH_C_COMMANDS = new Set(["ash", "bash", "dash", "fish", "ksh", "sh", "zsh"]);
+const SHELL_COMMAND_PREFIXES = new Set([
+  "if", "elif", "while", "until", "do", "then", "else", "coproc", "!"
+]);
+const SHELL_ASSIGNMENT_WORD = /^[A-Za-z_][A-Za-z0-9_]*=/u;
+
+const SHELL_TARGET_EXECUTABLES = new Set(["waypost", "agentgear"]);
+
+// shellScan scans source[start..] as shell text and returns {tokens, next}:
+// word tokens ({type:"word", text}) in rendered form, operator tokens
+// ({type:"op"}) for each segment boundary, and no tokens for redirections.
+// `close` ends the scan at an unmatched close delimiter — ")" for $( ),
+// "}" for ${ }, "`" for backquotes — or null at top level. The token list of
+// every $( ) and backquote substitution is appended to the shared
+// `substitutions` in encounter order. Returns null on unterminated or
+// unbalanced input.
+function shellScan(source, start, platform, close, substitutions, level) {
+  if (level > SHELL_MAX_DEPTH) return null;
+  const open = close === ")" ? "(" : close === "}" ? "{" : null;
+  const tokens = [];
   let word = "";
+  let started = false;
   let quote = null;
   let escaped = false;
-  let started = false;
-  const finish = () => {
+  let depth = 0;
+  let dropNext = false;
+  let i = start;
+  const finishWord = () => {
     if (!started) return;
-    words.push(word);
+    if (!dropNext) tokens.push({ type: "word", text: word });
+    dropNext = false;
     word = "";
     started = false;
   };
-  for (const character of source) {
-    if (escaped) {
-      word += character;
-      escaped = false;
-      started = true;
+  const substitution = (openIndex, innerClose) => {
+    const inner = shellScan(source, openIndex + 1, platform, innerClose, substitutions, level + 1);
+    if (!inner) return false;
+    if (innerClose === ")" || innerClose === "`") substitutions.push(inner.tokens);
+    word += source.slice(i, inner.next);
+    started = true;
+    i = inner.next;
+    return true;
+  };
+  while (i < source.length) {
+    const ch = source[i];
+    if (escaped) { word += ch; escaped = false; i += 1; continue; }
+    if (quote === "'" || quote === "$'") {
+      if (ch === "'") quote = null;
+      else if (ch === "\\" && quote === "$'" && platform !== "win32") escaped = true;
+      else word += ch;
+      i += 1;
       continue;
     }
-    if (quote) {
-      if (character === quote) quote = null;
-      else if (character === "\\" && quote === '"' && platform !== "win32") escaped = true;
-      else word += character;
-      started = true;
+    if (quote === '"') {
+      if (ch === '"') { quote = null; i += 1; continue; }
+      if (ch === "\\" && platform !== "win32") { escaped = true; i += 1; continue; }
+      if (ch === "`") {
+        if (!substitution(i, "`")) return null;
+        continue;
+      }
+      if (ch === "$" && source[i + 1] === "(") {
+        if (!substitution(i + 1, ")")) return null;
+        continue;
+      }
+      word += ch;
+      i += 1;
       continue;
     }
-    if (character === "'" || character === '"') {
-      quote = character;
-      started = true;
-    } else if (/\s/u.test(character)) {
-      finish();
-    } else if (";&|<>()`".includes(character) || character === "$") {
-      return null;
-    } else if (character === "\\" && platform !== "win32") {
-      escaped = true;
-      started = true;
-    } else {
-      word += character;
-      started = true;
+    if (ch === "\\" && platform !== "win32") { escaped = true; i += 1; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; started = true; i += 1; continue; }
+    if (ch === "`" && close === "`") {
+      finishWord();
+      return { tokens, next: i + 1 };
     }
+    if (ch === "`" || (ch === "$" && source[i + 1] === "(")) {
+      if (!substitution(ch === "`" ? i : i + 1, ch === "`" ? "`" : ")")) return null;
+      continue;
+    }
+    if (ch === "$") {
+      const next = source[i + 1];
+      if (next === "{") {
+        // ${ } bodies are not command lines; the scan still runs so command
+        // substitutions nested inside (e.g. ${x:-$(cmd)}) are collected.
+        if (!substitution(i + 1, "}")) return null;
+        continue;
+      }
+      if (next === "'" || next === '"') { quote = next === "'" ? "$'" : next; started = true; i += 2; continue; }
+      word += ch;
+      started = true;
+      i += 1;
+      continue;
+    }
+    if (SHELL_SEGMENT_BOUNDARIES.includes(ch)) {
+      finishWord();
+      if (open) {
+        if (ch === close && depth === 0) return { tokens, next: i + 1 };
+        if (ch === open) depth += 1;
+        else if (ch === close) depth -= 1;
+      }
+      tokens.push({ type: "op", op: ch });
+      i += 1;
+      continue;
+    }
+    if (ch === "<" || ch === ">") {
+      // A pending all-digit word is a file-descriptor prefix (`2>f`), not an argument.
+      if (/^\d+$/u.test(word)) { word = ""; started = false; }
+      finishWord();
+      i += 1;
+      while (i < source.length && (source[i] === "<" || source[i] === ">")) i += 1;
+      if (source[i] === "&") i += 1;   // `>&` fuses the fd duplication
+      // The redirect target is the next word, attached or separated.
+      dropNext = true;
+      continue;
+    }
+    if (/\s/u.test(ch)) { finishWord(); i += 1; continue; }
+    word += ch;
+    started = true;
+    i += 1;
   }
-  if (quote || escaped) return null;
-  finish();
-  return words;
+  if (quote || escaped || close !== null) return null;
+  finishWord();
+  return { tokens, next: i };
+}
+
+// dashCCommandText returns the command line a `sh -c`-style call interprets.
+function dashCCommandText(argv) {
+  for (let i = 1; i < argv.length - 1; i += 1) {
+    const flag = argv[i];
+    if (flag === "-c" || (/^-[^-]/u.test(flag) && flag.slice(1).includes("c"))) return argv[i + 1];
+  }
+  return null;
+}
+
+// commandCallArgvs returns an argv for every waypost/agentgear invocation in a
+// shell command line: compound commands, command substitutions, subshells,
+// wrapper commands (env, sudo, ...), and `sh -c` strings are all recognized,
+// while a target merely mentioned inside quoted arguments or another
+// command's operands is not.
+export function commandCallArgvs(command, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const calls = [];
+  const pendingTexts = [command];
+  const pendingTokenLists = [];
+  const resolveSegment = (words) => {
+    let start = 0;
+    while (start < words.length
+      && (SHELL_COMMAND_PREFIXES.has(words[start]) || SHELL_ASSIGNMENT_WORD.test(words[start]))) {
+      start += 1;
+    }
+    const argv = words.slice(start);
+    if (argv.length === 0) return;
+    const base = commandBasename(argv[0]);
+    if (SHELL_COMMAND_WRAPPERS.has(base)) {
+      for (let k = 1; k < argv.length; k += 1) {
+        const wrapped = commandBasename(argv[k]);
+        if (SHELL_TARGET_EXECUTABLES.has(wrapped)) { calls.push(argv.slice(k)); break; }
+        if (SHELL_DASH_C_COMMANDS.has(wrapped)) {
+          const inner = dashCCommandText(argv.slice(k));
+          if (inner !== null) pendingTexts.push(inner);
+          break;
+        }
+      }
+    } else if (SHELL_DASH_C_COMMANDS.has(base)) {
+      const inner = dashCCommandText(argv);
+      if (inner !== null) pendingTexts.push(inner);
+    } else if (SHELL_TARGET_EXECUTABLES.has(base)) {
+      calls.push(argv);
+    }
+  };
+  while (pendingTexts.length > 0 || pendingTokenLists.length > 0) {
+    if (pendingTexts.length > 0) {
+      let source = pendingTexts.shift();
+      if (typeof source !== "string") continue;
+      source = source.trim();
+      // A leading `&` is the Windows PowerShell invocation prefix.
+      if (source.startsWith("&")) source = source.slice(1).trimStart();
+      if (!source || source.includes("\n") || source.includes("\0")) continue;
+      const substitutions = [];
+      const scanned = shellScan(source, 0, platform, null, substitutions, 0);
+      if (!scanned) continue;
+      pendingTokenLists.push(scanned.tokens, ...substitutions);
+      continue;
+    }
+    let segment = [];
+    for (const token of pendingTokenLists.shift()) {
+      if (token.type === "op") {
+        if (segment.length > 0) resolveSegment(segment);
+        segment = [];
+      } else {
+        segment.push(token.text);
+      }
+    }
+    if (segment.length > 0) resolveSegment(segment);
+  }
+  return calls;
 }
 
 function commandBasename(command) {
   return path.basename(command.replaceAll("\\", "/")).toLowerCase().replace(/\.(?:cmd|exe)$/u, "");
 }
 
-export function agentgearSkillGetArgv(command, options = {}) {
-  const words = splitDirectCommand(command, options);
-  if (!words || words.length < 4) return null;
-  if (words[0] === "&") words.shift();
-  if (commandBasename(words[0]) !== "agentgear" || words[1] !== "skill" || words[2] !== "get") return null;
-  const args = words.slice(3);
-  if (args.length === 0 || args.some(value => !/^[A-Za-z0-9][A-Za-z0-9._:/+,-]*$|^--(?:agent-profile)?$/u.test(value))) return null;
-  return ["agentgear", "skill", "get", ...args];
+export function agentgearSkillGetArgvs(command, options = {}) {
+  const argvs = [];
+  for (const argv of commandCallArgvs(command, options)) {
+    if (commandBasename(argv[0]) !== "agentgear" || argv[1] !== "skill" || argv[2] !== "get") continue;
+    const args = argv.slice(3);
+    if (args.length === 0 || args.some(value => !/^[A-Za-z0-9][A-Za-z0-9._:/+,-]*$|^--(?:agent-profile)?$/u.test(value))) continue;
+    argvs.push(["agentgear", "skill", "get", ...args]);
+  }
+  return argvs;
 }
 
 function bashCommand(input) {
@@ -258,13 +426,20 @@ export function recordSkillGet(input, {
   platform = process.platform
 } = {}) {
   if (responseFailed(input.tool_response)) return false;
-  const argv = agentgearSkillGetArgv(bashCommand(input), { platform });
-  if (!argv) return false;
+  const argvs = agentgearSkillGetArgvs(bashCommand(input), { platform });
+  if (argvs.length === 0) return false;
   const root = sessionMemoryDirectory(input.session_id, env);
   const memory = readMemory(root);
-  const encoded = JSON.stringify(argv);
-  if (memory.skill_gets.some(call => JSON.stringify(call) === encoded)) return false;
-  memory.skill_gets.push(argv);
+  const recorded = new Set(memory.skill_gets.map(call => JSON.stringify(call)));
+  let changed = false;
+  for (const argv of argvs) {
+    const encoded = JSON.stringify(argv);
+    if (recorded.has(encoded)) continue;
+    recorded.add(encoded);
+    memory.skill_gets.push(argv);
+    changed = true;
+  }
+  if (!changed) return false;
   writeMemory(root, memory);
   return true;
 }
@@ -273,18 +448,21 @@ function waypostToolName(toolName) {
   return typeof toolName === "string" && /(?:^|__)waypost_(?:recv|read)$/u.test(toolName);
 }
 
-function directWaypostReadCommand(command, options = {}) {
-  const words = splitDirectCommand(command, options);
-  if (!words || words.length < 2) return false;
-  if (words[0] === "&") words.shift();
-  if (commandBasename(words[0]) !== "waypost") return false;
-  const json = words.some(word => word === "--json" || word === "--json=true");
-  const yaml = words.some(word => word === "--yaml" || word === "--yaml=true");
-  if (!json || yaml) return false;
-  let index = 1;
-  if (words[index] === "--state-dir") index += 2;
-  else if (words[index]?.startsWith("--state-dir=")) index += 1;
-  return ["recv", "read"].includes(words[index]);
+function runsWaypostReadCommand(command, options = {}) {
+  for (const argv of commandCallArgvs(command, options)) {
+    if (commandBasename(argv[0]) !== "waypost" || argv.length < 2) continue;
+    const json = argv.some(word => word === "--json" || word === "--json=true");
+    const yaml = argv.some(word => word === "--yaml" || word === "--yaml=true");
+    if (!json || yaml) continue;
+    let index = 1;
+    while (index < argv.length) {
+      if (argv[index] === "--state-dir") index += 2;
+      else if (argv[index].startsWith("--state-dir=")) index += 1;
+      else break;
+    }
+    if (["recv", "receive", "read"].includes(argv[index])) return true;
+  }
+  return false;
 }
 
 const SHELL_TOOL_NAMES = new Set(["Bash", "exec"]);
@@ -292,7 +470,7 @@ const SHELL_TOOL_NAMES = new Set(["Bash", "exec"]);
 export function handlePostToolUse(input, options = {}) {
   if (input.hook_event_name !== "PostToolUse") return;
   if (waypostToolName(input.tool_name)
-    || (SHELL_TOOL_NAMES.has(input.tool_name) && directWaypostReadCommand(bashCommand(input), options))) {
+    || (SHELL_TOOL_NAMES.has(input.tool_name) && runsWaypostReadCommand(bashCommand(input), options))) {
     recordStickyMessages(input, options);
   }
   if (SHELL_TOOL_NAMES.has(input.tool_name)) recordSkillGet(input, options);
