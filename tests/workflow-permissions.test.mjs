@@ -105,6 +105,8 @@ test("workflow permissions use the stable launcher and never an old source path"
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run tech-design-workflow *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear run intent-framing *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run intent-framing *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear run remember *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run remember *)"), true);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear run review-tech-design *)"), false);
     assert.equal(claude.permissions.allow.includes("Bash(~/.local/bin/agentgear run review-tech-design *)"), false);
     assert.equal(claude.permissions.allow.includes("Bash(agentgear skill get *)"), true);
@@ -115,11 +117,13 @@ test("workflow permissions use the stable launcher and never an old source path"
     assert.match(generated[1], /pattern = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[1], /pattern = \["agentgear", "run", "tech-design-workflow"\]/);
     assert.match(generated[1], /pattern = \["agentgear", "run", "intent-framing"\]/);
+    assert.match(generated[1], /pattern = \["agentgear", "run", "remember"\]/);
     assert.doesNotMatch(generated[1], /pattern = \["agentgear", "run", "review-tech-design"\]/);
     assert.match(generated[1], /pattern = \["agentgear", "skill", "get"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "resolve-tool-command"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "run", "tech-design-workflow"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "run", "intent-framing"\]/);
+    assert.match(generated[2], /commandPrefix = \["agentgear", "run", "remember"\]/);
     assert.doesNotMatch(generated[2], /commandPrefix = \["agentgear", "run", "review-tech-design"\]/);
     assert.match(generated[2], /commandPrefix = \["agentgear", "skill", "get"\]/);
   } finally {
@@ -289,11 +293,12 @@ test("permission migration detects every prior launcher form missing skill get a
     const stale = findMissingWorkflowLauncherApprovals({ scope: "user", project, env: environment });
     assert.equal(stale.required, true);
     assert.equal(stale.issues.length, 3);
-    assert.equal(stale.issues.every(issue => /6 workflow launcher approval/.test(issue)), true);
+    assert.equal(stale.issues.every(issue => /9 workflow launcher approval/.test(issue)), true);
 
     withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
     const claude = JSON.parse(fs.readFileSync(paths.claudeSettings, "utf8"));
     assert.equal(claude.permissions.allow.includes("Bash(agentgear run intent-framing *)"), true);
+    assert.equal(claude.permissions.allow.includes("Bash(agentgear run remember *)"), true);
     for (const command of forms) {
       assert.equal(claude.permissions.allow.includes(`Bash(${command} skill get *)`), true);
       assert.equal(claude.permissions.allow.includes(`Bash(${command} run review-tech-design *)`), false);

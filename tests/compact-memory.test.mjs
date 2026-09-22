@@ -11,9 +11,23 @@ import {
   compactAdditionalContext,
   handleHook,
   HANDLED_EVENTS,
+  rememberOpsFromPrompt,
   sessionMemoryDirectory,
   STICKY_MESSAGE_LIMIT
 } from "../skills/multi-agent-protocol/scripts/compact-memory-hook.mjs";
+import {
+  appendInboxOp,
+  applyOps,
+  claimInbox,
+  inboxFile,
+  INBOX_OP_TTL_MS,
+  noteCommandOp,
+  NOTES_LIMIT,
+  NOTE_TEXT_LIMIT,
+  notesFile,
+  readInboxOps,
+  readNotes
+} from "../skills/multi-agent-protocol/scripts/session-notes-store.mjs";
 import {
   appendStickyTaskContextMarker,
   hasStickyTaskContextMarker,
@@ -1441,6 +1455,281 @@ test("every provider-managed hook event is handled by the compact-memory hook", 
   }
 });
 
+test("rememberOpsFromPrompt parses remember command lines only", () => {
+  const ops = prompt => rememberOpsFromPrompt(prompt).ops;
+  assert.deepEqual(ops("/remember 不要修改代码"), [{ op: "add", text: "不要修改代码" }]);
+  assert.deepEqual(ops("/agentgear-remember foo bar"), [{ op: "add", text: "foo bar" }]);
+  assert.deepEqual(ops("/remember"), [{ op: "list" }]);
+  assert.deepEqual(ops("/remember list"), [{ op: "list" }]);
+  assert.deepEqual(ops("/remember forget 2"), [{ op: "remove", index: 2 }]);
+  assert.deepEqual(ops("/remember remove 不要修改代码"), [{ op: "remove", text: "不要修改代码" }]);
+  assert.deepEqual(ops("/remember clear"), [{ op: "clear" }]);
+  assert.deepEqual(ops("/remember reset"), [{ op: "clear" }]);
+  assert.deepEqual(ops("/remember add pinned text"), [{ op: "add", text: "pinned text" }]);
+  // Zero-arg verbs only fire as the whole argument; verb-prefixed text is a note.
+  assert.deepEqual(ops("/remember clear the table"), [{ op: "add", text: "clear the table" }]);
+  assert.deepEqual(ops("/remember list all files"), [{ op: "add", text: "list all files" }]);
+  assert.deepEqual(ops("/remember show me the diff"), [{ op: "add", text: "show me the diff" }]);
+  assert.deepEqual(ops("/remember reset the counter"), [{ op: "add", text: "reset the counter" }]);
+  assert.deepEqual(ops("/remember ls -la"), [{ op: "add", text: "ls -la" }]);
+  assert.deepEqual(ops("do this\n/remember alpha\nthen that"), [{ op: "add", text: "alpha" }]);
+  assert.deepEqual(ops("please use /remember alpha for this"), []);
+  assert.deepEqual(ops("remember this please"), []);
+  assert.deepEqual(ops("// remember x"), []);
+  assert.deepEqual(ops("/remembering stuff"), []);
+  assert.deepEqual(ops("/remember-foo x"), []);
+  assert.deepEqual(ops("/unremember x"), []);
+  assert.deepEqual(ops("/misremember x"), []);
+  assert.deepEqual(ops(undefined), []);
+
+  const bare = rememberOpsFromPrompt("/remember remove");
+  assert.deepEqual(bare.ops, []);
+  assert.match(bare.errors[0], /requires/);
+  const oversized = rememberOpsFromPrompt(`/remember ${"x".repeat(NOTE_TEXT_LIMIT + 1)}`);
+  assert.deepEqual(oversized.ops, []);
+  assert.match(oversized.errors[0], /exceeds/);
+});
+
+test("session-notes applyOps adds, dedupes, removes, and clears", () => {
+  const memory = { schema_version: 1, notes: [] };
+  let result = applyOps(memory, [
+    { op: "add", text: "不要修改代码" },
+    { op: "add", text: "  不要修改代码  " },
+    { op: "add", text: "use pnpm" }
+  ]);
+  assert.equal(result.applied, 3);
+  assert.equal(result.errors.length, 0);
+  assert.deepEqual(result.memory.notes.map(note => note.text), ["不要修改代码", "use pnpm"]);
+
+  result = applyOps(result.memory, [{ op: "remove", index: 1 }]);
+  assert.deepEqual(result.memory.notes.map(note => note.text), ["use pnpm"]);
+
+  result = applyOps(result.memory, [{ op: "remove", index: 5 }]);
+  assert.equal(result.applied, 0);
+  assert.match(result.errors[0], /no note #5/);
+
+  result = applyOps(result.memory, [
+    { op: "remove", text: "use pnpm" },
+    { op: "add", text: "x" },
+    { op: "clear" }
+  ]);
+  assert.deepEqual(result.memory.notes, []);
+
+  result = applyOps(result.memory, [{ op: "nope" }, { op: "add" }]);
+  assert.equal(result.applied, 0);
+  assert.equal(result.errors.length, 2);
+});
+
+test("session-notes applyOps enforces the notes cap and text limit", () => {
+  const full = {
+    schema_version: 1,
+    notes: Array.from({ length: NOTES_LIMIT }, (_, index) => ({ text: `n${index}`, created_at: "t" }))
+  };
+  const rejected = applyOps(full, [{ op: "add", text: "overflow" }]);
+  assert.equal(rejected.applied, 0);
+  assert.match(rejected.errors[0], /full/);
+  const long = applyOps({ schema_version: 1, notes: [] }, [{ op: "add", text: "x".repeat(NOTE_TEXT_LIMIT + 1) }]);
+  assert.match(long.errors[0], /exceeds/);
+});
+
+test("inbox ops round-trip through appendInboxOp and readInboxOps", () => {
+  const item = fixture();
+  try {
+    const cwd = item.temporary;
+    appendInboxOp(cwd, { op: "add", text: "a" }, item.env);
+    appendInboxOp(cwd, { op: "remove", index: 2 }, item.env);
+    const ops = readInboxOps(cwd, item.env);
+    assert.equal(ops.length, 2);
+    assert.equal(ops[0].op, "add");
+    assert.equal(ops[1].index, 2);
+    assert.throws(() => appendInboxOp(cwd, { op: "bogus" }, item.env));
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("claimInbox applies ops, reports malformed lines, and clears the inbox", () => {
+  const item = fixture();
+  try {
+    const cwd = item.temporary;
+    const dir = sessionMemoryDirectory("s1", item.env);
+    appendInboxOp(cwd, { op: "add", text: "one" }, item.env);
+    fs.appendFileSync(inboxFile(cwd, item.env), "not-json\n");
+    const result = claimInbox(cwd, dir, { env: item.env });
+    assert.equal(result.touched, true);
+    assert.equal(result.applied, 1);
+    assert.equal(result.errors.length, 1);
+    assert.deepEqual(result.notes.map(note => note.text), ["one"]);
+    assert.equal(fs.existsSync(inboxFile(cwd, item.env)), false);
+    assert.deepEqual(readNotes(dir).notes.map(note => note.text), ["one"]);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("PostToolUse claims queued inbox ops into the session notes", () => {
+  const item = fixture();
+  try {
+    const cwd = path.join(item.temporary, "work");
+    fs.mkdirSync(cwd, { recursive: true });
+    const sessionId = "thread-notes";
+    appendInboxOp(cwd, { op: "add", text: "不要修改代码" }, item.env);
+    appendInboxOp(cwd, { op: "add", text: "use pnpm" }, item.env);
+    const output = handleHook({
+      session_id: sessionId,
+      hook_event_name: "PostToolUse",
+      tool_name: "exec",
+      tool_input: { command: "agentgear run remember session-notes.mjs add x" },
+      tool_response: { success: true, output: "" },
+      cwd
+    }, { env: item.env });
+    assert.equal(output.hookSpecificOutput.hookEventName, "PostToolUse");
+    const context = output.hookSpecificOutput.additionalContext;
+    assert.match(context, /Session notes pinned by the user/);
+    assert.match(context, /1\) 不要修改代码/);
+    assert.match(context, /2\) use pnpm/);
+    assert.equal(fs.existsSync(inboxFile(cwd, item.env)), false);
+    assert.deepEqual(
+      readNotes(sessionMemoryDirectory(sessionId, item.env)).notes.map(note => note.text),
+      ["不要修改代码", "use pnpm"]
+    );
+    // Notes are not re-injected while nothing changed.
+    assert.equal(handleHook({
+      session_id: sessionId,
+      hook_event_name: "PostToolUse",
+      tool_name: "read",
+      tool_input: {},
+      tool_response: { success: true },
+      cwd
+    }, { env: item.env }), null);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("UserPromptSubmit records /remember lines and echoes the pinned list", () => {
+  const item = fixture();
+  try {
+    const cwd = item.temporary;
+    const sessionId = "thread-capture";
+    const dir = sessionMemoryDirectory(sessionId, item.env);
+    const ups = prompt => handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt,
+      cwd
+    }, { env: item.env });
+
+    const added = ups("/remember 不要修改代码");
+    assert.equal(added.hookSpecificOutput.hookEventName, "UserPromptSubmit");
+    assert.match(added.hookSpecificOutput.additionalContext, /1\) 不要修改代码/);
+    assert.deepEqual(readNotes(dir).notes.map(note => note.text), ["不要修改代码"]);
+
+    ups("/agentgear-remember use pnpm");
+    assert.deepEqual(readNotes(dir).notes.map(note => note.text), ["不要修改代码", "use pnpm"]);
+
+    ups("/remember 不要修改代码");
+    assert.equal(readNotes(dir).notes.length, 2);
+
+    const listed = ups("/remember");
+    assert.match(listed.hookSpecificOutput.additionalContext, /1\) 不要修改代码\n2\) use pnpm/);
+
+    ups("/remember forget 1");
+    assert.deepEqual(readNotes(dir).notes.map(note => note.text), ["use pnpm"]);
+
+    const cleared = ups("/remember clear");
+    assert.equal(cleared.systemMessage, "Agentgear session notes: no session notes pinned");
+    assert.deepEqual(readNotes(dir).notes, []);
+
+    ups("/remember stay");
+    assert.equal(ups("just chatting"), null);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("prompt capture and inbox claim dedupe identical note text", () => {
+  const item = fixture();
+  try {
+    const cwd = item.temporary;
+    const sessionId = "thread-dupe";
+    handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/remember x",
+      cwd
+    }, { env: item.env });
+    appendInboxOp(cwd, { op: "add", text: "x" }, item.env);
+    handleHook({
+      session_id: sessionId,
+      hook_event_name: "PostToolUse",
+      tool_name: "exec",
+      tool_input: { command: "agentgear run remember session-notes.mjs add x" },
+      tool_response: { success: true, output: "" },
+      cwd
+    }, { env: item.env });
+    assert.deepEqual(
+      readNotes(sessionMemoryDirectory(sessionId, item.env)).notes.map(note => note.text),
+      ["x"]
+    );
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("session notes issues surface in the emitted context", () => {
+  const item = fixture();
+  try {
+    const cwd = item.temporary;
+    const sessionId = "thread-full";
+    const dir = sessionMemoryDirectory(sessionId, item.env);
+    for (let index = 0; index < NOTES_LIMIT; index += 1) {
+      handleHook({
+        session_id: sessionId,
+        hook_event_name: "UserPromptSubmit",
+        prompt: `/remember note-${index}`,
+        cwd
+      }, { env: item.env });
+    }
+    const rejected = handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/remember overflow",
+      cwd
+    }, { env: item.env });
+    assert.match(rejected.hookSpecificOutput.additionalContext, /Session notes issues: session notes full/);
+    assert.equal(readNotes(dir).notes.length, NOTES_LIMIT);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("session notes restore through the compact-memory context", () => {
+  const item = fixture();
+  try {
+    const sessionId = "thread-restore";
+    const cwd = item.temporary;
+    handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/remember alpha",
+      cwd
+    }, { env: item.env });
+    const compacted = handleHook(
+      { session_id: sessionId, hook_event_name: "SessionStart", source: "compact" },
+      { env: item.env }
+    );
+    assert.match(compacted.hookSpecificOutput.additionalContext, /Session notes pinned by the user:\n1\) alpha/);
+    const post = handleHook(
+      { session_id: sessionId, hook_event_name: "PostCompaction" },
+      { env: item.env }
+    );
+    assert.match(post.hookSpecificOutput.additionalContext, /1\) alpha/);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
 test("compact-memory hook module imports when argv entry is not a file", () => {
   const moduleUrl = pathToFileURL(path.resolve(
     "skills/multi-agent-protocol/scripts/compact-memory-hook.mjs"
@@ -1451,4 +1740,90 @@ test("compact-memory hook module imports when argv entry is not a file", () => {
     encoding: "utf8"
   });
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("noteCommandOp is the single grammar for script and prompt forms", () => {
+  assert.deepEqual(noteCommandOp("add", " 不要修改代码 "), { op: { op: "add", text: "不要修改代码" } });
+  assert.deepEqual(noteCommandOp("rm", "2"), { op: { op: "remove", index: 2 } });
+  assert.deepEqual(noteCommandOp("forget", "note text"), { op: { op: "remove", text: "note text" } });
+  assert.deepEqual(noteCommandOp("reset", ""), { op: { op: "clear" } });
+  assert.deepEqual(noteCommandOp("ls", ""), { op: { op: "list" } });
+  assert.match(noteCommandOp("add", "").error, /requires/);
+  assert.match(noteCommandOp("remove", "").error, /requires/);
+  assert.match(noteCommandOp("add", "x".repeat(NOTE_TEXT_LIMIT + 1)).error, /exceeds/);
+  assert.match(noteCommandOp("bogus", "x").error, /unknown command/);
+});
+
+test("claimInbox drops ops older than the freshness window", () => {
+  const item = fixture();
+  try {
+    const cwd = item.temporary;
+    const dir = sessionMemoryDirectory("s-stale", item.env);
+    const inbox = inboxFile(cwd, item.env);
+    fs.mkdirSync(path.dirname(inbox), { recursive: true });
+    const staleTs = new Date(Date.now() - INBOX_OP_TTL_MS - 60_000).toISOString();
+    fs.writeFileSync(inbox, `${JSON.stringify({ op: "add", text: "leaked", ts: staleTs })}\n`);
+    appendInboxOp(cwd, { op: "add", text: "fresh" }, item.env);
+
+    const result = claimInbox(cwd, dir, { env: item.env });
+    assert.equal(result.applied, 1);
+    assert.match(result.errors[0], /dropped 1 stale/);
+    assert.deepEqual(readNotes(dir).notes.map(note => note.text), ["fresh"]);
+
+    // An op without a timestamp is treated as fresh, not dropped.
+    fs.writeFileSync(inbox, `${JSON.stringify({ op: "add", text: "no-ts" })}\n`);
+    const second = claimInbox(cwd, dir, { env: item.env });
+    assert.equal(second.errors.length, 0);
+    assert.deepEqual(readNotes(dir).notes.map(note => note.text), ["fresh", "no-ts"]);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("corrupt notes.json degrades to a warning without hiding other context", () => {
+  const item = fixture();
+  try {
+    const sessionId = "thread-corrupt";
+    const dir = sessionMemoryDirectory(sessionId, item.env);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "memory.json"), `${JSON.stringify({
+      schema_version: 1,
+      sticky_messages: [{ delivery_id: "d1", subject: "sticky task", body: "b", received_at: "t" }],
+      skill_gets: []
+    })}\n`);
+    fs.writeFileSync(notesFile(dir), "{ not json\n");
+
+    const context = compactAdditionalContext(sessionId, { env: item.env });
+    assert.match(context, /Sticky Waypost tasks already received/);
+    assert.match(context, /sticky task/);
+    assert.match(context, /Session notes warning: session notes could not be read/);
+    assert.doesNotMatch(context, /Session notes pinned by the user/);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("UserPromptSubmit surfaces note command errors without mutating notes", () => {
+  const item = fixture();
+  try {
+    const cwd = item.temporary;
+    const sessionId = "thread-errors";
+    const output = handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/remember remove",
+      cwd
+    }, { env: item.env });
+    assert.match(output.systemMessage, /remove requires a number or note text/);
+    assert.equal(fs.existsSync(notesFile(sessionMemoryDirectory(sessionId, item.env))), false);
+
+    assert.equal(handleHook({
+      session_id: sessionId,
+      hook_event_name: "UserPromptSubmit",
+      prompt: "/unremember x",
+      cwd
+    }, { env: item.env }), null);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
 });

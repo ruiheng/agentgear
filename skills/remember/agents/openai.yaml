@@ -1,0 +1,6 @@
+interface:
+  display_name: "Remember"
+  short_description: "Pin a short note for this session"
+  default_prompt: "Use $remember to pin a short session-scoped note."
+policy:
+  allow_implicit_invocation: true

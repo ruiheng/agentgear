@@ -27,6 +27,7 @@ const entrySkills = [
   "handoff",
   "intent-framing",
   "refactor-review",
+  "remember",
   "roundtable",
   "route-waypost-action",
   "search-files",
@@ -525,7 +526,7 @@ test("catalog exposes exactly the approved entry surface", () => {
   assert.equal(catalog.skills.skills["dispatch-plan"], undefined);
   assert.equal(all.capabilitySkills.includes("dispatch-plan"), false);
   assert.deepEqual(resolveSelection(catalog, { packs: ["core"] }).exposedSkills.sort(), entrySkills.filter(skill => [
-    "assess-tech-design", "browse-web", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff", "search-files"
+    "assess-tech-design", "browse-web", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff", "remember", "search-files"
   ].includes(skill)));
   assert.equal(all.exposedSkills.includes("agent-deck"), false);
 });
@@ -987,12 +988,12 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
     retrievable: true,
     exposure: "upstream"
   });
-  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 29);
+  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 30);
 
   const text = command(["list"]);
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Upstream retrievable skills: agent-deck/);
-  assert.match(text.stdout, /Skills \(29\)/);
+  assert.match(text.stdout, /Skills \(30\)/);
 });
 
 test("upstream skill get returns a usable base directory from a verified runtime and rejects selectors", () => {
@@ -1474,7 +1475,7 @@ test("authoritative pack install exposes entries and writes managed markers", ()
 test("pack closures, explicit skills, and authoritative reconciliation expose the exact entry union", () => {
   const catalog = loadCatalog(rootDir);
   const core = entrySkills.filter(skill => [
-    "assess-tech-design", "browse-web", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff", "search-files"
+    "assess-tech-design", "browse-web", "commit-staged", "explain-for-me", "explore-defects", "fix-strategy", "handoff", "remember", "search-files"
   ].includes(skill));
   const workflow = entrySkills.filter(skill => !core.includes(skill));
   assert.deepEqual(resolveSelection(catalog, { packs: ["core"] }).exposedSkills.sort(), core);

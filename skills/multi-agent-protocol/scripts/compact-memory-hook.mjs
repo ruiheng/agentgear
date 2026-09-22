@@ -1,63 +1,29 @@
 #!/usr/bin/env node
 
-import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { hasStickyTaskContextMarker } from "./compact-memory-shared.mjs";
+import {
+  hasStickyTaskContextMarker,
+  isPlainObject,
+  readJson,
+  sessionMemoryDirectory,
+  writeJsonAtomic
+} from "./compact-memory-shared.mjs";
+import {
+  applyOpsToSession,
+  claimInbox,
+  opsFromNoteArgument,
+  readNotes,
+  untouched
+} from "./session-notes-store.mjs";
+
+export { sessionMemoryDirectory };
 
 export const STICKY_MESSAGE_LIMIT = 8;
 export const SKILL_GET_LIMIT = 32;
 const ERROR_DETAIL_LIMIT = 500;
-
-function stateHome(env) {
-  const home = env.HOME || os.homedir();
-  return env.XDG_STATE_HOME || path.join(home, ".local", "state");
-}
-
-export function sessionMemoryDirectory(sessionId, env = process.env) {
-  if (typeof sessionId !== "string" || !sessionId) throw new Error("hook input is missing session_id");
-  const key = crypto.createHash("sha256").update(sessionId).digest("hex");
-  return path.join(stateHome(env), "agentgear", "compact-memory", key);
-}
-
-function writeJsonAtomic(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  const temporary = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`
-  );
-  let descriptor;
-  try {
-    descriptor = fs.openSync(temporary, "wx", 0o600);
-    fs.fchmodSync(descriptor, 0o600);
-    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = undefined;
-    fs.renameSync(temporary, filePath);
-  } finally {
-    if (descriptor !== undefined) {
-      try { fs.closeSync(descriptor); } catch {}
-    }
-    try { fs.rmSync(temporary, { force: true }); } catch {}
-  }
-}
-
-function readJson(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return undefined;
-    throw new Error(`Cannot read compact memory ${filePath}: ${error.message}`, { cause: error });
-  }
-}
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function parsedJson(value) {
   if (typeof value !== "string") return null;
@@ -537,7 +503,16 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
   const memory = readMemory(root);
   const messages = memory.sticky_messages.slice(-STICKY_MESSAGE_LIMIT);
   const calls = memory.skill_gets.slice(-SKILL_GET_LIMIT);
-  if (messages.length === 0 && calls.length === 0) return null;
+  // A corrupt or future-version notes file must not take down the rest of the
+  // restore block; surface the failure instead of throwing.
+  let notes = [];
+  let notesIssue = null;
+  try {
+    notes = readNotes(root).notes;
+  } catch (error) {
+    notesIssue = `session notes could not be read: ${boundedErrorDetail(error)}`;
+  }
+  if (messages.length === 0 && calls.length === 0 && notes.length === 0 && !notesIssue) return null;
   const lines = [];
   if (messages.length > 0) {
     lines.push("Sticky Waypost tasks already received:");
@@ -552,6 +527,16 @@ export function compactAdditionalContext(sessionId, { env = process.env } = {}) 
     lines.push("Earlier `agentgear skill get` calls (rerun if needed):");
     for (const call of calls) lines.push(`- ${shellDisplay(call.slice(3))}`);
   }
+  if (notes.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push("Session notes pinned by the user:");
+    notes.forEach((note, index) => lines.push(`${index + 1}) ${note.text}`));
+    lines.push("Treat them as user instructions for this session; manage them via the remember skill.");
+  }
+  if (notesIssue) {
+    if (lines.length > 0) lines.push("");
+    lines.push(`Session notes warning: ${notesIssue}`);
+  }
   return lines.join("\n");
 }
 
@@ -561,6 +546,78 @@ export const HANDLED_EVENTS = Object.freeze([
   "SessionStart",
   "PostCompaction"
 ]);
+
+// A `/…remember` command on its own prompt line records a session note. The
+// optional prefix must be empty or hyphen-terminated (`/remember`,
+// `/agentgear-remember`, `/agy-remember`) so lookalikes such as `/unremember`
+// do not capture. The argument grammar lives in the notes store
+// (`opsFromNoteArgument`) and is shared with the session-notes script.
+const REMEMBER_COMMAND = /^\/(?:[^\s/]*-)?remember(?:[ \t]+(.*))?$/gm;
+
+export function rememberOpsFromPrompt(prompt) {
+  const result = { ops: [], errors: [] };
+  if (typeof prompt !== "string") return result;
+  for (const match of prompt.matchAll(REMEMBER_COMMAND)) {
+    const parsed = opsFromNoteArgument(match[1]);
+    result.ops.push(...parsed.ops);
+    result.errors.push(...parsed.errors);
+  }
+  return result;
+}
+
+function safeSessionDirectory(input, env) {
+  try {
+    return sessionMemoryDirectory(input.session_id, env);
+  } catch {
+    return null;
+  }
+}
+
+function claimSessionInbox(input, sessionDir, env) {
+  if (!sessionDir) return untouched();
+  const cwd = typeof input.cwd === "string" && input.cwd ? input.cwd : process.cwd();
+  try {
+    return claimInbox(cwd, sessionDir, { env });
+  } catch (error) {
+    return { touched: true, applied: 0, errors: [`inbox claim failed: ${boundedErrorDetail(error)}`], notes: undefined };
+  }
+}
+
+function captureRememberOps(input, sessionDir) {
+  const parsed = rememberOpsFromPrompt(input.prompt);
+  if (parsed.ops.length === 0 && parsed.errors.length === 0) return untouched();
+  if (!sessionDir) {
+    return { touched: true, applied: 0, errors: parsed.errors, notes: undefined };
+  }
+  try {
+    const result = applyOpsToSession(sessionDir, parsed.ops);
+    return {
+      touched: result.touched || parsed.errors.length > 0,
+      applied: result.applied,
+      errors: [...parsed.errors, ...result.errors],
+      notes: result.notes
+    };
+  } catch (error) {
+    return { touched: true, applied: 0, errors: [...parsed.errors, `notes update failed: ${boundedErrorDetail(error)}`], notes: undefined };
+  }
+}
+
+function noteIssues(claims) {
+  return claims.flatMap(claim => claim.errors);
+}
+
+function withNoteIssues(output, claims) {
+  const issues = noteIssues(claims);
+  if (output && issues.length > 0) {
+    output.hookSpecificOutput.additionalContext += `\nSession notes issues: ${issues.join("; ")}`;
+  }
+  return output;
+}
+
+function notesFallbackOutput(claims) {
+  const issues = noteIssues(claims);
+  return { systemMessage: `Agentgear session notes: ${issues.length > 0 ? issues.join("; ") : "no session notes pinned"}` };
+}
 
 export function handleHook(input, options = {}) {
   if (!isPlainObject(input)) throw new Error("hook input must be a JSON object");
@@ -573,32 +630,47 @@ export function handleHook(input, options = {}) {
     } catch (error) {
       failure = memoryFailureOutput("updated", error);
     }
+    const claim = claimSessionInbox(input, safeSessionDirectory(input, env), env);
     try {
-      if (!takePendingSession(input, env)) return failure;
-      return contextOutput(input.session_id, "PostToolUse", options) ?? failure;
+      const pending = takePendingSession(input, env);
+      if (!pending && !claim.touched) return failure;
+      const output = contextOutput(input.session_id, "PostToolUse", options);
+      if (output) return withNoteIssues(output, [claim]);
+      return failure ?? (claim.touched ? notesFallbackOutput([claim]) : null);
     } catch (error) {
       return failure ?? memoryFailureOutput("restored", error);
     }
   }
   if (input.hook_event_name === "UserPromptSubmit") {
     try {
-      if (!takePendingSession(input, env)) return null;
-      return contextOutput(input.session_id, "UserPromptSubmit", options);
+      const sessionDir = safeSessionDirectory(input, env);
+      const claim = claimSessionInbox(input, sessionDir, env);
+      const capture = captureRememberOps(input, sessionDir);
+      const pending = takePendingSession(input, env);
+      if (!pending && !claim.touched && !capture.touched) return null;
+      const output = contextOutput(input.session_id, "UserPromptSubmit", options);
+      if (output) return withNoteIssues(output, [claim, capture]);
+      if (claim.touched || capture.touched) return notesFallbackOutput([claim, capture]);
+      return null;
     } catch (error) {
       return memoryFailureOutput("restored", error);
     }
   }
   if (input.hook_event_name === "SessionStart") {
     try {
+      const claim = claimSessionInbox(input, safeSessionDirectory(input, env), env);
       const pending = takePendingSession(input, env);
-      if (!pending && input.source === "startup") return null;
-      return contextOutput(input.session_id, "SessionStart", options);
+      if (!pending && !claim.touched && input.source === "startup") return null;
+      const output = contextOutput(input.session_id, "SessionStart", options);
+      if (output) return withNoteIssues(output, [claim]);
+      return claim.touched ? notesFallbackOutput([claim]) : null;
     } catch (error) {
       return memoryFailureOutput("restored", error);
     }
   }
   if (input.hook_event_name === "PostCompaction") {
     try {
+      claimSessionInbox(input, safeSessionDirectory(input, env), env);
       const context = compactAdditionalContext(input.session_id, options);
       if (!context) return null;
       markPendingContext(sessionMemoryDirectory(input.session_id, env));

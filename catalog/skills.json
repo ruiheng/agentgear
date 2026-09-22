@@ -93,7 +93,8 @@
         "explore-defects",
         "fix-strategy",
         "handoff",
-        "assess-tech-design"
+        "assess-tech-design",
+        "remember"
       ]
     },
     "workflow": {
@@ -161,6 +162,7 @@
     "planner-closeout": {"tags": ["planning", "workflow"], "exposure": "prompt-only"},
     "prune-tech-design": {"tags": ["design", "review", "workflow"], "exposure": "prompt-only"},
     "refactor-review": {"tags": ["review", "workflow"], "exposure": "entry"},
+    "remember": {"tags": ["session", "standalone"], "exposure": "entry"},
     "review-closeout": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
     "review-code": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
     "review-request": {"tags": ["review", "workflow"], "exposure": "prompt-only"},
