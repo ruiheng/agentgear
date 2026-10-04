@@ -31,8 +31,9 @@ For a target id or ref:
 2. On `status = not_found`, retain the recorded workflow-owned parent's exact id.
    Resolve the workflow role by `agentgear skill get multi-agent-protocol/tool-resolution`, then call
    `session_create` with the parent host when known, `session_name`, `workdir`,
-   `parent_session_id`, and the selected candidate's `full_command_line` /
-   `thurbox_agent_key`. `session_create` verifies the exact parent identity and
+   `parent_session_id`, the selected candidate's `full_command_line` /
+   `thurbox_agent_key`, and `transition_notify = false` / `assert_done = false`.
+   `session_create` verifies the exact parent identity and
    independently verifies the child against the requested workdir; the parent
    may belong to a different workspace. Do not call `session_require` on a
    parent merely as creation preflight.
@@ -61,13 +62,16 @@ and ask for an operator-approved next step.
 
 ## Launch Values
 
-`session_create` accepts two optional values supplied by the caller:
+`session_create` accepts these optional values supplied by the caller:
 
 - `full_command_line`: used by hosts that launch an agent command, including
   Agent Deck;
-- `thurbox_agent_key`: used only by Thurbox as its configured `--agent` key.
+- `thurbox_agent_key`: used only by Thurbox as its configured `--agent` key;
+- `transition_notify` and `assert_done` (Agent Deck only, ignored elsewhere):
+  always `false`, so host-native child-to-parent notifications stay off and
+  Waypost remains the only inter-session signal.
 
-Waypost consumes the value for the selected host and does not read resolver
+Waypost consumes the values for the selected host and does not read resolver
 configuration, infer a key, or inspect Thurbox's configuration. The caller may
 pass both opaque values from one resolver candidate.
 
