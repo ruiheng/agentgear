@@ -57,7 +57,7 @@ import {
   runtimeCommandDefinitions
 } from "./lib/skill-content.mjs";
 import { resolveAgentProfiles } from "../providers/agent-profiles.mjs";
-import { readyExternalCommands } from "../providers/external-commands.mjs";
+import { readyExternalCommands, spawnExternalCommand } from "../providers/external-commands.mjs";
 import { retireLegacyAgyDiscovery } from "../providers/legacy-agy-skill-discovery.mjs";
 import { migrateLegacySkills } from "./lib/legacy-skill-migration.mjs";
 import { runSessionCommand } from "./lib/session-hosts.mjs";
@@ -424,10 +424,9 @@ function sessionHostReady(catalog, hostName, targets) {
 }
 
 function checkWaypostVersion() {
-  const result = childProcess.spawnSync("waypost", ["--version"], {
+  const result = spawnExternalCommand("waypost", ["--version"], {
     encoding: "utf8",
-    env: process.env,
-    windowsHide: true
+    env: process.env
   });
   if (result.status !== 0) return { ready: false, detail: "--version failed" };
   const output = String(result.stdout || "").trim();

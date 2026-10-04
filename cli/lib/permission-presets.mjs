@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { permissionAdapters } from "../../providers/permission-adapters/index.mjs";
+import { commitTemporaryFileSync } from "./platform-files.mjs";
 import { validatePermissionPreset } from "./permission-preset-schema.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -73,7 +74,7 @@ function writeAtomic(filePath, source) {
   fs.writeFileSync(temporary, source);
   if (info) fs.chmodSync(temporary, info.mode & 0o777);
   try {
-    fs.renameSync(temporary, filePath);
+    commitTemporaryFileSync(temporary, filePath);
   } catch (error) {
     fs.rmSync(temporary, { force: true });
     throw error;

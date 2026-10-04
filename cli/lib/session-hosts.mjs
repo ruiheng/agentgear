@@ -1,6 +1,5 @@
 import childProcess from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
+import { spawnExternalCommand } from "../../providers/external-commands.mjs";
 import { sessionDeletionSpec } from "../../providers/session-hosts.mjs";
 import process from "node:process";
 
@@ -65,44 +64,14 @@ function providerError(result) {
   };
 }
 
-function resolveWindowsCommand(command, env = process.env) {
-  if (path.isAbsolute(command) || command.includes(path.sep)) return command;
-  const extensions = (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";");
-  for (const directory of (env.PATH || "").split(path.delimiter)) {
-    for (const extension of extensions) {
-      const candidate = path.join(directory, command.endsWith(extension) ? command : `${command}${extension}`);
-      if (fs.existsSync(candidate)) return candidate;
-    }
-  }
-  return command;
-}
-
-function quoteWindowsArgument(value) {
-  if (/^[^\s"&|<>^()]+$/.test(value)) return value;
-  return `"${String(value).replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\*)$/, "$1$1")}"`;
-}
-
-function rejectedWindowsCommandValue(values) {
-  return values.find(value => String(value).includes("%"));
-}
-
 function invokeProvider(command, args, { spawnSync, env = process.env, platform = process.platform }) {
-  const resolved = platform === "win32" ? resolveWindowsCommand(command, env) : command;
-  if (platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved)) {
-    const rejected = rejectedWindowsCommandValue([resolved, ...args]);
-    if (rejected !== undefined) {
-      const error = new Error("refusing to pass a percent-containing provider value through cmd.exe");
-      error.code = "EINVAL";
-      return { error, status: null, stdout: "", stderr: "" };
-    }
-    const line = [resolved, ...args].map(quoteWindowsArgument).join(" ");
-    return spawnSync(env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], {
-      encoding: "utf8",
-      windowsHide: true,
-      env
-    });
-  }
-  return spawnSync(resolved, args, { encoding: "utf8", windowsHide: true, env });
+  return spawnExternalCommand(command, args, {
+    spawnSync,
+    env,
+    platform,
+    encoding: "utf8",
+    percentErrorLabel: "provider value"
+  });
 }
 
 export function deleteSession(options, { spawnSync = childProcess.spawnSync, env = process.env, platform = process.platform } = {}) {

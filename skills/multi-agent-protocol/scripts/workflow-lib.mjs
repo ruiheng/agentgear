@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { windowsCommandShell } from "../../../providers/external-commands.mjs";
 import { sessionProbeOutcome, sessionProbeSpec } from "../../../providers/session-hosts.mjs";
 
 export class WorkflowError extends Error {
@@ -78,11 +79,11 @@ export function parseArgs(argv, { values = [], repeatableValues = [], flags = []
 
 function commandCandidates(command, env = process.env) {
   if (path.isAbsolute(command) || command.includes(path.sep)) return [command];
-  const extensions = process.platform === "win32"
+  const extensions = process.platform === "win32" && !path.win32.extname(command)
     ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";")
     : [""];
-  return (env.PATH || "").split(path.delimiter).flatMap(directory =>
-    extensions.map(extension => path.join(directory, command.endsWith(extension) ? command : command + extension))
+  return (env.PATH || "").split(path.delimiter).filter(Boolean).flatMap(directory =>
+    extensions.map(extension => path.join(directory, command + extension))
   );
 }
 
@@ -98,8 +99,8 @@ export function resolveCommand(command, env = process.env) {
   return null;
 }
 
-export function requireCommand(command) {
-  const resolved = resolveCommand(command);
+export function requireCommand(command, env = process.env) {
+  const resolved = resolveCommand(command, env);
   if (!resolved) fail(`${command} is required`);
   return resolved;
 }
@@ -110,11 +111,25 @@ function quoteWindowsArgument(value) {
 }
 
 function spawnCommand(command, args, options = {}) {
-  const resolved = resolveCommand(command) || command;
+  const env = options.env || process.env;
+  const resolved = resolveCommand(command, env) || command;
   const useCmd = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved);
   if (useCmd) {
-    const line = [resolved, ...args].map(quoteWindowsArgument).join(" ");
-    return childProcess.spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], options);
+    if ([resolved, ...args].some(value => String(value).includes("%"))) {
+      const error = new Error("refusing to pass a percent-containing workflow value through cmd.exe");
+      error.code = "EINVAL";
+      return { error, status: null, stdout: "", stderr: "" };
+    }
+    if ([resolved, ...args].some(value => /["\0\r\n]/.test(String(value)))) {
+      const error = new Error("refusing to pass an unsafe workflow value through cmd.exe");
+      error.code = "EINVAL";
+      return { error, status: null, stdout: "", stderr: "" };
+    }
+    const line = `"${[resolved, ...args].map(quoteWindowsArgument).join(" ")}"`;
+    return childProcess.spawnSync(windowsCommandShell(env), ["/d", "/s", "/v:off", "/c", line], {
+      ...options,
+      windowsVerbatimArguments: true
+    });
   }
   return childProcess.spawnSync(resolved, args, options);
 }
@@ -124,7 +139,7 @@ function spawnCommandAsync(command, args, options = {}) {
   const useCmd = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved);
   if (useCmd) {
     const line = [resolved, ...args].map(quoteWindowsArgument).join(" ");
-    return childProcess.spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], options);
+    return childProcess.spawn(windowsCommandShell(options.env || process.env), ["/d", "/s", "/c", line], options);
   }
   return childProcess.spawn(resolved, args, options);
 }
@@ -257,7 +272,66 @@ export function writeJsonAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
   fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
-  fs.renameSync(temporary, filePath);
+  commitTemporaryFileSync(temporary, filePath);
+}
+
+const WINDOWS_REPLACE_COMMAND = [
+  "$ErrorActionPreference = 'Stop'",
+  "[System.IO.File]::Replace($env:AGENTGEAR_REPLACEMENT_PATH, $env:AGENTGEAR_DESTINATION_PATH, $env:AGENTGEAR_BACKUP_PATH, $true)"
+].join("; ");
+
+function windowsPowerShellPath(env = process.env) {
+  const systemRoot = env.SystemRoot || env.WINDIR;
+  if (!systemRoot) fail("cannot atomically replace a Windows file: SystemRoot is unavailable");
+  const executable = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  if (!fs.statSync(executable, { throwIfNoEntry: false })?.isFile()) {
+    fail(`cannot atomically replace a Windows file: PowerShell is unavailable at ${executable}`);
+  }
+  return executable;
+}
+
+function replaceExistingWindowsFileSync(temporaryPath, destinationPath, env) {
+  const backupPath = path.join(
+    path.dirname(destinationPath),
+    `.${path.basename(destinationPath)}.${process.pid}.${crypto.randomUUID()}.replace-backup`
+  );
+  const result = childProcess.spawnSync(windowsPowerShellPath(env), [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_REPLACE_COMMAND
+  ], {
+    encoding: "utf8",
+    env: {
+      ...env,
+      AGENTGEAR_REPLACEMENT_PATH: temporaryPath,
+      AGENTGEAR_DESTINATION_PATH: destinationPath,
+      AGENTGEAR_BACKUP_PATH: backupPath
+    },
+    timeout: 30000,
+    windowsHide: true
+  });
+  if (result.error) {
+    fail(`cannot atomically replace Windows file ${destinationPath}: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || "").trim();
+    fail(`cannot atomically replace Windows file ${destinationPath}: ${detail || `PowerShell exited with status ${result.status}`}`);
+  }
+  try {
+    fs.rmSync(backupPath);
+  } catch (error) {
+    fail(`replaced Windows file ${destinationPath} but could not remove backup ${backupPath}: ${error.message}`);
+  }
+}
+
+export function commitTemporaryFileSync(temporaryPath, destinationPath, {
+  platform = process.platform,
+  env = process.env
+} = {}) {
+  const destination = fs.lstatSync(destinationPath, { throwIfNoEntry: false });
+  if (platform === "win32" && destination?.isFile() && !destination.isSymbolicLink()) {
+    replaceExistingWindowsFileSync(temporaryPath, destinationPath, env);
+    return;
+  }
+  fs.renameSync(temporaryPath, destinationPath);
 }
 
 export function appendJsonLine(filePath, value) {

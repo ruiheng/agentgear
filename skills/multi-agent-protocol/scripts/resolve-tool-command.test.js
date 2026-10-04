@@ -129,57 +129,65 @@ function availableInspection(toolCmd) {
 }
 
 test("resolveAgentgearConfigDir follows XDG config conventions", () => {
+  const configHome = path.resolve("/tmp/custom-config");
+  const home = path.resolve("/home/tester");
   assert.equal(
-    resolveAgentgearConfigDir({ XDG_CONFIG_HOME: "/tmp/custom-config" }, "/home/tester"),
-    "/tmp/custom-config/agentgear"
+    resolveAgentgearConfigDir({ XDG_CONFIG_HOME: configHome }, home),
+    path.join(configHome, "agentgear")
   );
   assert.equal(
-    resolveAgentgearConfigDir({}, "/home/tester"),
-    "/home/tester/.config/agentgear"
+    resolveAgentgearConfigDir({}, home),
+    path.join(home, ".config", "agentgear")
   );
 });
 
 test("resolveThurboxAgentsConfigPath follows XDG config conventions", () => {
+  const configHome = path.resolve("/tmp/custom-config");
+  const home = path.resolve("/home/tester");
   assert.equal(
     resolveThurboxAgentsConfigPath(
-      { XDG_CONFIG_HOME: "/tmp/custom-config" },
-      "/home/tester"
+      { XDG_CONFIG_HOME: configHome },
+      home
     ),
-    "/tmp/custom-config/thurbox/agents.toml"
+    path.join(configHome, "thurbox", "agents.toml")
   );
   assert.equal(
-    resolveThurboxAgentsConfigPath({}, "/home/tester"),
-    "/home/tester/.config/thurbox/agents.toml"
+    resolveThurboxAgentsConfigPath({}, home),
+    path.join(home, ".config", "thurbox", "agents.toml")
   );
 });
 
 test("resolveThurboxAgentsConfigPath honors Thurbox's config directory override", () => {
+  const thurboxConfig = path.resolve("/srv/thurbox-config");
   const env = {
-    THURBOX_CONFIG_DIR: "/srv/thurbox-config",
-    XDG_CONFIG_HOME: "/tmp/ignored",
+    THURBOX_CONFIG_DIR: thurboxConfig,
+    XDG_CONFIG_HOME: path.resolve("/tmp/ignored"),
   };
-  assert.equal(resolveThurboxConfigDir(env, "/home/tester"), "/srv/thurbox-config");
+  assert.equal(resolveThurboxConfigDir(env, path.resolve("/home/tester")), thurboxConfig);
   assert.equal(
-    resolveThurboxAgentsConfigPath(env, "/home/tester"),
-    "/srv/thurbox-config/agents.toml"
+    resolveThurboxAgentsConfigPath(env, path.resolve("/home/tester")),
+    path.join(thurboxConfig, "agents.toml")
   );
 });
 
 test("resolveDefaultLocalConfigPaths layers user then current directory overrides", () => {
+  const configHome = path.resolve("/tmp/custom-config");
+  const home = path.resolve("/home/tester");
+  const workdir = path.resolve("/workspace/project");
   assert.deepEqual(
     resolveDefaultLocalConfigPaths(
-      { XDG_CONFIG_HOME: "/tmp/custom-config" },
-      "/home/tester",
-      "/workspace/project"
+      { XDG_CONFIG_HOME: configHome },
+      home,
+      workdir
     ),
     [
-      "/tmp/custom-config/agentgear/tool-profiles.local.toml",
-      "/workspace/project/tool-profiles.local.toml",
+      path.join(configHome, "agentgear", "tool-profiles.local.toml"),
+      path.join(workdir, "tool-profiles.local.toml"),
     ]
   );
   assert.equal(
-    resolveCwdLocalConfigPath("/workspace/project"),
-    "/workspace/project/tool-profiles.local.toml"
+    resolveCwdLocalConfigPath(workdir),
+    path.join(workdir, "tool-profiles.local.toml")
   );
 });
 
@@ -366,6 +374,7 @@ test("checkToolConfig skips Thurbox key warnings when thurbox-cli is unavailable
 });
 
 test("checkToolConfig reports an unreadable Thurbox configuration as a warning", () => {
+  const thurboxConfigPath = path.resolve("/tmp/thurbox/agents.toml");
   const checked = checkToolConfig(
     {
       version: 2,
@@ -379,7 +388,7 @@ test("checkToolConfig reports an unreadable Thurbox configuration as a warning",
     },
     {
       thurboxInspection: { availability: "available" },
-      thurboxConfigPath: "/tmp/thurbox/agents.toml",
+      thurboxConfigPath,
       readFile() {
         throw new Error("permission denied");
       },
@@ -389,7 +398,7 @@ test("checkToolConfig reports an unreadable Thurbox configuration as a warning",
   assert.deepEqual(checked.warnings, [
     {
       code: "thurbox_agents_config_unreadable",
-      agents_config_path: "/tmp/thurbox/agents.toml",
+      agents_config_path: thurboxConfigPath,
       message: "permission denied",
     },
   ]);

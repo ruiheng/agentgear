@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { linkDirectory } from "./helpers/platform.mjs";
 
 import {
   DELIVERY_STATE_TIMEOUT_MS,
@@ -673,7 +674,7 @@ test("initial dispatch rejects contradictory pruner policy and unsafe lane paren
   const external = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-lane-external-"));
   try {
     fs.mkdirSync(path.join(item.workdir, ".agent-artifacts"), { recursive: true });
-    fs.symlinkSync(external, path.join(item.workdir, ".agent-artifacts", "design-spec-dispatch"), "dir");
+    linkDirectory(external, path.join(item.workdir, ".agent-artifacts", "design-spec-dispatch"));
     await assert.rejects(dispatchDraft(item.args, {
       requireCommand() {}, runWaypost: successfulWaypost([])
     }), /must not contain symlink components/);
@@ -1316,7 +1317,7 @@ test("review dispatch rejects symlinked manifest and artifact parents", async ()
         : path.dirname(artifact);
       const moved = path.join(external, path.basename(source));
       fs.renameSync(source, moved);
-      fs.symlinkSync(moved, source, "dir");
+      linkDirectory(moved, source);
       await assert.rejects(dispatchReview(reviewArgs(item), {
         cwd: item.workdir,
       requireCommand() {}, loadPolicy: () => ({ maxLines: 250, maxChars: 20000 })

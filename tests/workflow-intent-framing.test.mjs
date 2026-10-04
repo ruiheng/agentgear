@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { linkDirectory } from "./helpers/platform.mjs";
 
 import {
   activateFramer,
@@ -215,30 +216,26 @@ test("roundtable keeps only its identity and local syntheses", () => {
 });
 
 test("artifact writers reject replaced symlink directories", t => {
-  if (process.platform === "win32") {
-    t.skip("symlink creation requires elevated Windows privileges");
-    return;
-  }
   const sequence = fixture();
   const roundtable = fixture("roundtable");
   try {
     const outsideSequence = path.join(sequence.workdir, "outside-sequence");
     fs.mkdirSync(outsideSequence);
     fs.rmSync(path.join(sequence.path, "additions"), { recursive: true });
-    fs.symlinkSync(outsideSequence, path.join(sequence.path, "additions"));
+    linkDirectory(outsideSequence, path.join(sequence.path, "additions"));
     assert.throws(() => addContext({
       ...sequence,
       bodyFile: bodyFile(sequence, "context.md", "must stay contained")
     }), /symlink|unsafe/);
 
     fs.rmSync(path.join(sequence.path, "framers"), { recursive: true });
-    fs.symlinkSync(outsideSequence, path.join(sequence.path, "framers"));
+    linkDirectory(outsideSequence, path.join(sequence.path, "framers"));
     assert.throws(() => add(sequence, "escape"), /symlink|unsafe/);
 
     const outsideRoundtable = path.join(roundtable.workdir, "outside-roundtable");
     fs.mkdirSync(outsideRoundtable);
     fs.rmSync(path.join(roundtable.path, "roundtable"), { recursive: true });
-    fs.symlinkSync(outsideRoundtable, path.join(roundtable.path, "roundtable"));
+    linkDirectory(outsideRoundtable, path.join(roundtable.path, "roundtable"));
     assert.throws(() => addSynthesis({
       ...roundtable,
       bodyFile: bodyFile(roundtable, "synthesis.md", "must stay contained")

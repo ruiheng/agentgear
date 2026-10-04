@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { linkDirectory } from "./helpers/platform.mjs";
 import { fileURLToPath } from "node:url";
 import {
   addPermissionPreset,
@@ -29,7 +30,8 @@ function fixture(name) {
       ...process.env,
       HOME: home,
       CODEX_HOME: path.join(home, ".codex"),
-      XDG_CONFIG_HOME: path.join(home, ".config")
+      XDG_CONFIG_HOME: path.join(home, ".config"),
+      APPDATA: path.join(home, "AppData", "Roaming")
     }
   };
 }
@@ -101,7 +103,7 @@ test("adding composable presets writes independent native harness rules", () => 
   }
 });
 
-test("project presets reject symlinked harness configuration directories", { skip: process.platform === "win32" }, () => {
+test("project presets reject symlinked harness configuration directories", () => {
   const preset = {
     name: "safe-checks",
     description: "Safe checks.",
@@ -112,7 +114,7 @@ test("project presets reject symlinked harness configuration directories", { ski
     try {
       const external = path.join(current.temporary, "external");
       fs.mkdirSync(external, { recursive: true });
-      fs.symlinkSync(external, path.join(current.project, directory), "dir");
+      linkDirectory(external, path.join(current.project, directory));
       assert.throws(() => addPermissionPreset(preset, {
         project: current.project,
         env: current.environment,
@@ -163,14 +165,16 @@ test("multi-preset API rolls back earlier writes when a later render fails", () 
   }
 });
 
-test("multi-preset CLI preflights every path and prints no partial success", { skip: process.platform === "win32" }, () => {
+test("multi-preset CLI preflights every path and prints no partial success", () => {
   const current = fixture("preset-batch-preflight");
   try {
     const rulesDirectory = path.join(current.project, ".codex", "rules");
-    const external = path.join(current.temporary, "external.rules");
-    fs.mkdirSync(rulesDirectory, { recursive: true });
+    const externalDirectory = path.join(current.temporary, "external-rules");
+    const external = path.join(externalDirectory, "agentgear-preset-typescript.rules");
+    fs.mkdirSync(path.dirname(rulesDirectory), { recursive: true });
+    fs.mkdirSync(externalDirectory, { recursive: true });
     fs.writeFileSync(external, "external\n");
-    fs.symlinkSync(external, path.join(rulesDirectory, "agentgear-preset-typescript.rules"));
+    linkDirectory(externalDirectory, rulesDirectory);
     const result = childProcess.spawnSync(process.execPath, [
       path.join(rootDir, "bin", "agentgear.mjs"),
       "permissions", "preset", "add", "node", "typescript",
@@ -425,7 +429,10 @@ test("devin adapter writes Exec grants to the Devin config", () => {
       env: current.environment,
       targets: ["devin"]
     });
-    assert.equal(userResult.paths.devin, path.join(current.environment.XDG_CONFIG_HOME, "devin", "config.json"));
+    const expectedDevinConfig = process.platform === "win32"
+      ? path.join(current.environment.APPDATA, "devin", "config.json")
+      : path.join(current.environment.XDG_CONFIG_HOME, "devin", "config.json");
+    assert.equal(userResult.paths.devin, expectedDevinConfig);
     const userSettings = JSON.parse(fs.readFileSync(userResult.paths.devin, "utf8"));
     assert.deepEqual(userSettings.permissions.allow, ["Exec(gofmt)", "Exec(go test)"]);
   } finally {

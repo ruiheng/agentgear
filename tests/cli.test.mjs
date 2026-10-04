@@ -27,12 +27,14 @@ import {
   legacyAgyPathIdentity,
   validateLegacyAgyDiscovery
 } from "../providers/legacy-agy-skill-discovery.mjs";
+import { spawnExternalCommand } from "../providers/external-commands.mjs";
 import {
   provisionUpstreamSkill as provisionPinnedUpstreamSkill,
   retrieveUpstreamSkill,
   retrievedSkillMaterializationRoot,
   upstreamSkillDigest
 } from "../cli/lib/upstreams.mjs";
+import { linkDirectory, nodeCommandPath } from "./helpers/platform.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -156,6 +158,7 @@ function environmentFixture() {
   const home = path.join(temporary, "home");
   const environment = {
     HOME: home,
+    APPDATA: path.join(home, "AppData", "Roaming"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
     PATH: ""
@@ -318,36 +321,38 @@ test("an unsafe package version cannot escape the releases directory", async () 
   }
 });
 
-test("completeness rejects symlinked entrypoints and documents escaping the snapshot", async () => {
+test("completeness rejects linked entrypoints and documents escaping the snapshot", async () => {
   const outside = path.join(os.tmpdir(), `agentgear-outside-${Date.now()}.mjs`);
   fs.writeFileSync(outside, "export const value = 1;\n");
   try {
-    for (const [missing, replacement, errorPattern] of [
-      ["bin/agentgear.mjs", outside, /bin[\\/]agentgear\.mjs is missing or is not a file/],
-      ["skills/handoff/SKILL.md", outside, /Projected skill path is missing or unsafe/],
-      ["cli/agentgear.mjs", outside, /cli[\\/]agentgear\.mjs is missing or is not a file/]
-    ]) {
-      const fixture = environmentFixture();
-      const checkout = path.join(fixture.temporary, "checkout");
-      try {
-        fs.cpSync(rootDir, checkout, {
-          recursive: true,
-          filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
-        });
-        const targetPath = path.join(checkout, ...missing.split("/"));
-        fs.rmSync(targetPath);
-        fs.symlinkSync(replacement, targetPath, "file");
-        const runCheckout = await checkoutRunner(checkout, fixture.environment);
+    if (process.platform !== "win32") {
+      for (const [missing, replacement, errorPattern] of [
+        ["bin/agentgear.mjs", outside, /Runtime source path is linked: bin\/agentgear\.mjs/],
+        ["skills/handoff/SKILL.md", outside, /Runtime source path is linked: skills\/handoff\/SKILL\.md/],
+        ["cli/agentgear.mjs", outside, /Runtime source path is linked: cli\/agentgear\.mjs/]
+      ]) {
+        const fixture = environmentFixture();
+        const checkout = path.join(fixture.temporary, "checkout");
+        try {
+          fs.cpSync(rootDir, checkout, {
+            recursive: true,
+            filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+          });
+          const targetPath = path.join(checkout, ...missing.split("/"));
+          fs.rmSync(targetPath);
+          fs.symlinkSync(replacement, targetPath, "file");
+          const runCheckout = await checkoutRunner(checkout, fixture.environment);
 
-        assert.throws(
-          () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
-          errorPattern
-        );
-        assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
-        assert.equal(pathExists(fixture.stateFile), false);
-        assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "handoff")), false);
-      } finally {
-        fs.rmSync(fixture.temporary, { recursive: true, force: true });
+          assert.throws(
+            () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
+            errorPattern
+          );
+          assert.equal(pathExists(path.join(fixture.dataRoot, "current")), false);
+          assert.equal(pathExists(fixture.stateFile), false);
+          assert.equal(pathExists(path.join(fixture.home, ".agents", "skills", "handoff")), false);
+        } finally {
+          fs.rmSync(fixture.temporary, { recursive: true, force: true });
+        }
       }
     }
 
@@ -355,8 +360,8 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
     // skills/ that is a link to an outside directory must not serve mutable
     // external content, even when the leaf is a regular file there.
     for (const [ancestor, leaf, errorPattern] of [
-      ["bin", "bin/agentgear.mjs", /bin[\\/]agentgear\.mjs is missing or is not a file/],
-      ["skills", "skills/handoff/SKILL.md", /Projected skill path is missing or unsafe/]
+      ["bin", "bin/agentgear.mjs", /Runtime source path is linked: bin/],
+      ["skills", "skills/handoff/SKILL.md", /Runtime source path is linked: skills/]
     ]) {
       const fixture = environmentFixture();
       const checkout = path.join(fixture.temporary, "checkout");
@@ -366,16 +371,20 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
           recursive: true,
           filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
         });
+        let linkTarget = outsideDirectory;
         if (ancestor === "skills") {
           // The checkout guard validates every selected skill, so the outside
-          // directory must carry the full skills tree for the selection.
-          fs.cpSync(path.join(checkout, "skills"), outsideDirectory, { recursive: true });
+          // directory must carry the full skills tree for the selection, plus
+          // the providers tree that skill scripts import across the link.
+          linkTarget = path.join(outsideDirectory, "skills");
+          fs.cpSync(path.join(checkout, "skills"), linkTarget, { recursive: true });
+          fs.cpSync(path.join(checkout, "providers"), path.join(outsideDirectory, "providers"), { recursive: true });
         } else {
           fs.mkdirSync(path.join(outsideDirectory, path.dirname(leaf)), { recursive: true });
           fs.writeFileSync(path.join(outsideDirectory, leaf), "external content\n");
         }
         fs.rmSync(path.join(checkout, ancestor), { recursive: true, force: true });
-        fs.symlinkSync(outsideDirectory, path.join(checkout, ancestor), "dir");
+        linkDirectory(linkTarget, path.join(checkout, ancestor));
         const runCheckout = await checkoutRunner(checkout, fixture.environment);
 
         assert.throws(
@@ -390,23 +399,25 @@ test("completeness rejects symlinked entrypoints and documents escaping the snap
     }
 
     // A dangling symlink is rejected the same way.
-    const fixture = environmentFixture();
-    const checkout = path.join(fixture.temporary, "checkout");
-    try {
-      fs.cpSync(rootDir, checkout, {
-        recursive: true,
-        filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
-      });
-      const targetPath = path.join(checkout, "bin", "agentgear.mjs");
-      fs.rmSync(targetPath);
-      fs.symlinkSync(path.join(fixture.temporary, "missing-module.mjs"), targetPath, "file");
-      const runCheckout = await checkoutRunner(checkout, fixture.environment);
-      assert.throws(
+    if (process.platform !== "win32") {
+      const fixture = environmentFixture();
+      const checkout = path.join(fixture.temporary, "checkout");
+      try {
+        fs.cpSync(rootDir, checkout, {
+          recursive: true,
+          filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
+        });
+        const targetPath = path.join(checkout, "bin", "agentgear.mjs");
+        fs.rmSync(targetPath);
+        fs.symlinkSync(path.join(fixture.temporary, "missing-module.mjs"), targetPath, "file");
+        const runCheckout = await checkoutRunner(checkout, fixture.environment);
+        assert.throws(
         () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
-        /bin[\\/]agentgear\.mjs is missing or is not a file/
-      );
-    } finally {
-      fs.rmSync(fixture.temporary, { recursive: true, force: true });
+        /Runtime source path is linked: bin\/agentgear\.mjs/
+        );
+      } finally {
+        fs.rmSync(fixture.temporary, { recursive: true, force: true });
+      }
     }
   } finally {
     fs.rmSync(outside, { force: true });
@@ -497,18 +508,24 @@ test("the devin global target follows XDG_CONFIG_HOME and the project scope stay
   const fixture = environmentFixture();
   try {
     const catalog = loadCatalog(rootDir);
+    const devinHome = process.platform === "win32"
+      ? path.join(fixture.home, "AppData", "Roaming", "devin")
+      : path.join(fixture.home, ".config", "devin");
     assert.deepEqual(
       resolveTargetRoots(catalog, parseOptions(["--target", "devin"]), fixture.environment),
-      [{ name: "devin", root: path.join(fixture.home, ".config", "devin", "skills") }]
+      [{ name: "devin", root: path.join(devinHome, "skills") }]
     );
     const xdgConfig = path.join(fixture.temporary, "xdg-config");
+    const xdgDevinHome = process.platform === "win32"
+      ? devinHome
+      : path.join(xdgConfig, "devin");
     assert.deepEqual(
       resolveTargetRoots(
         catalog,
         parseOptions(["--target", "devin"]),
         { ...fixture.environment, XDG_CONFIG_HOME: xdgConfig }
       ),
-      [{ name: "devin", root: path.join(xdgConfig, "devin", "skills") }]
+      [{ name: "devin", root: path.join(xdgDevinHome, "skills") }]
     );
     const project = path.join(fixture.temporary, "project");
     assert.deepEqual(
@@ -833,20 +850,29 @@ test("prefixed shared source installs withdraw omitted pack skills", t => {
   }
 });
 
-test("prefixed projections reject symlinked mutable files without writing through them", () => {
+test("prefixed projections reject linked mutable files without writing through them", () => {
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
-  const outsideSkill = path.join(fixture.temporary, "outside-SKILL.md");
+  const outsideSkill = process.platform === "win32"
+    ? path.join(fixture.temporary, "outside-handoff", "SKILL.md")
+    : path.join(fixture.temporary, "outside-SKILL.md");
   const original = "---\nname: handoff\ndescription: External diagnostic file.\n---\n\nKeep this unchanged.\n";
   try {
     fs.cpSync(rootDir, checkout, {
       recursive: true,
       filter: source => ![".git", "dist", "node_modules"].includes(path.basename(source))
     });
+    fs.mkdirSync(path.dirname(outsideSkill), { recursive: true });
     fs.writeFileSync(outsideSkill, original);
+    const skillRoot = path.join(checkout, "skills", "handoff");
     const skillFile = path.join(checkout, "skills", "handoff", "SKILL.md");
-    fs.rmSync(skillFile);
-    fs.symlinkSync(outsideSkill, skillFile, "file");
+    if (process.platform === "win32") {
+      fs.rmSync(skillRoot, { recursive: true });
+      linkDirectory(path.dirname(outsideSkill), skillRoot);
+    } else {
+      fs.rmSync(skillFile);
+      fs.symlinkSync(outsideSkill, skillFile, "file");
+    }
 
     assert.throws(
       () => installSelection({
@@ -857,7 +883,7 @@ test("prefixed projections reject symlinked mutable files without writing throug
         sourceRoot: checkout,
         env: fixture.environment
       }),
-      /Projected skill path is missing or unsafe/
+      /Runtime source path is linked: skills\/handoff/
     );
     assert.equal(fs.readFileSync(outsideSkill, "utf8"), original);
     assert.equal(fs.existsSync(path.join(fixture.home, ".agents", "skills", "acme-handoff")), false);
@@ -882,7 +908,7 @@ test("focused release updates preserve link and copy provenance for one projecti
     assert.equal(fs.existsSync(path.join(source, ".agentgear")), false);
 
     fs.mkdirSync(target, { recursive: true });
-    fs.symlinkSync(source, destination, "dir");
+    linkDirectory(source, destination);
     const state = readState(fixture);
     state.targets[target] = { skills: { [skill]: { mode: "link", source } } };
     craftState(fixture, state);
@@ -1432,8 +1458,9 @@ test("session delete launches Windows command shims through ComSpec", () => {
     assert.equal(payload.status, "deleted");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].command, "test-cmd.exe");
-    assert.deepEqual(calls[0].args.slice(0, 3), ["/d", "/s", "/c"]);
-    assert.match(calls[0].args[3], /agent-deck\.CMD remove coder-1$/);
+    assert.deepEqual(calls[0].args.slice(0, 4), ["/d", "/s", "/v:off", "/c"]);
+    assert.match(calls[0].args[4], /agent-deck\.CMD remove coder-1"$/);
+    assert.equal(calls[0].options.windowsVerbatimArguments, true);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -1462,6 +1489,27 @@ test("session delete rejects percent expansion through Windows command shims", (
   }
 });
 
+test("external command runner handles spaced Windows shims and rejects command injection", {
+  skip: process.platform !== "win32"
+}, () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear external command "));
+  const bin = path.join(temporary, "bin with spaces");
+  try {
+    writeNodeExecutable(bin, "argument-probe", "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+    const env = { ...process.env, PATH: bin, PATHEXT: ".CMD" };
+    const invoked = spawnExternalCommand("argument-probe", ["alpha", "two words"], { env, encoding: "utf8" });
+    assert.equal(invoked.status, 0, invoked.stderr);
+    assert.deepEqual(JSON.parse(invoked.stdout), ["alpha", "two words"]);
+
+    const injected = spawnExternalCommand("argument-probe", ['safe" & echo injected'], { env, encoding: "utf8" });
+    assert.equal(injected.status, null);
+    assert.equal(injected.error?.code, "EINVAL");
+    assert.match(injected.error?.message ?? "", /unsafe external command value/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow doctor keeps optional Agent Deck documentation non-blocking across local states", () => {
   const fixture = environmentFixture();
   try {
@@ -1476,7 +1524,7 @@ test("workflow doctor keeps optional Agent Deck documentation non-blocking acros
     assert.match(thurboxReady.stdout, /ok\s+session host thurbox \(thurbox-cli\)/);
     assert.match(thurboxReady.stdout, /Supported session host: thurbox\./);
 
-    fs.rmSync(path.join(bin, "thurbox-cli"));
+    fs.rmSync(nodeCommandPath(bin, "thurbox-cli"));
     writeExecutable(bin, "agent-deck");
     const agentDeckReady = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
     assert.equal(agentDeckReady.status, 0, agentDeckReady.stderr);
@@ -1520,7 +1568,7 @@ test("workflow doctor keeps optional Agent Deck documentation non-blocking acros
       fs.writeFileSync(catalogFile, originalCatalog);
     }
 
-    fs.rmSync(path.join(bin, "agent-deck"));
+    fs.rmSync(nodeCommandPath(bin, "agent-deck"));
     const noHost = spawnAgentgear(["doctor", "--pack", "workflow"], fixture, environment);
     assert.equal(noHost.status, 1);
     assert.match(noHost.stdout, /Missing one supported session host: agent-deck or thurbox\./);
@@ -1630,11 +1678,20 @@ test("unprefixed release installs retain schema-v2 and marker-v0 rollback readab
         path.join(fixture.dataRoot, "current", "bin", "agentgear.mjs")
       );
     }
-    assert.deepEqual(state.commands[launcher], {
-      kind: "launcher",
-      mode: "link",
-      target: path.join(fixture.dataRoot, "current", "bin", "agentgear.mjs")
-    });
+    const launcherTarget = path.join(fixture.dataRoot, "current", "bin", "agentgear.mjs");
+    if (process.platform === "win32") {
+      assert.equal(state.commands[launcher].kind, "launcher");
+      assert.equal(state.commands[launcher].mode, "wrapper");
+      assert.equal(state.commands[launcher].target, launcherTarget);
+      assert.match(state.commands[launcher].fingerprint, /^sha256-v1:[0-9a-f]{64}$/);
+      assert.equal(fs.existsSync(`${launcher}.cmd`), true);
+    } else {
+      assert.deepEqual(state.commands[launcher], {
+        kind: "launcher",
+        mode: "link",
+        target: launcherTarget
+      });
+    }
     const current = path.join(fixture.dataRoot, "current");
     assert.equal(fs.readlinkSync(current), path.join(fixture.releasesRoot, state.releases[0]));
 
@@ -2900,7 +2957,9 @@ test("XDG alias changes fail without adoption; restoring the original environmen
     environment.XDG_DATA_HOME = secondAlias;
     assert.throws(
       () => run(["update", "--skill", "handoff", "--target", "general"], environment),
-      /Invalid installation state .*linked command target must be exactly/
+      process.platform === "win32"
+        ? /Invalid installation state .*wrapper command target must be exactly/
+        : /Invalid installation state .*linked command target must be exactly/
     );
     assert.equal(fs.readFileSync(skillFile, "utf8"), originalContent);
     assert.equal(pathExists(firstCurrent), true);
@@ -3535,7 +3594,12 @@ test("--no-launcher still validates active launcher entrypoints", async () => {
 
       assert.equal(fs.realpathSync(current), previousRuntime);
       assert.equal(fs.existsSync(launcher), true);
-      assert.equal(fs.realpathSync(launcher), path.join(previousRuntime, "bin", "agentgear.mjs"));
+      if (process.platform === "win32") {
+        assert.equal(fs.realpathSync(launcher), launcher);
+        assert.equal(readState(fixture).commands[launcher].target, path.join(current, "bin", "agentgear.mjs"));
+      } else {
+        assert.equal(fs.realpathSync(launcher), path.join(previousRuntime, "bin", "agentgear.mjs"));
+      }
       assert.equal(fs.readFileSync(fixture.stateFile, "utf8"), previousState);
     } finally {
       fs.rmSync(fixture.temporary, { recursive: true, force: true });
@@ -3654,6 +3718,7 @@ test("a launcher write failure restores copied skills that were already replaced
   const fixture = environmentFixture();
   const checkout = path.join(fixture.temporary, "checkout");
   const originalSymlink = fs.symlinkSync;
+  const originalRename = fs.renameSync;
   try {
     fs.cpSync(rootDir, checkout, {
       recursive: true,
@@ -3670,14 +3735,27 @@ test("a launcher write failure restores copied skills that were already replaced
     const previousState = fs.readFileSync(fixture.stateFile, "utf8");
     fs.appendFileSync(path.join(checkout, "skills", "handoff", "SKILL.md"), "\n<!-- launcher-rollback-marker -->\n");
 
-    fs.symlinkSync = (target, destination, type) => {
-      if (path.resolve(destination) === launcher) {
-        const error = new Error("simulated launcher write failure");
-        error.code = "EIO";
-        throw error;
-      }
-      return originalSymlink(target, destination, type);
-    };
+    let injected = false;
+    if (process.platform === "win32") {
+      fs.renameSync = (source, destination) => {
+        if (!injected && path.resolve(destination) === launcher) {
+          injected = true;
+          const error = new Error("simulated launcher write failure");
+          error.code = "EIO";
+          throw error;
+        }
+        return originalRename(source, destination);
+      };
+    } else {
+      fs.symlinkSync = (target, destination, type) => {
+        if (path.resolve(destination) === launcher) {
+          const error = new Error("simulated launcher write failure");
+          error.code = "EIO";
+          throw error;
+        }
+        return originalSymlink(target, destination, type);
+      };
+    }
     assert.throws(
       () => runCheckout(["install", "--skill", "handoff", "--target", "general"]),
       /simulated launcher write failure/
@@ -3691,6 +3769,7 @@ test("a launcher write failure restores copied skills that were already replaced
     assert.equal(fs.readdirSync(fixture.releasesRoot).length, 1);
   } finally {
     fs.symlinkSync = originalSymlink;
+    fs.renameSync = originalRename;
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
 });
@@ -3778,8 +3857,10 @@ test("ESM fallback wrappers stay on current when publication fails", async () =>
     const stateBefore = fs.readFileSync(fixture.stateFile, "utf8");
     const previousRuntime = fs.realpathSync(current);
     fs.appendFileSync(path.join(checkout, "skills", "multi-agent-protocol", "SKILL.md"), "\n<!-- publish-must-not-appear -->\n");
+    let publishFailures = 0;
     fs.renameSync = (source, destination) => {
-      if (path.resolve(destination) === current) {
+      if (publishFailures < 2 && path.resolve(destination) === current) {
+        publishFailures += 1;
         const error = new Error("simulated publish failure");
         error.code = "EIO";
         throw error;
@@ -3985,7 +4066,7 @@ test("the published package excludes the source-install entry point", () => {
   assert.equal(packageJson.scripts["source-install"], undefined);
 
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-npm-cache-"));
-  const pack = childProcess.spawnSync("npm", ["pack", "--dry-run", "--json", "--cache", cache], {
+  const pack = spawnExternalCommand("npm", ["pack", "--dry-run", "--json", "--cache", cache], {
     cwd: rootDir,
     encoding: "utf8"
   });
@@ -4036,9 +4117,13 @@ test("install and update refuse an unmanaged current directory", () => {
     const userLauncher = path.join(current, "bin", "agentgear.mjs");
     fs.mkdirSync(path.dirname(userLauncher), { recursive: true });
     fs.writeFileSync(userLauncher, "// user-managed launcher\n");
-    fs.mkdirSync(path.dirname(launcher), { recursive: true });
-    fs.rmSync(launcher, { force: true });
-    fs.symlinkSync(userLauncher, launcher);
+    const launcherSource = fs.readFileSync(launcher);
+    const launcherCompanion = process.platform === "win32" ? fs.readFileSync(`${launcher}.cmd`) : null;
+    if (process.platform !== "win32") {
+      fs.mkdirSync(path.dirname(launcher), { recursive: true });
+      fs.rmSync(launcher, { force: true });
+      fs.symlinkSync(userLauncher, launcher);
+    }
 
     assert.throws(
       () => run(["update", "--skill", "handoff", "--target", "general"], fixture.environment),
@@ -4048,8 +4133,13 @@ test("install and update refuse an unmanaged current directory", () => {
       () => run(["install", "--force", "--skill", "handoff", "--target", "general"], fixture.environment),
       /Refusing to replace unmanaged runtime path/
     );
-    assert.equal(fs.lstatSync(launcher).isSymbolicLink(), true);
-    assert.equal(fs.realpathSync(launcher), fs.realpathSync(userLauncher));
+    if (process.platform === "win32") {
+      assert.deepEqual(fs.readFileSync(launcher), launcherSource);
+      assert.deepEqual(fs.readFileSync(`${launcher}.cmd`), launcherCompanion);
+    } else {
+      assert.equal(fs.lstatSync(launcher).isSymbolicLink(), true);
+      assert.equal(fs.realpathSync(launcher), fs.realpathSync(userLauncher));
+    }
     assert.equal(fs.readFileSync(userLauncher, "utf8"), "// user-managed launcher\n");
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });

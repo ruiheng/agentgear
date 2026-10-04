@@ -1,7 +1,7 @@
-import childProcess from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { commitTemporaryFileSync, resolveCommand, run } from "./workflow-lib.mjs";
 
 const WAYPOST_CLI_ACTIONS = [
   { action: "read", stateScoped: true },
@@ -38,53 +38,6 @@ function unique(values) {
   return [...new Set(values)];
 }
 
-function commandCandidates(command, env = process.env) {
-  if (path.isAbsolute(command) || command.includes(path.sep)) return [command];
-  const extensions = process.platform === "win32"
-    ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";")
-    : [""];
-  return (env.PATH || "").split(path.delimiter).flatMap(directory =>
-    extensions.map(extension => path.join(directory, command.endsWith(extension) ? command : command + extension))
-  );
-}
-
-function resolveCommand(command, env = process.env) {
-  for (const candidate of commandCandidates(command, env)) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // Continue searching PATH.
-    }
-  }
-  return null;
-}
-
-function quoteWindowsArgument(value) {
-  if (/^[^\s"&|<>^()]+$/.test(value)) return value;
-  return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`;
-}
-
-function run(command, args, { env } = {}) {
-  const useCmd = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(command);
-  if (useCmd) {
-    if ([command, ...args].some(value => String(value).includes("%"))) {
-      return {
-        error: Object.assign(
-          new Error("refusing to pass a percent-containing Waypost value through cmd.exe"),
-          { code: "EINVAL" }
-        ),
-        status: null,
-        stdout: "",
-        stderr: ""
-      };
-    }
-    const line = [command, ...args].map(quoteWindowsArgument).join(" ");
-    return childProcess.spawnSync(env?.ComSpec || process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], { env });
-  }
-  return childProcess.spawnSync(command, args, { env });
-}
-
 function hasUnsafeControlCharacters(value) {
   return typeof value !== "string" || /[\0\r\n]/.test(value);
 }
@@ -116,7 +69,7 @@ function writeAtomic(filePath, content) {
   fs.writeFileSync(temporary, content);
   if (existing) fs.chmodSync(temporary, existing.mode & 0o777);
   try {
-    fs.renameSync(temporary, filePath);
+    commitTemporaryFileSync(temporary, filePath);
   } catch (error) {
     fs.rmSync(temporary, { force: true });
     throw error;
@@ -214,7 +167,7 @@ export function resolveWaypostPermissionContext({
   const commandPath = path.resolve(resolved);
   let canonicalCommand;
   try {
-    canonicalCommand = fs.realpathSync(commandPath);
+    canonicalCommand = fs.realpathSync.native(commandPath);
   } catch {
     return { trusted: false, rules: [], reason: "waypost does not resolve to an existing executable" };
   }
@@ -228,7 +181,7 @@ export function resolveWaypostPermissionContext({
   let trustedProjectDir;
   if (projectDir) {
     try {
-      trustedProjectDir = fs.realpathSync(projectDir);
+      trustedProjectDir = fs.realpathSync.native(projectDir);
     } catch {
       trustedProjectDir = path.resolve(projectDir);
     }
