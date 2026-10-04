@@ -1,3 +1,4 @@
+import childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -43,6 +44,47 @@ export function resolveExternalCommand(command, {
 
 export function isCommandAvailable(command, env = process.env) {
   return resolveExternalCommand(command, { env }) !== null;
+}
+
+function quoteWindowsArgument(value) {
+  const source = String(value);
+  if (/^[^\s"&|<>^()]+$/.test(source)) return source;
+  return `"${source.replace(/(\\*)"/g, "$1$1\\\"").replace(/(\\*)$/, "$1$1")}"`;
+}
+
+export function windowsCommandShell(env = process.env) {
+  return env.ComSpec
+    || process.env.ComSpec
+    || path.join(env.SystemRoot || env.WINDIR || process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe");
+}
+
+export function spawnExternalCommand(command, args = [], {
+  env = process.env,
+  platform = process.platform,
+  spawnSync = childProcess.spawnSync,
+  percentErrorLabel = "external command value",
+  ...options
+} = {}) {
+  const resolved = resolveExternalCommand(command, { env, platform }) || command;
+  const spawnOptions = { env, windowsHide: true, ...options };
+  if (platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved)) {
+    if ([resolved, ...args].some(value => String(value).includes("%"))) {
+      const error = new Error(`refusing to pass a percent-containing ${percentErrorLabel} through cmd.exe`);
+      error.code = "EINVAL";
+      return { error, status: null, stdout: "", stderr: "" };
+    }
+    if ([resolved, ...args].some(value => /["\0\r\n]/.test(String(value)))) {
+      const error = new Error(`refusing to pass an unsafe ${percentErrorLabel} through cmd.exe`);
+      error.code = "EINVAL";
+      return { error, status: null, stdout: "", stderr: "" };
+    }
+    const line = `"${[resolved, ...args].map(quoteWindowsArgument).join(" ")}"`;
+    return spawnSync(windowsCommandShell(env), ["/d", "/s", "/v:off", "/c", line], {
+      ...spawnOptions,
+      windowsVerbatimArguments: true
+    });
+  }
+  return spawnSync(resolved, args, spawnOptions);
 }
 
 function codeGraphDirectoryName(env) {

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { commitTemporaryFileSync } from "./workflow-lib.mjs";
 
 export const STICKY_TASK_CONTEXT_MARKER = "Keep this task context across compaction.";
 
@@ -48,7 +49,7 @@ export function writeJsonAtomic(filePath, value) {
     fs.fsyncSync(descriptor);
     fs.closeSync(descriptor);
     descriptor = undefined;
-    fs.renameSync(temporary, filePath);
+    commitTemporaryFileSync(temporary, filePath);
   } finally {
     if (descriptor !== undefined) {
       try { fs.closeSync(descriptor); } catch {}

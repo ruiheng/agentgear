@@ -28,6 +28,7 @@
     "codegraph": {"readiness": "codegraph-index"},
     "fd": {},
     "mq": {},
+    "powershell.exe": {},
     "rg": {},
     "yq": {}
   },

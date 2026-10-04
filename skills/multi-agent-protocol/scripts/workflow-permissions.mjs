@@ -7,6 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { devinConfigHome } from "./devin-paths.mjs";
 import { renderClaimedJsonPermissions } from "./json-permission-claims.mjs";
+import { commitTemporaryFileSync, resolveCommand } from "./workflow-lib.mjs";
 import {
   claudeWaypostPermission,
   isLegacyBroadWaypostPermission,
@@ -42,28 +43,6 @@ const colors = {
   error: "\x1b[0;31m",
   reset: "\x1b[0m"
 };
-
-function commandCandidates(command, env = process.env) {
-  if (path.isAbsolute(command) || command.includes(path.sep)) return [command];
-  const extensions = process.platform === "win32"
-    ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";")
-    : [""];
-  return (env.PATH || "").split(path.delimiter).flatMap(directory =>
-    extensions.map(extension => path.join(directory, command.endsWith(extension) ? command : command + extension))
-  );
-}
-
-function resolveCommand(command, env = process.env) {
-  for (const candidate of commandCandidates(command, env)) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // Continue searching PATH.
-    }
-  }
-  return null;
-}
 
 function isMain(metaUrl) {
   const invoked = process.argv[1] && path.resolve(process.argv[1]);
@@ -227,7 +206,7 @@ function writeAtomic(filePath, content) {
   fs.writeFileSync(temporary, content);
   if (existing) fs.chmodSync(temporary, existing.mode & 0o777);
   try {
-    fs.renameSync(temporary, filePath);
+    commitTemporaryFileSync(temporary, filePath);
   } catch (error) {
     fs.rmSync(temporary, { force: true });
     throw error;
@@ -943,7 +922,7 @@ function codexWaypostCommandIsTrusted(configuredCommand, trustedCommand) {
   if (configuredCommand === "waypost") return true;
   if (!trustedCommand || !path.isAbsolute(configuredCommand)) return false;
   try {
-    return fs.realpathSync(configuredCommand) === fs.realpathSync(trustedCommand);
+    return fs.realpathSync.native(configuredCommand) === fs.realpathSync.native(trustedCommand);
   } catch {
     return false;
   }

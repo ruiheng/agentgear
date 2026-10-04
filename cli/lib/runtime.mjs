@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { commitTemporaryFileSync } from "./platform-files.mjs";
 import { validateLegacyAgyDiscovery } from "../../providers/legacy-agy-skill-discovery.mjs";
 import { MAX_SKILL_NAME_LENGTH, SKILL_PREFIX_PATTERN } from "./catalog.mjs";
 import { buildSkillContentIndex, validateSkillContentIndex } from "./skill-content.mjs";
@@ -91,7 +92,7 @@ export function writeJsonAtomic(filePath, value) {
     `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`
   );
   fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
-  fs.renameSync(temporary, filePath);
+  commitTemporaryFileSync(temporary, filePath);
 }
 
 function isPlainObject(value) {
@@ -217,7 +218,15 @@ function copyRuntime(sourceRoot, destination) {
   fs.cpSync(sourceRoot, destination, {
     recursive: true,
     preserveTimestamps: true,
-    filter: sourcePath => !ignoredRuntimePath(sourcePath, sourceRoot)
+    filter(sourcePath) {
+      if (ignoredRuntimePath(sourcePath, sourceRoot)) return false;
+      const info = fs.lstatSync(sourcePath);
+      if (info.isSymbolicLink()) {
+        const relative = path.relative(sourceRoot, sourcePath).split(path.sep).join("/") || ".";
+        throw new Error(`Runtime source path is linked: ${relative}`);
+      }
+      return true;
+    }
   });
 }
 

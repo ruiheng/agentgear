@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { isPlainObject, regularFile } from "./hook-json-file.mjs";
 
 export const HOOK_TIMEOUT_SECONDS = 5;
@@ -20,7 +21,7 @@ export function compactMemoryHookCommand(launcher, { platform = process.platform
     launcher,
     command: platform === "win32" ? `node "${launcher}" compact-memory-hook` : commandPosix,
     commandPosix,
-    commandWindows: `node ${quotePowerShellLiteral(launcher)} compact-memory-hook`
+    commandWindows: `& ${quotePowerShellLiteral(process.execPath)} ${quotePowerShellLiteral(launcher)} compact-memory-hook`
   };
 }
 
@@ -59,6 +60,7 @@ function isManagedHookCommand(command) {
   const launcher = managedCommandLauncher(command);
   if (launcher === null) return false;
   const absolute = path.isAbsolute(launcher)
+    || launcher.startsWith("/")
     || /^[A-Za-z]:[\\/]/.test(launcher)
     || launcher.startsWith("\\\\");
   return absolute && launcher.split(/[\\/]/).pop() === "agentgear";

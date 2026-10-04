@@ -60,18 +60,30 @@ function checkPlannerCloseoutWorkspace(workspace, branch) {
   }
 }
 
+function canonicalWorkspacePath(value) {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
 function checkIntegrationBranchOwner(workerWorkspace, plannerWorkspace, integrationBranch) {
   const reference = git(workerWorkspace, ["rev-parse", "--verify", "--symbolic-full-name", integrationBranch]);
   const branchRef = reference.status === 0 ? reference.stdout.trim() : "";
   if (!branchRef.startsWith("refs/heads/")) return;
   const listed = git(workerWorkspace, ["worktree", "list", "--porcelain"]);
   if (listed.status !== 0) return;
+  const workerKey = canonicalWorkspacePath(workerWorkspace);
+  const plannerKey = canonicalWorkspacePath(plannerWorkspace);
   for (const record of listed.stdout.split(/\r?\n\r?\n/)) {
     const values = Object.fromEntries(record.split(/\r?\n/).filter(Boolean).map(line => {
       const divider = line.indexOf(" ");
       return divider < 0 ? [line, ""] : [line.slice(0, divider), line.slice(divider + 1)];
     }));
-    if (values.worktree && values.branch === branchRef && values.worktree !== workerWorkspace && values.worktree !== plannerWorkspace) {
+    if (values.worktree && values.branch === branchRef
+      && canonicalWorkspacePath(values.worktree) !== workerKey
+      && canonicalWorkspacePath(values.worktree) !== plannerKey) {
       blocker("workspace_branch_in_use", `integration branch '${integrationBranch}' is already checked out in worktree '${values.worktree}'; only worker workspace '${workerWorkspace}' and planner workspace '${plannerWorkspace}' may own it for this workflow`);
     }
   }

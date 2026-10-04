@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { commitTemporaryFileSync } from "../cli/lib/platform-files.mjs";
 
 export function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -134,7 +135,7 @@ export function writeHookDocument(filePath, value, mode) {
     fs.fsyncSync(descriptor);
     fs.closeSync(descriptor);
     descriptor = undefined;
-    fs.renameSync(temporary, target);
+    commitTemporaryFileSync(temporary, target);
   } finally {
     if (descriptor !== undefined) {
       try { fs.closeSync(descriptor); } catch {}
