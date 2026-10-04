@@ -51,6 +51,8 @@ import {
 } from "../providers/devin-compact-memory.mjs";
 import { isManagedCompactMemoryGroup } from "../providers/managed-hook-command.mjs";
 import { loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
+import { commitTemporaryFileSync as commitCoreTemporaryFile } from "../cli/lib/platform-files.mjs";
+import { commitTemporaryFileSync as commitWorkflowTemporaryFile } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
 
 function fixture() {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-compact-memory-"));
@@ -61,10 +63,26 @@ function fixture() {
     XDG_STATE_HOME: path.join(temporary, "state"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
+    APPDATA: path.join(temporary, "appdata"),
     CODEX_HOME: path.join(temporary, "codex")
   };
   delete env.CLAUDE_CONFIG_DIR;
   return { temporary, env };
+}
+
+function devinConfigPath(env) {
+  const root = process.platform === "win32" ? env.APPDATA : env.XDG_CONFIG_HOME;
+  return path.join(root, "devin", "config.json");
+}
+
+function powerShellLiteral(value) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function windowsFileAcl(filePath) {
+  const result = childProcess.spawnSync("icacls.exe", [filePath], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.replaceAll(filePath, "<file>").trim();
 }
 
 function recvEvent(sessionId, deliveryId, body, subject = "task") {
@@ -469,7 +487,7 @@ test("Codex compact-memory installer is idempotent and preserves unrelated hooks
     assert.equal(document.hooks.SessionStart[0].hooks[0].async, false);
     assert.equal(
       document.hooks.PostToolUse[0].hooks[0].commandWindows,
-      `node '${launcher}' compact-memory-hook`
+      `& ${powerShellLiteral(process.execPath)} ${powerShellLiteral(launcher)} compact-memory-hook`
     );
     const doctor = doctorCodexCompactMemory({ env: item.env, launcher });
     assert.deepEqual(doctor.missing, []);
@@ -620,11 +638,193 @@ test("Windows hook command uses one literal launcher argument without a cmd shim
     const command = document.hooks.PostToolUse[0].hooks[0].commandWindows;
     assert.equal(
       command,
-      `node '${launcher.replaceAll("'", "''")}' compact-memory-hook`
+      `& ${powerShellLiteral(process.execPath)} ${powerShellLiteral(launcher)} compact-memory-hook`
     );
     assert.doesNotMatch(command, /\.cmd/u);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Windows hook command invokes path-qualified Node through PowerShell", {
+  skip: process.platform !== "win32"
+}, () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, "cash$() `tick %PATH% O'Brien", "agentgear");
+    const marker = path.join(item.temporary, "hook-argv.json");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, "require('node:fs').writeFileSync(process.env.AGENTGEAR_HOOK_MARKER, JSON.stringify(process.argv.slice(2)));\n");
+    const result = installCodexCompactMemory({ env: item.env, launcher });
+    const command = JSON.parse(fs.readFileSync(result.path, "utf8"))
+      .hooks.PostToolUse[0].hooks[0].commandWindows;
+    const invoked = childProcess.spawnSync("powershell.exe", [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command
+    ], {
+      encoding: "utf8",
+      env: { ...item.env, AGENTGEAR_HOOK_MARKER: marker }
+    });
+    assert.equal(invoked.status, 0, invoked.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(marker, "utf8")), ["compact-memory-hook"]);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Windows Codex hook replacement preserves an explicit DACL", {
+  skip: process.platform !== "win32"
+}, () => {
+  const item = fixture();
+  try {
+    const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+    const hooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.mkdirSync(item.env.CODEX_HOME, { recursive: true });
+    fs.writeFileSync(launcher, "launcher");
+    fs.writeFileSync(hooksPath, "{}\n");
+    const protectedAcl = childProcess.spawnSync("icacls.exe", [hooksPath, "/inheritance:d"], { encoding: "utf8" });
+    assert.equal(protectedAcl.status, 0, protectedAcl.stderr);
+    const before = windowsFileAcl(hooksPath);
+
+    installCodexCompactMemory({ env: item.env, launcher });
+
+    assert.equal(windowsFileAcl(hooksPath), before);
+    assert.match(fs.readFileSync(hooksPath, "utf8"), /Agentgear Codex compact memory/);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("Windows atomic replacement detaches hard links and preserves the destination DACL", {
+  skip: process.platform !== "win32"
+}, () => {
+  for (const [name, commit] of [
+    ["core", commitCoreTemporaryFile],
+    ["workflow", commitWorkflowTemporaryFile]
+  ]) {
+    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), `agentgear-${name}-replace-`));
+    try {
+      const destination = path.join(temporary, "state.json");
+      const alias = path.join(temporary, "outside-alias.json");
+      const replacement = path.join(temporary, ".state.json.tmp");
+      fs.writeFileSync(destination, "old\n");
+      fs.linkSync(destination, alias);
+      fs.writeFileSync(replacement, "new\n");
+      const protectedAcl = childProcess.spawnSync("icacls.exe", [destination, "/inheritance:d"], { encoding: "utf8" });
+      assert.equal(protectedAcl.status, 0, protectedAcl.stderr);
+      const beforeAcl = windowsFileAcl(destination);
+
+      commit(replacement, destination);
+
+      assert.equal(fs.readFileSync(destination, "utf8"), "new\n");
+      assert.equal(fs.readFileSync(alias, "utf8"), "old\n");
+      assert.notEqual(fs.statSync(destination).ino, fs.statSync(alias).ino);
+      assert.equal(windowsFileAcl(destination), beforeAcl);
+      assert.deepEqual(fs.readdirSync(temporary).sort(), ["outside-alias.json", "state.json"]);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Windows atomic replacement exposes only complete old or new contents", {
+  skip: process.platform !== "win32"
+}, async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-atomic-visibility-"));
+  try {
+    const destination = path.join(temporary, "state.bin");
+    const replacement = path.join(temporary, ".state.bin.tmp");
+    const ready = path.join(temporary, "reader.ready");
+    const size = 2 * 1024 * 1024;
+    fs.writeFileSync(destination, Buffer.alloc(size, 0x41));
+    fs.writeFileSync(replacement, Buffer.alloc(size, 0x42));
+    const readerSource = [
+      "const fs = require('node:fs');",
+      "const [file, ready, sizeText] = process.argv.slice(1);",
+      "const size = Number(sizeText);",
+      "fs.writeFileSync(ready, 'ready');",
+      "for (let attempt = 0; attempt < 20000; attempt += 1) {",
+      "  let value;",
+      "  try { value = fs.readFileSync(file); } catch (error) { if (['ENOENT', 'EBUSY', 'EACCES', 'EPERM'].includes(error.code)) continue; throw error; }",
+      "  if (value.length !== size || (value[0] !== 0x41 && value[0] !== 0x42)) process.exit(2);",
+      "  for (let index = 1; index < value.length; index += 1) if (value[index] !== value[0]) process.exit(2);",
+      "  if (value[0] === 0x42) process.exit(0);",
+      "}",
+      "process.exit(3);"
+    ].join("\n");
+    const reader = childProcess.spawn(process.execPath, ["-e", readerSource, destination, ready, String(size)], {
+      stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true
+    });
+    let readerError = "";
+    reader.stderr.setEncoding("utf8");
+    reader.stderr.on("data", chunk => { readerError += chunk; });
+    const readerDone = new Promise((resolve, reject) => {
+      reader.once("error", reject);
+      reader.once("close", resolve);
+    });
+    const deadline = Date.now() + 5000;
+    while (!fs.existsSync(ready) && Date.now() < deadline) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+    assert.equal(fs.existsSync(ready), true, "reader did not become ready");
+
+    commitCoreTemporaryFile(replacement, destination);
+
+    const status = await readerDone;
+    assert.equal(status, 0, readerError);
+    assert.deepEqual(fs.readFileSync(destination), Buffer.alloc(size, 0x42));
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("Windows atomic replacement fails without the platform primitive and never copies in place", {
+  skip: process.platform !== "win32"
+}, () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-no-replace-primitive-"));
+  try {
+    const destination = path.join(temporary, "state.json");
+    const replacement = path.join(temporary, ".state.json.tmp");
+    fs.writeFileSync(destination, "old\n");
+    fs.writeFileSync(replacement, "new\n");
+
+    assert.throws(
+      () => commitCoreTemporaryFile(replacement, destination, { platform: "win32", env: {} }),
+      /SystemRoot is unavailable/
+    );
+
+    assert.equal(fs.readFileSync(destination, "utf8"), "old\n");
+    assert.equal(fs.readFileSync(replacement, "utf8"), "new\n");
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("Windows Codex hook replacement supports long new and existing paths", {
+  skip: process.platform !== "win32"
+}, () => {
+  for (const existing of [false, true]) {
+    const item = fixture();
+    try {
+      const launcher = path.join(item.env.HOME, ".local", "bin", "agentgear");
+      let codexHome = item.env.CODEX_HOME;
+      for (let index = 0; path.join(codexHome, "hooks.json").length <= 300; index += 1) {
+        codexHome = path.join(codexHome, `segment-${index.toString().padStart(2, "0")}-${"x".repeat(24)}`);
+      }
+      item.env.CODEX_HOME = codexHome;
+      fs.mkdirSync(path.dirname(launcher), { recursive: true });
+      fs.mkdirSync(codexHome, { recursive: true });
+      fs.writeFileSync(launcher, "launcher");
+      const hooksPath = path.join(codexHome, "hooks.json");
+      if (existing) fs.writeFileSync(hooksPath, "{}\n");
+
+      installCodexCompactMemory({ env: item.env, launcher });
+
+      assert.match(fs.readFileSync(hooksPath, "utf8"), /Agentgear Codex compact memory/);
+    } finally {
+      fs.rmSync(item.temporary, { recursive: true, force: true });
+    }
   }
 });
 
@@ -739,20 +939,20 @@ test("hooks install and uninstall preflight every host before writing", () => {
     });
     const codexHooksPath = path.join(item.env.CODEX_HOME, "hooks.json");
     const claudeSettingsPath = path.join(item.env.HOME, ".claude", "settings.json");
-    const devinConfigPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
-    fs.mkdirSync(path.dirname(devinConfigPath), { recursive: true });
-    fs.writeFileSync(devinConfigPath, "{ not json\n");
+    const devinConfigFile = devinConfigPath(item.env);
+    fs.mkdirSync(path.dirname(devinConfigFile), { recursive: true });
+    fs.writeFileSync(devinConfigFile, "{ not json\n");
 
     const failedInstall = invoke(["hooks", "install"]);
     assert.notEqual(failedInstall.status, 0);
     assert.equal(fs.existsSync(codexHooksPath), false);
     assert.equal(fs.existsSync(claudeSettingsPath), false);
 
-    fs.writeFileSync(devinConfigPath, "{}\n");
+    fs.writeFileSync(devinConfigFile, "{}\n");
     assert.equal(invoke(["hooks", "install"]).status, 0);
     assert.equal(fs.existsSync(codexHooksPath), true);
     assert.equal(fs.existsSync(claudeSettingsPath), true);
-    fs.writeFileSync(devinConfigPath, "{ not json\n");
+    fs.writeFileSync(devinConfigFile, "{ not json\n");
     const failedUninstall = invoke(["hooks", "uninstall"]);
     assert.notEqual(failedUninstall.status, 0);
     const codexHooks = JSON.parse(fs.readFileSync(codexHooksPath, "utf8"));
@@ -919,7 +1119,7 @@ test("Devin compact memory hooks merge into Devin config without touching user c
     fs.mkdirSync(path.dirname(launcher), { recursive: true });
     fs.writeFileSync(launcher, "launcher");
     fs.chmodSync(launcher, 0o755);
-    const configPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
+    const configPath = devinConfigPath(item.env);
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     const userHook = { matcher: "exec", hooks: [{ type: "command", command: "./check.sh" }] };
     fs.writeFileSync(configPath, `${JSON.stringify({
@@ -961,7 +1161,7 @@ test("Devin compact memory hooks preserve look-alike user hooks and adopt stale 
     fs.mkdirSync(path.dirname(launcher), { recursive: true });
     fs.writeFileSync(launcher, "launcher");
     fs.chmodSync(launcher, 0o755);
-    const configPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
+    const configPath = devinConfigPath(item.env);
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     const lookAlike = {
       matcher: "",
@@ -983,7 +1183,9 @@ test("Devin compact memory hooks preserve look-alike user hooks and adopt stale 
     assert.equal(document.hooks.SessionStart.length, 1);
     assert.equal(
       document.hooks.SessionStart[0].hooks[0].command,
-      `'${launcher}' compact-memory-hook`
+      process.platform === "win32"
+        ? `node "${launcher}" compact-memory-hook`
+        : `'${launcher}' compact-memory-hook`
     );
 
     const removed = uninstallDevinCompactMemory({ env: item.env });
@@ -1003,7 +1205,7 @@ test("Devin compact memory hook command uses a node invocation on Windows", () =
     fs.writeFileSync(launcher, "launcher");
     const installed = installDevinCompactMemory({ env: item.env, launcher, platform: "win32" });
     assert.equal(installed.command, `node "${launcher}" compact-memory-hook`);
-    const configPath = path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json");
+    const configPath = devinConfigPath(item.env);
     const document = JSON.parse(fs.readFileSync(configPath, "utf8"));
     assert.equal(
       document.hooks.PostToolUse[0].hooks[0].command,
@@ -1092,7 +1294,9 @@ test("Claude Code compact memory hooks preserve look-alike user hooks and adopt 
     assert.equal(document.hooks.SessionStart.length, 1);
     assert.equal(
       document.hooks.SessionStart[0].hooks[0].command,
-      `'${launcher}' compact-memory-hook`
+      process.platform === "win32"
+        ? `node "${launcher}" compact-memory-hook`
+        : `'${launcher}' compact-memory-hook`
     );
 
     const removed = uninstallClaudeCompactMemory({ env: item.env });
@@ -1435,7 +1639,7 @@ test("every provider-managed hook event is handled by the compact-memory hook", 
     fs.writeFileSync(launcher, "launcher");
     fs.chmodSync(launcher, 0o755);
     const hosts = [
-      { install: installDevinCompactMemory, file: path.join(item.env.XDG_CONFIG_HOME, "devin", "config.json") },
+      { install: installDevinCompactMemory, file: devinConfigPath(item.env) },
       { install: installClaudeCompactMemory, file: path.join(item.env.HOME, ".claude", "settings.json") },
       { install: installCodexCompactMemory, file: path.join(item.env.CODEX_HOME, "hooks.json") }
     ];

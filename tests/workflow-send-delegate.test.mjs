@@ -10,16 +10,15 @@ import {
 } from "../skills/multi-agent-protocol/scripts/send-delegate-with-active-task-lock.mjs";
 import { DEFAULT_SEND_TIMEOUT_MS } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
 import { hasStickyTaskContextMarker } from "../skills/multi-agent-protocol/scripts/compact-memory-shared.mjs";
+import { run as runWorkflowCommand } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
+import { writeNodeCommand } from "./helpers/platform.mjs";
 
 function exists(filePath) {
   return fs.lstatSync(filePath, { throwIfNoEntry: false }) !== undefined;
 }
 
 function writeExecutable(directory, name, source) {
-  const executable = path.join(directory, name);
-  fs.mkdirSync(directory, { recursive: true });
-  fs.writeFileSync(executable, `#!${process.execPath}\n${source}\n`);
-  fs.chmodSync(executable, 0o755);
+  return writeNodeCommand(directory, name, source);
 }
 
 // Fake agent-deck: `session show <id> --json` reports the session as existing
@@ -179,6 +178,32 @@ else process.stdout.write(response);`;
 
 test("default send timeout is disabled so Waypost owns notify deadlines", () => {
   assert.equal(DEFAULT_SEND_TIMEOUT_MS, 0);
+});
+
+test("Windows workflow commands honor the supplied PATH and fail closed on percent expansion", {
+  skip: process.platform !== "win32"
+}, () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear workflow command "));
+  const bin = path.join(temporary, "bin with spaces");
+  try {
+    writeNodeCommand(bin, "argument-probe", "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+    const env = { PATH: bin, PATHEXT: ".CMD" };
+    const invoked = runWorkflowCommand("argument-probe", ["alpha", "two words"], { env });
+    assert.equal(invoked.status, 0, invoked.stderr);
+    assert.deepEqual(JSON.parse(invoked.stdout), ["alpha", "two words"]);
+
+    const rejected = runWorkflowCommand("argument-probe", ["%PATH%"], { env });
+    assert.equal(rejected.status, 1);
+    assert.equal(rejected.error?.code, "EINVAL");
+    assert.match(rejected.error?.message ?? "", /percent-containing workflow value/);
+
+    const injected = runWorkflowCommand("argument-probe", ['safe" & echo injected'], { env });
+    assert.equal(injected.status, 1);
+    assert.equal(injected.error?.code, "EINVAL");
+    assert.match(injected.error?.message ?? "", /unsafe workflow value/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 });
 
 test("brief source rejects TTY stdin before reading", () => {

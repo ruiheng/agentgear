@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import childProcess from "node:child_process";
 import test from "node:test";
+import { linkDirectory } from "./helpers/platform.mjs";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { listSkills, loadCatalog, resolveSelection, upstreamSkillEntries, validateCatalog } from "../cli/lib/catalog.mjs";
@@ -357,11 +358,12 @@ test("external command probes and CodeGraph requires a workspace index", () => {
   const temporary = path.join(os.tmpdir(), "agentgear-runtime-command-test-fixture");
   const bin = path.join(temporary, "bin");
   const workspace = path.join(temporary, "workspace", "nested");
-  const agentBrowser = path.join(bin, "agent-browser");
-  const executableFiles = new Set([agentBrowser, path.join(bin, "codegraph")]);
+  const extension = process.platform === "win32" ? ".CMD" : "";
+  const agentBrowser = path.join(bin, `agent-browser${extension}`);
+  const executableFiles = new Set([agentBrowser, path.join(bin, `codegraph${extension}`)]);
   const indexDirectories = new Set();
   const indexFiles = new Set();
-  const env = { PATH: bin };
+  const env = { PATH: bin, ...(process.platform === "win32" ? { PATHEXT: ".CMD" } : {}) };
   const stat = filePath => {
     if (executableFiles.has(filePath) || indexFiles.has(filePath)) {
       return { isFile: () => true, isDirectory: () => false };
@@ -1068,12 +1070,12 @@ test("skill get works through source, staged release, shared current, and copy-f
     const staged = invokeRuntime(path.join(runtime, "bin", "agentgear.mjs"));
     assert.equal(staged.status, 0, staged.stderr);
     fs.mkdirSync(path.dirname(path.join(item.env.XDG_DATA_HOME, "agentgear", "current")), { recursive: true });
-    fs.symlinkSync(runtime, path.join(item.env.XDG_DATA_HOME, "agentgear", "current"), "dir");
+    linkDirectory(runtime, path.join(item.env.XDG_DATA_HOME, "agentgear", "current"));
     const shared = invokeRuntime(path.join(item.env.XDG_DATA_HOME, "agentgear", "current", "bin", "agentgear.mjs"));
     assert.equal(shared.status, 0, shared.stderr);
     const fallback = path.join(runtime, "fallback", "bin", "agentgear.mjs");
     fs.mkdirSync(path.dirname(fallback), { recursive: true });
-    fs.symlinkSync(path.join(runtime, "cli"), path.join(runtime, "fallback", "cli"), "dir");
+    linkDirectory(path.join(runtime, "cli"), path.join(runtime, "fallback", "cli"));
     fs.copyFileSync(path.join(runtime, "bin", "agentgear.mjs"), fallback);
     const copied = invokeRuntime(fallback);
     assert.equal(copied.status, 0, copied.stderr);
@@ -1120,7 +1122,7 @@ test("action aliases are complete, direct, and selector validation resolves mult
     const canonical = `${record.owner}/${record.selector}`;
     assert.equal(index.byCanonicalAddress.get(canonical), record, `${token} must directly own ${canonical}`);
   }
-  assert.equal(index.referencedInvocations.some(item => item.filePath.endsWith("multi-agent-protocol/references/disclosure-start.md") && item.addresses.includes("multi-agent-protocol/tool-resolution")), true);
+  assert.equal(index.referencedInvocations.some(item => item.filePath.endsWith(path.join("multi-agent-protocol", "references", "disclosure-start.md")) && item.addresses.includes("multi-agent-protocol/tool-resolution")), true);
 });
 
 test("action-template validation rejects indented and dynamic emitted headers", () => {
@@ -1608,7 +1610,6 @@ test("retrieved skill creation is atomic under a concurrent winning materializat
 });
 
 test("retrieved skill materializations reject symlink and unexpected shapes without affecting normal commands", () => {
-  if (process.platform === "win32") return;
   const item = fixture();
   try {
     const sourceTree = path.join(item.temporary, "source");
@@ -1617,7 +1618,7 @@ test("retrieved skill materializations reject symlink and unexpected shapes with
     const { catalog, plan } = pinnedCatalogWithPayload(loadCatalog(rootDir), sourceTree);
     const root = retrievedSkillMaterializationRoot(path.join(item.env.XDG_DATA_HOME, "agentgear"), plan);
     fs.mkdirSync(path.dirname(root), { recursive: true });
-    fs.symlinkSync(sourceTree, root, "dir");
+    linkDirectory(sourceTree, root);
     assert.throws(
       () => retrieveUpstreamSkill({ catalog, skill: "agent-deck", env: item.env }),
       /Retrieved upstream skill is unverifiable/
@@ -1632,7 +1633,6 @@ test("retrieved skill materializations reject symlink and unexpected shapes with
 });
 
 test("upstream retrieval rejects symlinked managed parents without writing through them", () => {
-  if (process.platform === "win32") return;
   for (const parent of ["retrieved-skills", path.join("retrieved-skills", "agent-deck")]) {
     const item = fixture();
     try {
@@ -1645,7 +1645,7 @@ test("upstream retrieval rejects symlinked managed parents without writing throu
       const dataRoot = path.join(item.env.XDG_DATA_HOME, "agentgear");
       const managedParent = path.join(dataRoot, parent);
       fs.mkdirSync(path.dirname(managedParent), { recursive: true });
-      fs.symlinkSync(outside, managedParent, "dir");
+      linkDirectory(outside, managedParent);
 
       assert.throws(
         () => retrieveUpstreamSkill({ catalog, skill: "agent-deck", env: item.env }),
@@ -1744,7 +1744,7 @@ test("legacy migration refuses recorded state, symlink roots, and remains idempo
     );
     fs.rmSync(stateFile);
     const linkedRoot = path.join(item.temporary, "linked-skills");
-    fs.symlinkSync(target, linkedRoot);
+    linkDirectory(target, linkedRoot);
     assert.throws(
       () => migrateLegacySkills({ roots: [linkedRoot], apply: true, env: item.env }),
       /Unsafe legacy migration root/
@@ -1759,7 +1759,6 @@ test("legacy migration refuses recorded state, symlink roots, and remains idempo
 });
 
 test("legacy migration removes a whitelisted symlink child without traversing it", () => {
-  if (process.platform === "win32") return;
   const item = fixture();
   try {
     const target = path.join(item.temporary, "skills");
@@ -1767,7 +1766,7 @@ test("legacy migration removes a whitelisted symlink child without traversing it
     fs.mkdirSync(target, { recursive: true });
     fs.mkdirSync(outside, { recursive: true });
     fs.writeFileSync(path.join(outside, "preserve.txt"), "keep\n");
-    fs.symlinkSync(outside, path.join(target, "handoff"), "dir");
+    linkDirectory(outside, path.join(target, "handoff"));
     migrateLegacySkills({ roots: [target], apply: true, env: item.env, print: () => {} });
     assert.equal(fs.existsSync(path.join(target, "handoff")), false);
     assert.equal(fs.readFileSync(path.join(outside, "preserve.txt"), "utf8"), "keep\n");

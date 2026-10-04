@@ -1,8 +1,10 @@
+import childProcess from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { linkDirectory, writeNodeCommand } from "./helpers/platform.mjs";
 import { fileURLToPath } from "node:url";
 import { main as cliMain } from "../cli/agentgear.mjs";
 import { permissionMigrationScopes } from "../cli/lib/installer.mjs";
@@ -16,7 +18,11 @@ import {
   permissionPaths,
   workflowWaypostMcpTools
 } from "../skills/multi-agent-protocol/scripts/workflow-permissions.mjs";
-import { shellCommand } from "../skills/multi-agent-protocol/scripts/waypost-permission-spec.mjs";
+import {
+  claudeWaypostPermission,
+  shellCommand
+} from "../skills/multi-agent-protocol/scripts/waypost-permission-spec.mjs";
+import { commitTemporaryFileSync } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -25,28 +31,14 @@ function escapeRegex(value) {
 }
 
 function writeWaypostExecutable(directory, name = "waypost") {
-  const executable = path.join(directory, name);
-  fs.mkdirSync(directory, { recursive: true });
-  const source = process.platform === "win32" ? `#!${process.execPath}
+  const source = `
 const args = process.argv.slice(2);
 const supported = (args[0] === "mcp" && args[1] === "--help") ||
   (args[0] === "doc" && args[1] === "--help") ||
   (args[0] === "--state-dir" && ["read", "list", "fail", "dead-letter", "forward", "wait", "undefer", "group", "address", "renew"].includes(args[2]) && args[3] === "--help");
 process.exit(supported ? 0 : 1);
-` : `#!/bin/sh
-if [ "$#" -eq 2 ] && { [ "$1" = "mcp" ] || [ "$1" = "doc" ]; } && [ "$2" = "--help" ]; then
-  exit 0
-fi
-if [ "$#" -eq 4 ] && [ "$1" = "--state-dir" ] && [ "$4" = "--help" ]; then
-  case "$3" in
-    read|list|fail|dead-letter|forward|wait|undefer|group|address|renew) exit 0 ;;
-  esac
-fi
-exit 1
 `;
-  fs.writeFileSync(executable, source);
-  fs.chmodSync(executable, 0o755);
-  return executable;
+  return writeNodeCommand(directory, name, source);
 }
 
 function withEnvironment(environment, action) {
@@ -72,12 +64,40 @@ test("shell command permissions preserve whitespace and quotes in token boundari
   );
 });
 
+test("Windows workflow file replacement preserves an explicit DACL", {
+  skip: process.platform !== "win32"
+}, () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-workflow-dacl-"));
+  try {
+    const destination = path.join(temporary, "permissions.json");
+    const replacement = path.join(temporary, ".permissions.json.tmp");
+    fs.writeFileSync(destination, "old\n");
+    fs.writeFileSync(replacement, "new\n");
+    const protectedAcl = childProcess.spawnSync("icacls.exe", [destination, "/inheritance:d"], { encoding: "utf8" });
+    assert.equal(protectedAcl.status, 0, protectedAcl.stderr);
+    const readAcl = () => {
+      const result = childProcess.spawnSync("icacls.exe", [destination], { encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.replaceAll(destination, "<file>").trim();
+    };
+    const before = readAcl();
+
+    commitTemporaryFileSync(replacement, destination);
+
+    assert.equal(fs.readFileSync(destination, "utf8"), "new\n");
+    assert.equal(readAcl(), before);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("workflow permissions use the stable launcher and never an old source path", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-permissions-test-"));
   const home = path.join(temporary, "home");
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -137,6 +157,7 @@ test("workflow permissions revoke retired Claude send-and-wake grants", () => {
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -173,6 +194,7 @@ test("retired permission detection only treats Claude allow entries as approvals
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -405,6 +427,7 @@ test("workflow permissions add explicit Waypost MCP approvals for Claude and Cod
   const stateDir = path.join(temporary, "waypost-state");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -454,6 +477,7 @@ test("user-scoped permission init and check cover all harnesses", () => {
   const bin = path.join(temporary, "bin with spaces");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -461,7 +485,7 @@ test("user-scoped permission init and check cover all harnesses", () => {
     PATH: bin
   };
   try {
-    writeWaypostExecutable(bin);
+    const waypostCommand = writeWaypostExecutable(bin);
     fs.mkdirSync(project, { recursive: true });
     const paths = withEnvironment(environment, () => permissionPaths("user", project));
     fs.mkdirSync(path.dirname(paths.codexConfig), { recursive: true });
@@ -473,15 +497,18 @@ test("user-scoped permission init and check cover all harnesses", () => {
     assert.equal(configured.paths.claudeSettings, path.join(home, ".claude", "settings.json"));
     assert.equal(configured.paths.geminiPolicy, path.join(home, ".gemini", "policies", "agentgear-workflow.toml"));
     assert.equal(configured.paths.agySettings, path.join(home, ".gemini", "antigravity-cli", "settings.json"));
-    assert.equal(configured.paths.devinConfig, path.join(environment.XDG_CONFIG_HOME, "devin", "config.json"));
+    const expectedDevinConfig = process.platform === "win32"
+      ? path.join(environment.APPDATA, "devin", "config.json")
+      : path.join(environment.XDG_CONFIG_HOME, "devin", "config.json");
+    assert.equal(configured.paths.devinConfig, expectedDevinConfig);
 
     const devin = JSON.parse(fs.readFileSync(paths.devinConfig, "utf8"));
-    const devinWaypost = fs.realpathSync(path.join(bin, "waypost"));
+    const devinWaypost = fs.realpathSync.native(waypostCommand);
     const devinStateDir = path.resolve(environment.WAYPOST_STATE_DIR);
     assert.equal(devin.permissions.allow.includes("Exec(git status)"), true);
-    assert.equal(devin.permissions.allow.includes(`Exec('${devinWaypost}' doc)`), true);
-    assert.equal(devin.permissions.allow.includes(`Exec('${devinWaypost}' --state-dir '${devinStateDir}' read)`), true);
-    assert.equal(devin.permissions.allow.includes(`Exec('${devinWaypost}' --state-dir '${devinStateDir}' dead-letter)`), true);
+    assert.equal(devin.permissions.allow.includes(`Exec(${shellCommand([devinWaypost, "doc"])})`), true);
+    assert.equal(devin.permissions.allow.includes(`Exec(${shellCommand([devinWaypost, "--state-dir", devinStateDir, "read"])})`), true);
+    assert.equal(devin.permissions.allow.includes(`Exec(${shellCommand([devinWaypost, "--state-dir", devinStateDir, "dead-letter"])})`), true);
     assert.equal(devin.permissions.allow.includes("Exec(waypost)"), false);
     assert.equal(devin.permissions.allow.includes("mcp__waypost__waypost_recv"), true);
     assert.equal(devin.permissions.allow.includes("mcp__waypost__session_resolve"), false);
@@ -490,12 +517,12 @@ test("user-scoped permission init and check cover all harnesses", () => {
     assert.deepEqual(devinClaims.permissions, devin.permissions.allow);
 
     const agy = JSON.parse(fs.readFileSync(paths.agySettings, "utf8"));
-    const waypost = fs.realpathSync(path.join(bin, "waypost"));
+    const waypost = fs.realpathSync.native(waypostCommand);
     const stateDir = path.resolve(environment.WAYPOST_STATE_DIR);
-    const quotedWaypostDoc = `command('${waypost}' doc)`;
-    const quotedWaypostRead = `command('${waypost}' --state-dir '${stateDir}' read)`;
-    const quotedWaypostDeadLetter = `command('${waypost}' --state-dir '${stateDir}' dead-letter)`;
-    const quotedLauncher = `command('${path.join(home, ".local", "bin", "agentgear")}' skill get)`;
+    const quotedWaypostDoc = `command(${shellCommand([waypost, "doc"])})`;
+    const quotedWaypostRead = `command(${shellCommand([waypost, "--state-dir", stateDir, "read"])})`;
+    const quotedWaypostDeadLetter = `command(${shellCommand([waypost, "--state-dir", stateDir, "dead-letter"])})`;
+    const quotedLauncher = `command(${shellCommand([path.join(home, ".local", "bin", "agentgear"), "skill", "get"])})`;
     assert.equal(agy.permissions.allow.includes(quotedWaypostDoc), true);
     assert.equal(agy.permissions.allow.includes(quotedWaypostRead), true);
     assert.equal(agy.permissions.allow.includes(quotedWaypostDeadLetter), true);
@@ -537,6 +564,7 @@ test("project-scoped permission init leaves Agy global settings untouched", () =
   const environment = {
     HOME: home,
     AGENTGEAR_AGY_HOME: agyHome,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -566,6 +594,7 @@ test("Agy configuration failure rolls back every workflow permission file", () =
   const environment = {
     HOME: home,
     AGENTGEAR_AGY_HOME: agyHome,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -599,6 +628,7 @@ test("user-scoped permission init retires the known config_files Codex rules", (
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -638,6 +668,7 @@ test("permission init archives a modified config_files Codex rules file instead 
   const project = path.join(temporary, "project");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -679,6 +710,7 @@ test("workflow permissions do not create Codex approvals without a configured Wa
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -712,6 +744,7 @@ test("workflow permissions recognize the trusted absolute Waypost command in Cod
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -747,6 +780,7 @@ test("workflow permissions revoke Agentgear-owned Codex approvals when Waypost l
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -791,6 +825,7 @@ test("workflow permissions migrate the legacy Codex approval block into owned bo
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -840,6 +875,7 @@ test("workflow permissions automatically reconcile orphaned Codex ownership", ()
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -888,6 +924,7 @@ test("workflow permissions refuse to override a user-managed Codex denial", () =
   const bin = path.join(temporary, "bin");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -925,6 +962,7 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
   const waypost = writeWaypostExecutable(bin);
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -938,21 +976,30 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     fs.mkdirSync(project, { recursive: true });
     withEnvironment(environment, () => initializePermissions({ scope: "project", project }));
 
-    const expectedRead = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} read)`;
-    const expectedReadWildcard = `${expectedRead.slice(0, -1)} *)`;
-    const expectedFail = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} fail)`;
-    const expectedFailWildcard = `${expectedFail.slice(0, -1)} *)`;
-    const expectedDeadLetter = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} dead-letter)`;
-    const expectedDeadLetterWildcard = `${expectedDeadLetter.slice(0, -1)} *)`;
-    const expectedRenew = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} renew)`;
-    const expectedRenewWildcard = `${expectedRenew.slice(0, -1)} *)`;
+    const permission = (action, wildcard = false) => claudeWaypostPermission({
+      command: fs.realpathSync.native(waypost),
+      stateDir: path.resolve(stateDir),
+      action,
+      wildcard
+    });
+    const expectedRead = permission("read");
+    const expectedReadWildcard = permission("read", true);
+    const expectedFail = permission("fail");
+    const expectedFailWildcard = permission("fail", true);
+    const expectedDeadLetter = permission("dead-letter");
+    const expectedDeadLetterWildcard = permission("dead-letter", true);
+    const expectedRenew = permission("renew");
+    const expectedRenewWildcard = permission("renew", true);
     const additionalActions = ["forward", "wait", "undefer", "group", "address"];
     const additionalPermissions = additionalActions.flatMap(action => {
-      const exact = `Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} ${action})`;
-      return [exact, `${exact.slice(0, -1)} *)`];
+      return [permission(action), permission(action, true)];
     });
-    const expectedDoc = `Bash(${fs.realpathSync(waypost)} doc)`;
-    const expectedDocWildcard = `${expectedDoc.slice(0, -1)} *)`;
+    const expectedDoc = claudeWaypostPermission({
+      command: fs.realpathSync.native(waypost), action: "doc", wildcard: false
+    });
+    const expectedDocWildcard = claudeWaypostPermission({
+      command: fs.realpathSync.native(waypost), action: "doc", wildcard: true
+    });
     const claude = JSON.parse(fs.readFileSync(claudeSettings, "utf8"));
     assert.equal(claude.permissions.allow.includes(expectedRead), true);
     assert.equal(claude.permissions.allow.includes(expectedReadWildcard), true);
@@ -960,7 +1007,10 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     assert.equal(claude.permissions.allow.includes(expectedFailWildcard), true);
     assert.equal(claude.permissions.allow.includes(expectedDeadLetter), true);
     assert.equal(claude.permissions.allow.includes(expectedDeadLetterWildcard), true);
-    assert.equal(claude.permissions.allow.includes(`Bash(${fs.realpathSync(waypost)} dead-letter)`), true);
+    const expectedBareDeadLetter = claudeWaypostPermission({
+      command: fs.realpathSync.native(waypost), action: "dead-letter", wildcard: false
+    });
+    assert.equal(claude.permissions.allow.includes(expectedBareDeadLetter), true);
     assert.equal(claude.permissions.allow.includes(expectedRenew), true);
     assert.equal(claude.permissions.allow.includes(expectedRenewWildcard), true);
     for (const permission of additionalPermissions) {
@@ -977,22 +1027,22 @@ test("workflow permissions grant only validated scoped Waypost CLI access", () =
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));
 
     const codex = fs.readFileSync(path.join(project, ".codex", "rules", "agentgear-workflow.rules"), "utf8");
-    assert.match(codex, new RegExp(escapeRegex(waypost)));
+    assert.match(codex, new RegExp(escapeRegex(JSON.stringify(fs.realpathSync.native(waypost)))));
     assert.match(codex, /"fail"/);
     assert.match(codex, /"dead-letter"/);
     assert.match(codex, /"renew"/);
     for (const action of additionalActions) assert.match(codex, new RegExp(`"${action}"`));
-    assert.match(codex, new RegExp(`pattern = \\[${escapeRegex(JSON.stringify(fs.realpathSync(waypost)))}, "doc"\\]`));
+    assert.match(codex, new RegExp(`pattern = \\[${escapeRegex(JSON.stringify(fs.realpathSync.native(waypost)))}, "doc"\\]`));
     assert.doesNotMatch(codex, /pattern = \["waypost"/);
 
     const gemini = fs.readFileSync(path.join(project, ".gemini", "policies", "agentgear-workflow.toml"), "utf8");
     assert.match(gemini, /mcpName = "waypost"/);
-    assert.match(gemini, new RegExp(escapeRegex(waypost)));
+    assert.match(gemini, new RegExp(escapeRegex(JSON.stringify(fs.realpathSync.native(waypost)))));
     assert.match(gemini, /"fail"/);
     assert.match(gemini, /"dead-letter"/);
     assert.match(gemini, /"renew"/);
     for (const action of additionalActions) assert.match(gemini, new RegExp(`"${action}"`));
-    assert.match(gemini, new RegExp(`commandPrefix = \\[${escapeRegex(JSON.stringify(fs.realpathSync(waypost)))}, "doc"\\]`));
+    assert.match(gemini, new RegExp(`commandPrefix = \\[${escapeRegex(JSON.stringify(fs.realpathSync.native(waypost)))}, "doc"\\]`));
 
     const userPermission = "Bash(/opt/custom-waypost --state-dir /tmp/custom-state read)";
     const retiredMcpFail = "mcp__waypost__waypost_fail";
@@ -1039,6 +1089,7 @@ test("workflow permissions reject project-local Waypost commands", () => {
   const waypost = writeWaypostExecutable(projectBin);
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -1068,6 +1119,7 @@ test("workflow permissions reject a relative Waypost state directory", () => {
   const waypost = writeWaypostExecutable(bin);
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -1097,6 +1149,7 @@ test("workflow permissions reject Waypost found through a relative PATH entry", 
   const waypost = writeWaypostExecutable(path.join(temporary, relativeBin));
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -1120,7 +1173,7 @@ test("workflow permissions reject Waypost found through a relative PATH entry", 
   }
 });
 
-test("workflow permissions reject a Waypost command inside a symlinked project", { skip: process.platform === "win32" }, () => {
+test("workflow permissions reject a Waypost command inside a symlinked project", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-waypost-symlink-project-test-"));
   const home = path.join(temporary, "home");
   const physicalProject = path.join(temporary, "physical-project");
@@ -1129,6 +1182,7 @@ test("workflow permissions reject a Waypost command inside a symlinked project",
   const waypost = writeWaypostExecutable(bin);
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -1138,7 +1192,7 @@ test("workflow permissions reject a Waypost command inside a symlinked project",
 
   try {
     fs.mkdirSync(physicalProject, { recursive: true });
-    fs.symlinkSync(physicalProject, projectLink, "dir");
+    linkDirectory(physicalProject, projectLink);
     withEnvironment(environment, () => initializePermissions({ scope: "project", project: projectLink }));
 
     const claude = fs.readFileSync(path.join(physicalProject, ".claude", "settings.json"), "utf8");
@@ -1157,11 +1211,11 @@ test("workflow permissions migrate a verified legacy v1 Waypost manifest", () =>
   const bin = path.join(temporary, "bin");
   const stateDir = path.join(temporary, "waypost-state");
   const waypost = writeWaypostExecutable(bin);
-  const legacyWaypost = path.join(temporary, "legacy", "waypost");
-  const legacyPermission = `Bash(${legacyWaypost} --state-dir ${stateDir} read)`;
+  const legacyPermission = "Bash(/legacy/waypost --state-dir /legacy/state read)";
   const userPermission = "Bash(/opt/custom-waypost --state-dir /tmp/custom-state read)";
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -1182,7 +1236,12 @@ test("workflow permissions migrate a verified legacy v1 Waypost manifest", () =>
     const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
     assert.equal(settings.permissions.allow.includes(legacyPermission), false);
     assert.equal(settings.permissions.allow.includes(userPermission), true);
-    assert.equal(settings.permissions.allow.includes(`Bash(${fs.realpathSync(waypost)} --state-dir ${path.resolve(stateDir)} read)`), true);
+    assert.equal(settings.permissions.allow.includes(claudeWaypostPermission({
+      command: fs.realpathSync.native(waypost),
+      stateDir: path.resolve(stateDir),
+      action: "read",
+      wildcard: false
+    })), true);
     const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
     assert.equal(manifest.version, 4);
     assert.deepEqual(manifest.mcp_permissions, workflowWaypostMcpTools.map(tool => `mcp__waypost__${tool}`));
@@ -1201,6 +1260,7 @@ test("workflow permissions preserve Codex config mode and honor CODEX_HOME", () 
   const environment = {
     HOME: home,
     CODEX_HOME: codexHome,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
@@ -1215,7 +1275,9 @@ test("workflow permissions preserve Codex config mode and honor CODEX_HOME", () 
     fs.chmodSync(configFile, 0o600);
     fs.mkdirSync(project, { recursive: true });
     withEnvironment(environment, () => initializePermissions({ scope: "user", project }));
-    assert.equal(fs.statSync(configFile).mode & 0o777, 0o600);
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(configFile).mode & 0o777, 0o600);
+    }
     assert.equal(fs.existsSync(path.join(home, ".codex", "config.toml")), false);
     assert.match(fs.readFileSync(configFile, "utf8"), /mcp_servers\.waypost\.tools\.session_create/);
   } finally {
@@ -1231,6 +1293,7 @@ test("workflow permissions refuse to extend inline Codex Waypost tools", () => {
   const configFile = path.join(home, ".codex", "config.toml");
   const environment = {
     HOME: home,
+    APPDATA: path.join(temporary, "appdata"),
     XDG_CONFIG_HOME: path.join(temporary, "config"),
     XDG_DATA_HOME: path.join(temporary, "data"),
     XDG_STATE_HOME: path.join(temporary, "state"),
