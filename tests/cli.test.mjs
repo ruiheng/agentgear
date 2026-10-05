@@ -1444,7 +1444,7 @@ process.exit(7);
 test("session delete launches Windows command shims through ComSpec", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-windows-provider-test-"));
   const shim = path.join(temporary, "agent-deck.CMD");
-  fs.writeFileSync(shim, "@echo off\r\n");
+  fs.writeFileSync(shim, "@echo off\r\n", { mode: 0o755 });
   const calls = [];
   try {
     const payload = deleteSession({ host: "agent-deck", sessionId: "coder-1", profile: "", json: true }, {
@@ -1469,7 +1469,7 @@ test("session delete launches Windows command shims through ComSpec", () => {
 test("session delete rejects percent expansion through Windows command shims", () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-windows-percent-test-"));
   const shim = path.join(temporary, "agent-deck.CMD");
-  fs.writeFileSync(shim, "@echo off\r\n");
+  fs.writeFileSync(shim, "@echo off\r\n", { mode: 0o755 });
   let called = false;
   try {
     const payload = deleteSession({ host: "agent-deck", sessionId: "%PATH%", profile: "", json: true }, {

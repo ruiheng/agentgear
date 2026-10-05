@@ -17,12 +17,13 @@ function windowsExtensions(command, env) {
 export function resolveExternalCommand(command, {
   env = process.env,
   platform = process.platform,
+  pathPlatform = platform,
   stat = fs.statSync,
   access = fs.accessSync
 } = {}) {
   if (typeof command !== "string" || !COMMAND_NAME.test(command)) return null;
-  const pathApi = platform === "win32" ? path.win32 : path.posix;
-  const delimiter = platform === "win32" ? path.win32.delimiter : path.posix.delimiter;
+  const pathApi = pathPlatform === "win32" ? path.win32 : path.posix;
+  const delimiter = pathApi.delimiter;
   const extensions = platform === "win32" ? windowsExtensions(command, env) : [""];
   for (const rawDirectory of String(env.PATH ?? "").split(delimiter)) {
     if (!rawDirectory) continue;
@@ -65,7 +66,7 @@ export function spawnExternalCommand(command, args = [], {
   percentErrorLabel = "external command value",
   ...options
 } = {}) {
-  const resolved = resolveExternalCommand(command, { env, platform }) || command;
+  const resolved = resolveExternalCommand(command, { env, platform, pathPlatform: process.platform }) || command;
   const spawnOptions = { env, windowsHide: true, ...options };
   if (platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved)) {
     if ([resolved, ...args].some(value => String(value).includes("%"))) {
