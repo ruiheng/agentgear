@@ -113,9 +113,10 @@ is unresolved.
   keep routine state internal, and send only required handoffs, blockers,
   checkpoints, or terminal results; do not poll.
 - Do not wait for replies. Never create, delegate, or keep a subagent, background
-  task, timer, or repeated `waypost_recv` just to await or check future Waypost
-  work (including sleeping); that is polling too. After sending, continue;
-  receive only on a later wakeup. Loop only to drain known pending work.
+  task, timer, scheduled task or cron job, or repeated `waypost_recv` just to
+  await or check future Waypost work (including sleeping); that is polling too.
+  After sending, continue; receive only on a later wakeup. Loop only to drain
+  known pending work.
 - Keep execution receiver-owned. A failed/unverified wake may be false; it never
   undoes durable delivery. Replay an explicitly replayable fixed wake at most
   once in the same wrapper; a failed state check does not block it (skip if the
