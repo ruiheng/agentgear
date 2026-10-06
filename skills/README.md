@@ -71,6 +71,7 @@ refresh at the start of each matching task turn. See
 - Roundtable Moderator (`roundtable`): user-facing discussion controller; creates Waypost group, selects participants, drains group updates, and presents synthesis
 - Roundtable Participant (`roundtable-participant`): persistent host session that reads a group stream as one participant and posts concise role-specific replies
 - Intent Framer (`intent-framing` sequence mode): a user-selected persistent model that contributes through its own artifact and may exchange direct turns with the user
+- Advisor (`consult-advisor`): a persistent session on a user-configured high-capability model that answers judgment questions tests cannot settle; it advises, editing consulted material directly when that is simpler than describing the change, and the requester records its address, owns follow-up turns, and deletes it when the discussion ends
 - User: makes acceptance decisions only when the workflow explicitly requires human gating
 
 ## Execution Surfaces

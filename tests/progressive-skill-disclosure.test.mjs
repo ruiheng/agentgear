@@ -20,6 +20,7 @@ const entrySkills = [
   "browse-web",
   "code-health-review",
   "commit-staged",
+  "consult-advisor",
   "delegate-code-task",
   "delegate-task",
   "explain-for-me",
@@ -660,7 +661,7 @@ test("receiver and rejection handlers settle routing and authentication failures
   assert.match(receiver, /keep routine state internal/);
   assert.match(receiver, /do\s+not poll/);
   assert.match(receiver, /Never create, delegate, or keep\s+a subagent/);
-  assert.match(receiver, /background\s+task, timer, or repeated `waypost_recv`/);
+  assert.match(receiver, /background\s+task, timer, scheduled task or cron job, or repeated `waypost_recv`/);
   assert.match(receiver, /that\s+is polling too/);
   assert.match(receiver, /receive only on a later\s+wakeup/);
   assert.match(receiver, /repeat it only while draining known pending work/);
@@ -990,12 +991,12 @@ test("top-level listing distinguishes the retrievable upstream skill from canoni
     retrievable: true,
     exposure: "upstream"
   });
-  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 30);
+  assert.equal(skills.filter(skill => skill.kind === "canonical").length, 31);
 
   const text = command(["list"]);
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /Upstream retrievable skills: agent-deck/);
-  assert.match(text.stdout, /Skills \(30\)/);
+  assert.match(text.stdout, /Skills \(31\)/);
 });
 
 test("upstream skill get returns a usable base directory from a verified runtime and rejects selectors", () => {
@@ -1091,7 +1092,8 @@ test("action aliases are complete, direct, and selector validation resolves mult
   assert.deepEqual(validateSkillContentIndex(index), []);
   const aliases = actionAliases(index);
   const expected = [
-    "abort_iteration", "browser_check_report", "browser_check_requested", "browser_setup_provided", "browser_setup_requested",
+    "abort_iteration", "advisor_consult", "advisor_reply",
+    "browser_check_report", "browser_check_requested", "browser_setup_provided", "browser_setup_requested",
     "closeout_delivered", "code_delivery_complete", "code_health_review_report", "code_health_review_requested",
     "delegated_task_result", "design_prune_context", "design_prune_report", "design_prune_requested",
     "design_spec_delivered", "design_spec_delivery_rejected", "design_spec_draft_requested",

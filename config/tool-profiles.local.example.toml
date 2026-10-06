@@ -12,6 +12,8 @@
 # architect = "architect_local"
 # This also applies to architect_author and architect_reviewer unless this file overrides either.
 # Override design_pruner explicitly when a different pruning profile is wanted.
+# The advisor role ships no shared default; point it at your own strongest model.
+# advisor = "advisor_local"
 
 # [profiles.reviewer_local]
 # [[profiles.reviewer_local.candidates]]
@@ -26,3 +28,7 @@
 # [profiles.coder_default]
 # merge = "append"
 # candidates = ["claude --model sonnet ${templates.claude_edits}"]
+
+# [profiles.advisor_local]
+# [[profiles.advisor_local.candidates]]
+# command = "codex --model <strongest-model> -c model_reasoning_effort=max ${templates.codex_approval}"

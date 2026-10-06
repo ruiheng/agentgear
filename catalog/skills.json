@@ -107,6 +107,7 @@
       "skills": [
         "multi-agent-protocol",
         "code-health-review",
+        "consult-advisor",
         "delegate-code-task",
         "delegate-task",
         "execute-plan",
@@ -149,6 +150,7 @@
     "browser-test-request": {"tags": ["browser", "workflow"], "exposure": "prompt-only"},
     "code-health-review": {"tags": ["review", "workflow"], "exposure": "entry"},
     "commit-staged": {"tags": ["git", "standalone"], "exposure": "entry"},
+    "consult-advisor": {"tags": ["advisory", "workflow"], "exposure": "entry"},
     "tech-design-workflow": {"tags": ["design", "workflow"], "exposure": "entry"},
     "delegate-code-task": {"tags": ["delegation", "workflow"], "exposure": "entry"},
     "delegate-task": {"tags": ["delegation", "workflow"], "exposure": "entry"},

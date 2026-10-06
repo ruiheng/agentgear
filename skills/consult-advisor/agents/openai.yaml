@@ -1,0 +1,4 @@
+interface:
+  display_name: "Consult Advisor"
+  short_description: "Consult a dedicated high-capability advisor session on hard judgment questions"
+  default_prompt: "Use $consult-advisor to ask a persistent advisor session for guidance on hard judgment questions that tests cannot settle."
