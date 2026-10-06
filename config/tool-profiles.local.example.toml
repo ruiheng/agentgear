@@ -24,6 +24,10 @@
 # command = "claude --model sonnet ${templates.claude_edits}"
 # thurbox_agent_key = "claude"
 
+# [profiles.architect_local]
+# [[profiles.architect_local.candidates]]
+# command = "codex --model gpt-5.6-sol -c model_reasoning_effort=xhigh ${templates.codex_approval}"
+
 # Add a candidate without replacing the shared profile.
 # [profiles.coder_default]
 # merge = "append"
