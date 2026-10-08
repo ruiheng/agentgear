@@ -58,6 +58,12 @@ export function actionHeader(declaration) {
   return `Action: ${actionDeclaration(declaration).token}`;
 }
 
+// The Skill header spells out the receiver-side load command so an agent that
+// has never seen route-waypost-action can still act on the envelope.
+export function skillHeader(declaration) {
+  return `Skill: agentgear skill get action:${actionDeclaration(declaration).token}`;
+}
+
 function hasExactOwnKeys(value, expectedKeys) {
   const keys = Object.keys(value);
   return keys.length === expectedKeys.length && expectedKeys.every(key => keys.includes(key));
@@ -91,8 +97,8 @@ function headerFields(fields, label, seen) {
       fail(`Waypost Action message ${label} header ${index + 1} has an invalid name`);
     }
     const normalizedName = name.toLowerCase();
-    if (normalizedName === "action") {
-      fail("Waypost Action message headers may not set Action");
+    if (normalizedName === "action" || normalizedName === "skill") {
+      fail(`Waypost Action message headers may not set ${normalizedName === "skill" ? "Skill" : "Action"}`);
     }
     if (normalizedName === "from" || normalizedName === "to") {
       fail(`Waypost Action message headers may not duplicate transport ${name}`);
@@ -122,7 +128,7 @@ function actionMessage(declaration, envelope) {
   const before = headerFields(beforeHeaders, "before", seenHeaders);
   const after = headerFields(afterHeaders, "after", seenHeaders);
   const declarationValue = actionDeclaration(declaration);
-  const initialEnvelope = [...before, actionHeader(declaration), ...after].join("\n");
+  const initialEnvelope = [...before, actionHeader(declaration), skillHeader(declaration), ...after].join("\n");
   const message = Object.freeze({});
   const messageBody = `${initialEnvelope}\n\n${body}`;
   messageBodies.set(message, declarationValue.sticky

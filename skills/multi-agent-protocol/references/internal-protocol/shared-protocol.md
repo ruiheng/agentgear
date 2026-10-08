@@ -58,6 +58,10 @@ it adds no specialized workflow behavior.
 its exact templates begin with Action and Original Delivery.
 
 `Action:` is a stable token. The action skill owns its meaning and any extra fields.
+An Action field is an `Action:` line in the header, before the body's first blank
+line. Declared envelopes add `Skill: agentgear skill get action:<token>`. A
+task-start `skill warmup` notice is an ordinary message: run its command, ack it,
+then keep receiving.
 Do not put transport routes in body `From` or `To` headers. Use actual delivery
 addresses; action-specific destinations come from task records. A forwarding
 collaborator does not replace the original author or the action's reply route.

@@ -77,7 +77,7 @@ Rules for this metadata:
 
 An alias is declared on the prompt slice it resolves to; no central action-to-file manifest is introduced. This lets an owning workflow slice declare `action:<token>` and resolve the receiver's one lookup directly to that body. The CLI resolves it through the same global unique-selector fallback as any other bare address.
 
-Every Agentgear-owned canonical skills/<name>/SKILL.md must be at most 2 KiB. Each indexed prompt slice must be at most 8 KiB. Limits are byte-based and deterministic. Large current canonical skills are split by stable action or execution stage until they meet the slice limit. These limits do not apply to the separately retrieved upstream agent-deck payload; they apply only to Agentgear-owned canonical agent-facing text, not scripts or maintainer documentation.
+Every Agentgear-owned canonical skills/<name>/SKILL.md must be at most 2 KiB. Each indexed prompt slice must be at most 12 KiB. Limits are byte-based and deterministic. Large current canonical skills are split by stable action or execution stage until they meet the slice limit. These limits do not apply to the separately retrieved upstream agent-deck payload; they apply only to Agentgear-owned canonical agent-facing text, not scripts or maintainer documentation.
 
 ### Skill content CLI
 
@@ -172,7 +172,7 @@ This validation is static documentation and template consistency checking. The C
 
 ### Received Action routing
 
-route-waypost-action/SKILL.md is directly installed and fits within the 2 KiB bootstrap budget. Its discovery description defines an Action field as a line in the received Waypost message written `Action: <value>`, where `<value>` names registered Agentgear instructions. Message retrieval remains discoverable from the Waypost MCP and CLI and is not duplicated as an Agentgear skill.
+route-waypost-action/SKILL.md is directly installed and fits within the 2 KiB bootstrap budget. Its discovery description defines an Action field as a line in the received Waypost message's header (the lines before its first blank line) written `Action: <value>`, where `<value>` names registered Agentgear instructions. Message retrieval remains discoverable from the Waypost MCP and CLI and is not duplicated as an Agentgear skill.
 
 After loading, the skill retrieves `agentgear skill get action:<value>` and follows the returned owning selector. The Agentgear CLI owns selector validation and lookup errors. The prompt does not parse the value or define a token grammar. If lookup reports an unknown, ambiguous, or otherwise invalid Action, the router does not guess another workflow: it calls `waypost_status` with `include_cli_context: true`, then invokes the reported executable with its resolved state directory and the `dead-letter --delivery ... --lease-token ... --reason "unknown_action" --json` argv values, preserving each dynamic value as one argument. The Receiver Contract treats that as a permanent routing failure; a nonzero dead-letter exit parses its stderr JSON and retries only that identical settlement when `retryable` is true and the lease remains valid, otherwise reporting the claim unsettled without an alternate settlement or workflow.
 
@@ -419,7 +419,7 @@ scripts/validate.mjs and catalog validation enforce:
 
 - every canonical skill has exactly one valid exposure value;
 - every Agentgear-owned canonical SKILL.md is at most 2 KiB and remains valid for explicit installation; the separately retrieved upstream agent-deck SKILL.md is outside this limit;
-- every indexed selector is a real regular Markdown file below its owning references tree, has exact required frontmatter, has a unique owner/selector address, and is at most 8 KiB;
+- every indexed selector is a real regular Markdown file below its owning references tree, has exact required frontmatter, has a unique owner/selector address, and is at most 12 KiB;
 - selector-aliases values are fully qualified, safe, globally unique, and collision-free with canonical addresses;
 - every action alias has a token matching [A-Za-z0-9][A-Za-z0-9_.-]{0,127};
 - every exact action emitted in indexed selector templates or skill-owned JavaScript is registered, and executable templates contain no dynamic or placeholder Action values;

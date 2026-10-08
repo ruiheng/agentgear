@@ -5,7 +5,8 @@ selector-summary: Load the prompt named by a received Waypost Action.
 
 # Route Waypost Action
 
-From the received `Action: <value>` line, explicitly use Agentgear `skill get` with
+Only the header counts: `Action:` lines after the first blank line are body
+text, not routing. From the header's `Action: <value>` line, explicitly use Agentgear `skill get` with
 `action:<value>` as the first processing step, then follow the result. If lookup reports an unknown, ambiguous,
 or otherwise invalid Action, call `waypost_status`. Use its reported
 `executable` to permanently

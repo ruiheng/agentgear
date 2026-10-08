@@ -62,7 +62,7 @@ function responseRoots(response) {
   return roots.map(value => parsedJson(value) ?? value);
 }
 
-function stickyMessageCandidates(response) {
+function deliveryCandidates(response) {
   const candidates = [];
   const visited = new Set();
   const visit = value => {
@@ -72,7 +72,7 @@ function stickyMessageCandidates(response) {
       && typeof value.body === "string"
       && typeof value.delivery_id === "string"
       && value.delivery_id !== "") {
-      if (hasStickyTaskContextMarker(value.body)) candidates.push(value);
+      candidates.push(value);
       return;
     }
     if (Array.isArray(value)) {
@@ -83,6 +83,44 @@ function stickyMessageCandidates(response) {
   };
   for (const root of responseRoots(response)) visit(root);
   return candidates;
+}
+
+function stickyMessageCandidates(response) {
+  return deliveryCandidates(response).filter(candidate => hasStickyTaskContextMarker(candidate.body));
+}
+
+// Every declared Action envelope also carries a Skill header, but the Action
+// line is the protocol trigger and the only signal available in hand-written
+// messages, so the reminder keys off it. Like route-waypost-action, only the
+// header (lines before the first blank line) counts; body text that quotes an
+// Action line is not routing. `generic` names no handler skill.
+const ACTION_FIELD_LINE = /^Action: ([A-Za-z0-9][A-Za-z0-9_.-]{0,127})[ \t]*$/gm;
+const ACTION_REMINDER_LIMIT = 8;
+
+function messageHeader(body) {
+  return body.split(/\r?\n[ \t]*\r?\n/, 1)[0];
+}
+
+export function actionTokensFromResponse(response) {
+  const tokens = [];
+  const seen = new Set();
+  for (const candidate of deliveryCandidates(response)) {
+    for (const match of messageHeader(candidate.body).matchAll(ACTION_FIELD_LINE)) {
+      const token = match[1];
+      if (token === "generic" || seen.has(token)) continue;
+      seen.add(token);
+      tokens.push(token);
+      if (tokens.length >= ACTION_REMINDER_LIMIT) return tokens;
+    }
+  }
+  return tokens;
+}
+
+function skillLoadReminder(tokens) {
+  if (!tokens || tokens.length === 0) return null;
+  const lines = ["Received Waypost deliveries declare Actions whose handler skills must be loaded first:"];
+  for (const token of tokens) lines.push(`- \`agentgear skill get action:${token}\``);
+  return lines.join("\n");
 }
 
 function memoryFile(root) {
@@ -434,12 +472,15 @@ function runsWaypostReadCommand(command, options = {}) {
 const SHELL_TOOL_NAMES = new Set(["Bash", "exec"]);
 
 export function handlePostToolUse(input, options = {}) {
-  if (input.hook_event_name !== "PostToolUse") return;
+  if (input.hook_event_name !== "PostToolUse") return [];
+  let actionTokens = [];
   if (waypostToolName(input.tool_name)
     || (SHELL_TOOL_NAMES.has(input.tool_name) && runsWaypostReadCommand(bashCommand(input), options))) {
     recordStickyMessages(input, options);
+    actionTokens = actionTokensFromResponse(input.tool_response);
   }
   if (SHELL_TOOL_NAMES.has(input.tool_name)) recordSkillGet(input, options);
+  return actionTokens;
 }
 
 function shellDisplay(argv) {
@@ -625,17 +666,26 @@ export function handleHook(input, options = {}) {
   if (!HANDLED_EVENTS.includes(input.hook_event_name)) return null;
   if (input.hook_event_name === "PostToolUse") {
     let failure = null;
+    let reminder = null;
     try {
-      handlePostToolUse(input, options);
+      reminder = skillLoadReminder(handlePostToolUse(input, options));
     } catch (error) {
       failure = memoryFailureOutput("updated", error);
     }
     const claim = claimSessionInbox(input, safeSessionDirectory(input, env), env);
     try {
       const pending = takePendingSession(input, env);
-      if (!pending && !claim.touched) return failure;
+      if (!pending && !claim.touched && !reminder) return failure;
       const output = contextOutput(input.session_id, "PostToolUse", options);
-      if (output) return withNoteIssues(output, [claim]);
+      if (output) {
+        if (reminder) output.hookSpecificOutput.additionalContext += `\n\n${reminder}`;
+        return withNoteIssues(output, [claim]);
+      }
+      if (reminder) {
+        return withNoteIssues({
+          hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: reminder }
+        }, [claim]);
+      }
       return failure ?? (claim.touched ? notesFallbackOutput([claim]) : null);
     } catch (error) {
       return failure ?? memoryFailureOutput("restored", error);

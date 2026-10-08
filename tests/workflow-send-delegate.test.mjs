@@ -329,6 +329,7 @@ test("delegated-code dispatch emits exactly one declared Action in the initial e
     const body = JSON.parse(fs.readFileSync(log, "utf8").trim()).body;
     const envelope = body.split("\n\n", 1)[0];
     assert.deepEqual(envelope.match(/^Action: .*$/gm), ["Action: execute_delegate_task"]);
+    assert.deepEqual(envelope.match(/^Skill: .*$/gm), ["Skill: agentgear skill get action:execute_delegate_task"]);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

@@ -22,6 +22,25 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
    already created, and reuse their recorded refs later. Do not inspect a host
    session inventory or substitute another parent.
 
+   Warm up each recorded session with its key skills before workspace
+   preparation:
+
+   ```bash
+   agentgear run multi-agent-protocol send-skill-warmup.mjs \
+     --task-id "<task_id>" \
+     --from-address "<waypost_status.default_sender>" \
+     --to-address "<role returned address>" \
+     --skill multi-agent-protocol/shared-protocol \
+     <role skills> \
+     --json
+   ```
+
+   - coder: `--skill action:execute_delegate_task --skill action:rework_required`
+   - reviewer: `--skill action:review_task_context --skill action:review_requested`
+
+   Run with host permission. A nonzero exit leaves that session cold: report it
+   and stop before dispatch.
+
 2. Prepare workspace records:
 
    ```bash

@@ -11,7 +11,8 @@ artifact has no pruner report for that snapshot — every implementation
 artifact on a two-phase lane, where the pruner enters only as this
 post-acceptance gate — request one with `--pruner-only`, adding the pruner
 identity unless the manifest records it and omitting baseline and
-structural-change options. An implementation gate still names
+structural-change options; warm a newly created pruner via
+`tech-design-workflow/pruner-warmup` first. An implementation gate still names
 `--structure-doc`. It sends only to the pruner and keeps the round.
 
 Send to the manifest's requester address:

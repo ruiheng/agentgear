@@ -600,6 +600,43 @@ test("skill help states the stable guidance policy once", () => {
   assert.match(result.stdout, /Remember and reuse skill text unless its bootstrap states a refresh boundary\./);
 });
 
+test("task-start skill warmups name resolvable key skills for every launched role", () => {
+  const sites = {
+    "skills/tech-design-workflow/references/draft-review-start.md": [
+      "action:design_spec_draft_requested",
+      "action:design_spec_review_report",
+      "action:design_spec_review_context",
+      "action:design_spec_review_requested",
+      "action:design_prune_requested"
+    ],
+    "skills/tech-design-workflow/references/pruner-warmup.md": ["action:design_prune_requested"],
+    "skills/delegate-code-task/references/dispatch.md": [
+      "action:execute_delegate_task",
+      "action:rework_required",
+      "action:review_task_context",
+      "action:review_requested"
+    ]
+  };
+  const selectors = new Set();
+  for (const [relativePath, expected] of Object.entries(sites)) {
+    const source = fs.readFileSync(path.join(rootDir, relativePath), "utf8");
+    assert.match(source, /agentgear run multi-agent-protocol send-skill-warmup\.mjs/, relativePath);
+    const named = [...source.matchAll(/--skill ([^\s`\\]+)/g)].map(match => match[1]);
+    assert.ok(named.includes("multi-agent-protocol/shared-protocol"), `${relativePath} warms the shared protocol`);
+    for (const selector of expected) assert.ok(named.includes(selector), `${relativePath} warms ${selector}`);
+    named.forEach(selector => selectors.add(selector));
+  }
+  const result = command(["skill", "get", ...selectors, "tech-design-workflow/pruner-warmup"]);
+  assert.equal(result.status, 0, result.stderr);
+  for (const name of ["author-round.md", "author-delivery.md"]) {
+    assert.match(
+      fs.readFileSync(path.join(rootDir, "skills", "tech-design-workflow", "references", name), "utf8"),
+      /warm a new(?:ly created)?\s+(?:one|pruner)\s+via\s+`tech-design-workflow\/pruner-warmup` first/,
+      name
+    );
+  }
+});
+
 test("route-waypost-action loads the registered instructions for an Action field", () => {
   const bootstrap = fs.readFileSync(path.join(rootDir, "skills", "route-waypost-action", "SKILL.md"), "utf8");
   assert.match(bootstrap, /Agentgear/);
@@ -1211,7 +1248,7 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
     after: [],
     body: "body"
   });
-  let sent;
+  const sends = [];
   const result = declarations.senders.REVIEW_TASK_CONTEXT(message, {
     toAddress: "agent-deck/reviewer-1",
     fromAddress: "agent-deck/planner-1",
@@ -1219,13 +1256,15 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
     contentType: "text/markdown",
     schemaVersion: "1",
     runCommand(command, commandArgs, options) {
-      sent = { command, commandArgs, options };
+      sends.push({ command, commandArgs, options });
       return { status: 0 };
     }
   });
   assert.equal(result.status, 0);
+  assert.equal(sends.length, 1);
+  const [sent] = sends;
   assert.equal(sent.command, "waypost");
-  assert.equal(sent.options.input, "Task: t\nAction: review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
+  assert.equal(sent.options.input, "Task: t\nAction: review_task_context\nSkill: agentgear skill get action:review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
   assert.deepEqual(
     sent.options.input.split("\n\n", 1)[0].match(/^action:.*$/gim),
     ["Action: review_task_context"]
@@ -1258,7 +1297,7 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
     }
   });
   assert.equal(accessorValueReads, 1);
-  assert.equal(accessorInput, "Task: safe\nAction: review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
+  assert.equal(accessorInput, "Task: safe\nAction: review_task_context\nSkill: agentgear skill get action:review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
 
   let proxyNameReads = 0;
   let proxyValueReads = 0;
@@ -1292,7 +1331,7 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
   });
   assert.equal(proxyNameReads, 1);
   assert.equal(proxyValueReads, 1);
-  assert.equal(proxyInput, "Task: safe\nAction: review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
+  assert.equal(proxyInput, "Task: safe\nAction: review_task_context\nSkill: agentgear skill get action:review_task_context\n\nbody\n\nKeep this task context across compaction.\n");
   assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
     before: new Array(1), after: [], body: "body"
   }), /header 1 must have string name and value/);
@@ -1306,6 +1345,11 @@ test("declared Action producer boundary rejects dynamic tokens and forged declar
   assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
     before: [], after: [{ name: "aCtIoN", value: "not_registered" }], body: "body"
   }), /may not set Action/);
+  for (const name of ["Skill", "sKiLl"]) {
+    assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
+      before: [{ name, value: "agentgear skill get action:forged" }], after: [], body: "body"
+    }), /may not set Skill/i);
+  }
   for (const name of ["From", "To", "fRoM", "tO"]) {
     assert.throws(() => declarations.factories.REVIEW_TASK_CONTEXT({
       before: [{ name, value: "session-1" }], after: [], body: "body"

@@ -61,7 +61,7 @@ Advisory guidance owned by this skill.
 
 The frontmatter accepts only those two fields. The command must be declared in the catalog, the target must be a canonical selector owned by the same skill, and each owner/selector/command tuple is unique. Selector, agent-appendix, and runtime-appendix metadata cannot be mixed.
 
-The body must begin with the exact protective heading shown by its metadata. Runtime appendices share the existing 8 KiB limit, contained symlink-free traversal, normalized-newline, reference, Markdown-fence, and staged-runtime validation. They cannot declare `Action:`, `From:`, or `To:` headers. A selector must remain complete and safe when every runtime appendix is omitted.
+The body must begin with the exact protective heading shown by its metadata. Runtime appendices share the existing 12 KiB limit, contained symlink-free traversal, normalized-newline, reference, Markdown-fence, and staged-runtime validation. They cannot declare `Action:`, `From:`, or `To:` headers. A selector must remain complete and safe when every runtime appendix is omitted.
 
 ## Environment observation
 

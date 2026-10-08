@@ -36,6 +36,26 @@ Retrieve `agentgear skill get multi-agent-protocol/session-host multi-agent-prot
 
 Resolve deterministic refs, defaulting to `architect-author-<task_id>`, `architect-reviewer-<task_id>`, and optional `design-pruner-<task_id>`. Require or create each target through the shared Session Host Contract. Participants use distinct IDs and addresses in one host/workdir. After interruption, recover recorded identities from the host or Waypost history before considering a new lane.
 
+Warm up each session with its key skills as soon as it has an address, before
+writing the contract:
+
+```bash
+agentgear run multi-agent-protocol send-skill-warmup.mjs \
+  --task-id "<task_id>" \
+  --from-address "<waypost_status.default_sender>" \
+  --to-address "<role address>" \
+  --skill multi-agent-protocol/shared-protocol \
+  <role skills> \
+  --json
+```
+
+- author: `--skill action:design_spec_draft_requested --skill action:design_spec_review_report`
+- reviewer: `--skill action:design_spec_review_context --skill action:design_spec_review_requested`
+- `always` pruner: `--skill action:design_prune_requested`
+
+Run with host permission. A nonzero exit leaves that session cold: report it and
+stop before dispatch.
+
 ## Contract and Dispatch
 
 Write one Canonical Design Task Contract under `.agent-artifacts/message/` with

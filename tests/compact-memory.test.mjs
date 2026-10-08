@@ -51,6 +51,7 @@ import {
 } from "../providers/devin-compact-memory.mjs";
 import { isManagedCompactMemoryGroup } from "../providers/managed-hook-command.mjs";
 import { loadActionProducerManifest } from "../skills/multi-agent-protocol/scripts/action-producer.mjs";
+import { skillWarmupBody } from "../skills/multi-agent-protocol/scripts/send-skill-warmup.mjs";
 import { commitTemporaryFileSync as commitCoreTemporaryFile } from "../cli/lib/platform-files.mjs";
 import { commitTemporaryFileSync as commitWorkflowTemporaryFile } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
 
@@ -207,6 +208,62 @@ test("PostToolUse keeps only sticky Waypost identifiers and subjects in one sess
     assert.doesNotMatch(context, /dlv_plain/);
     assert.doesNotMatch(context, /agentgear skill get/i);
     assert.equal(compactAdditionalContext("another-thread", { env: item.env }), null);
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
+test("PostToolUse reminds the agent to load the skill a received Action declares", () => {
+  const item = fixture();
+  try {
+    const sessionId = "thread-action-reminder";
+    const envelope = [
+      "Task: s001",
+      "Action: design_spec_draft_requested",
+      "Skill: agentgear skill get action:design_spec_draft_requested",
+      "",
+      "Task body",
+      "",
+      STICKY_TASK_CONTEXT_MARKER
+    ].join("\n");
+    const output = handleHook(recvEvent(sessionId, "dlv_action", envelope), { env: item.env });
+    const context = output.hookSpecificOutput.additionalContext;
+    assert.match(context, /agentgear skill get action:design_spec_draft_requested/);
+    assert.match(context, /handler skills must be loaded first/);
+
+    const warmup = skillWarmupBody("s001", ["action:design_spec_draft_requested", "action:design_spec_review_report"]);
+    assert.equal(handleHook(recvEvent(sessionId, "dlv_warmup", warmup, "skill warmup: s001"), { env: item.env }), null);
+    assert.match(
+      compactAdditionalContext(sessionId, { env: item.env }),
+      /delivery="dlv_warmup" subject="skill warmup: s001"/,
+      "the task-start warmup notice survives compaction"
+    );
+
+    const ordinary = handleHook(recvEvent(sessionId, "dlv_plain", "ordinary note"), { env: item.env });
+    assert.equal(ordinary, null);
+
+    const generic = handleHook(
+      recvEvent(sessionId, "dlv_generic", "Action: generic\n\nnote"),
+      { env: item.env }
+    );
+    assert.equal(generic, null);
+
+    const duplicated = handleHook(recvEvent(
+      sessionId,
+      "dlv_multi",
+      "Action: execute_delegate_task\nAction: execute_delegate_task\nAction: review_task_context\n\nbody\nAction: quoted_in_body"
+    ), { env: item.env });
+    const reminder = duplicated.hookSpecificOutput.additionalContext;
+    assert.equal(reminder.match(/agentgear skill get action:execute_delegate_task/g).length, 1);
+    assert.match(reminder, /agentgear skill get action:review_task_context/);
+    assert.doesNotMatch(reminder, /quoted_in_body/);
+
+    const bodyOnly = handleHook(recvEvent(
+      sessionId,
+      "dlv_quoted",
+      "Review notes\n\nThe template reads:\nAction: design_spec_review_requested"
+    ), { env: item.env });
+    assert.equal(bodyOnly, null);
   } finally {
     fs.rmSync(item.temporary, { recursive: true, force: true });
   }

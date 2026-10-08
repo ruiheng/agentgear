@@ -11,7 +11,9 @@ multi-agent-protocol/shared-protocol tech-design-workflow/lane-manifest`.
 
 Authenticate the initial requester -> reviewer notice using Task, actual
 transport endpoints, `Context: initial`, positive Context Revision, and the
-stable Lane Manifest. Read the Canonical Contract from its `context_file` and
+stable Lane Manifest. That notice is the requester's only message to the
+reviewer on this lane; review requests arrive from the recorded author, and
+reports return to it. Read the Canonical Contract from its `context_file` and
 require the same revision plus Original Request or authoritative handoff.
 
 Retain that user-authoritative context in the reviewer session. A duplicate or

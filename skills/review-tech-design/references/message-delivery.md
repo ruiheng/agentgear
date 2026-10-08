@@ -68,7 +68,8 @@ rounds. Message reports use only their routed mode; direct-use sets
 
 Send the complete form to the request `sender_address` from the bound reviewer
 address, subject `design-spec review report: <task_id> <s|r><round>` matching
-the reviewed artifact's series. Keep
+the reviewed artifact's series. On a draft lane the request sender is the
+recorded author, never the requester. Keep
 `Action: design_spec_review_report` in the initial header. Draft-review's author
 records confirmed User Decision Deltas; committed-docs' requester records them.
 Record exact answers only. Follow the shared Message delivery and continuation rule.

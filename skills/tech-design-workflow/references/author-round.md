@@ -131,7 +131,8 @@ post-acceptance gate. A structural concern rides `structure-amendment`.
 `USER_CHECKPOINT_REQUIRED` means no request was sent; use `author-convergence`.
 
 `PRUNER_REQUIRED` means nothing was sent. Resolve or recover the lane's one
-`design_pruner`, then rerun with its session ID and address. `TARGET_SESSION_*`
+`design_pruner`, then rerun with its session ID and address; warm a new one
+via `tech-design-workflow/pruner-warmup` first. `TARGET_SESSION_*`
 means nothing was sent; re-resolve that role's session and rerun.
 
 Receipts and nudge outcomes are transport diagnostics. Sends are sequential and
