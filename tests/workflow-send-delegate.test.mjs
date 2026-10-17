@@ -10,7 +10,7 @@ import {
 } from "../skills/multi-agent-protocol/scripts/send-delegate-with-active-task-lock.mjs";
 import { DEFAULT_SEND_TIMEOUT_MS } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
 import { hasStickyTaskContextMarker } from "../skills/multi-agent-protocol/scripts/compact-memory-shared.mjs";
-import { run as runWorkflowCommand } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
+import { plannerLaneRecordPath, run as runWorkflowCommand } from "../skills/multi-agent-protocol/scripts/workflow-lib.mjs";
 import { writeNodeCommand } from "./helpers/platform.mjs";
 
 function exists(filePath) {
@@ -59,6 +59,18 @@ function initializeGitWorkspace(workdir, branch = "main") {
   fs.writeFileSync(path.join(workdir, ".gitkeep"), "");
   execFileSync("git", ["add", ".gitkeep"], { cwd: workdir });
   execFileSync("git", ["commit", "-q", "-m", "fixture"], { cwd: workdir });
+}
+
+function writePlannerRecord(workdir, { plannerSessionId = "planner-1", integrationBranch = "main" } = {}) {
+  const workspace = fs.realpathSync(workdir);
+  const file = plannerLaneRecordPath(path.join(workspace, ".agent-artifacts"), workspace);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({
+    planner_session_id: plannerSessionId,
+    integration_branch: integrationBranch,
+    worker_workspace: workspace,
+    planner_workspace: workspace
+  }, null, 2)}\n`);
 }
 
 function writeBrief(temporary) {
@@ -242,11 +254,61 @@ test("missing brief fails before active-task lock", async () => {
   const bin = path.join(temporary, "bin");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, "process.exit(0);");
     await withEnvironment({ PATH: bin }, async () => {
       await assert.rejects(() => sendDelegate(args(temporary, artifactRoot, path.join(temporary, "missing.md"))), /brief file not found/);
     });
     assert.equal(exists(path.join(artifactRoot, "active-task.lock")), false);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("missing planner workspace record blocks dispatch before session probes and lock", async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-send-delegate-record-"));
+  const workdir = path.join(temporary, "workspace");
+  const artifactRoot = path.join(workdir, ".agent-artifacts");
+  const bin = path.join(temporary, "bin");
+  const log = path.join(temporary, "waypost.log");
+  try {
+    initializeGitWorkspace(workdir);
+    writeStubBin(bin, loggingWaypost);
+    const brief = writeBrief(temporary);
+    await withEnvironment({ PATH: bin, WAYPOST_LOG: log }, async () => {
+      await assert.rejects(
+        () => sendDelegate(args(temporary, artifactRoot, brief)),
+        /planner workspace record missing for worker lane/
+      );
+    });
+    assert.equal(exists(log), false);
+    assert.equal(exists(path.join(artifactRoot, "active-task.lock")), false);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("planner workspace record mismatches block dispatch before session probes and lock", async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentgear-send-delegate-record-"));
+  const workdir = path.join(temporary, "workspace");
+  const artifactRoot = path.join(workdir, ".agent-artifacts");
+  const bin = path.join(temporary, "bin");
+  const log = path.join(temporary, "waypost.log");
+  try {
+    initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir, { plannerSessionId: "planner-9", integrationBranch: "release-other" });
+    writeStubBin(bin, loggingWaypost);
+    const brief = writeBrief(temporary);
+    await withEnvironment({ PATH: bin, WAYPOST_LOG: log }, async () => {
+      await assert.rejects(
+        () => sendDelegate(args(temporary, artifactRoot, brief)),
+        /planner workspace record planner mismatch: record='planner-9'/
+      );
+    });
+    writePlannerRecord(workdir);
+    await withEnvironment({ PATH: bin, WAYPOST_LOG: log }, async () => {
+      await sendDelegate(args(temporary, artifactRoot, brief));
+    });
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -259,6 +321,7 @@ test("delegated-code dispatch rejects CR, LF, and NUL header injection before ac
   const bin = path.join(temporary, "bin");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, "process.exit(0);");
     const brief = writeBrief(temporary);
     for (const control of ["\r", "\n", "\0"]) {
@@ -283,6 +346,7 @@ test("delegated-code dispatch preserves opaque non-newline routes and Git refs",
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir, "release+safe");
+    writePlannerRecord(workdir, { plannerSessionId: "planner+safe", integrationBranch: "release+safe" });
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" }, async () => {
@@ -321,6 +385,7 @@ test("delegated-code dispatch emits exactly one declared Action in the initial e
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" }, async () => {
@@ -343,6 +408,7 @@ test("required review sends one opaque task contract to reviewer then coder", as
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const briefFile = writeBrief(temporary);
     const brief = fs.readFileSync(briefFile, "utf8");
@@ -402,6 +468,7 @@ test("unconfirmed notification detail is preserved in the lock and summary", asy
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     const output = await captureStdout(stdout => withEnvironment({
@@ -432,6 +499,7 @@ test("notification failure preserves both durable deliveries and reports each wa
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     const output = await captureStdout(stdout => withEnvironment({
@@ -472,6 +540,7 @@ test("reviewer send failure prevents coder dispatch and removes the pending lock
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "fail-review" }, async () => {
@@ -492,6 +561,7 @@ test("coder failure after reviewer delivery retains a partial-dispatch lock", as
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "fail-coder" }, async () => {
@@ -515,6 +585,7 @@ test("skipped review sends coder only", async () => {
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "success" }, async () => {
@@ -538,6 +609,7 @@ test("interrupted send retains a lock with the affected stage", async () => {
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "timeout" }, async () => {
@@ -559,6 +631,7 @@ test("zero send timeout waits for Waypost to return the durable receipt", async 
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "slow-success" }, async () => {
@@ -581,6 +654,7 @@ test("interrupted reviewer send retains the reviewer route", async () => {
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, WAYPOST_MODE: "timeout" }, async () => {
@@ -607,6 +681,7 @@ test("missing coder session is rejected before the lock and before any send", as
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, AGENT_DECK_MISSING: "coder-1" }, async () => {
@@ -630,6 +705,7 @@ test("missing reviewer session is rejected before the lock and before any send",
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, AGENT_DECK_MISSING: "reviewer-1" }, async () => {
@@ -653,6 +729,7 @@ test("hosted target address id must match the declared session id", async () => 
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     const mismatched = args(temporary, artifactRoot, brief, "skip", ["--to-address", "agent-deck/coder-2"]);
@@ -677,6 +754,7 @@ test("hosted target address scheme must match the declared session host", async 
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     const mismatched = args(temporary, artifactRoot, brief, "skip", ["--session-host", "thurbox"]);
@@ -701,6 +779,7 @@ test("an inconclusive session probe blocks dispatch", async () => {
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     await withEnvironment({ PATH: bin, WAYPOST_LOG: log, AGENT_DECK_ERROR: "1" }, async () => {
@@ -724,6 +803,7 @@ test("non-hosted target schemes skip the session probe", async () => {
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     const codexTarget = args(temporary, artifactRoot, brief, "skip", [
@@ -748,6 +828,7 @@ test("missing thurbox target session is rejected before any send", async () => {
   const log = path.join(temporary, "waypost.log");
   try {
     initializeGitWorkspace(workdir);
+    writePlannerRecord(workdir);
     writeStubBin(bin, loggingWaypost);
     const brief = writeBrief(temporary);
     const thurboxTarget = args(temporary, artifactRoot, brief, "skip", [

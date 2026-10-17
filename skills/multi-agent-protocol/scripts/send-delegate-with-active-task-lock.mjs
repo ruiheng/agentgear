@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
-  classifyWaypostSend, currentScriptDirectory, DEFAULT_SEND_TIMEOUT_MS, execute, fail, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, verifyDispatchTarget, writeJsonAtomic
+  classifyWaypostSend, currentScriptDirectory, DEFAULT_SEND_TIMEOUT_MS, execute, fail, findPlannerLaneRecord, invokeNodeScript, isMain, nowIso, parseArgs, readJson, requireCommand, run, stringField, verifyDispatchTarget, writeJsonAtomic
 } from "./workflow-lib.mjs";
 import {
   executeDelegateTaskMessage,
@@ -44,6 +44,7 @@ Required when review-context=required:
 Optional:
   --workflow-policy <text>       Default: unattended; auto_accept_if_no_must_fix=true
   --artifact-root <path>         Default: <workdir>/.agent-artifacts
+  --planner-artifact-root <path> Default: <planner-workspace>/.agent-artifacts
   --content-type <type>          Default: text/markdown
   --schema-version <value>       Default: 1
   --send-timeout-ms <ms>         Default: 0 (disabled; diagnostic override)
@@ -270,11 +271,16 @@ function prepareTaskBranch(workdir, integrationBranch, taskBranch) {
   if (switched.status !== 0) fail(`failed to attach task branch '${taskBranch}': ${(switched.stderr || switched.stdout).trim()}`);
 }
 
+function existingDirectoryRealpath(value, label) {
+  if (!fs.statSync(value, { throwIfNoEntry: false })?.isDirectory()) fail(`${label} does not exist: ${value}`);
+  return fs.realpathSync(value);
+}
+
 export async function main(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr } = {}) {
   const options = parseArgs(argv, {
-    values: ["--workdir", "--task-id", "--start-branch", "--integration-branch", "--task-branch", "--planner-session-id", "--coder-session-id", "--coder-session-ref", "--reviewer-session-id", "--reviewer-session-ref", "--session-host", "--planner-workspace", "--worker-workspace", "--task-dir", "--workspace-lifecycle", "--session-reason", "--from-address", "--to-address", "--reviewer-to-address", "--subject", "--reviewer-subject", "--brief-file", "--review-context", "--workflow-policy", "--artifact-root", "--content-type", "--schema-version", "--send-timeout-ms"],
+    values: ["--workdir", "--task-id", "--start-branch", "--integration-branch", "--task-branch", "--planner-session-id", "--coder-session-id", "--coder-session-ref", "--reviewer-session-id", "--reviewer-session-ref", "--session-host", "--planner-workspace", "--worker-workspace", "--task-dir", "--workspace-lifecycle", "--session-reason", "--from-address", "--to-address", "--reviewer-to-address", "--subject", "--reviewer-subject", "--brief-file", "--review-context", "--workflow-policy", "--artifact-root", "--planner-artifact-root", "--content-type", "--schema-version", "--send-timeout-ms"],
     flags: ["--json"],
-    defaults: { reviewerSessionId: "", reviewerSessionRef: "", reviewerToAddress: "", reviewerSubject: "", workflowPolicy: "unattended; auto_accept_if_no_must_fix=true", artifactRoot: "", contentType: "text/markdown", schemaVersion: "1", sendTimeoutMs: String(DEFAULT_SEND_TIMEOUT_MS), json: false }
+    defaults: { reviewerSessionId: "", reviewerSessionRef: "", reviewerToAddress: "", reviewerSubject: "", workflowPolicy: "unattended; auto_accept_if_no_must_fix=true", artifactRoot: "", plannerArtifactRoot: "", contentType: "text/markdown", schemaVersion: "1", sendTimeoutMs: String(DEFAULT_SEND_TIMEOUT_MS), json: false }
   });
   if (options.help) {
     stdout.write(`${usage}\n`);
@@ -305,6 +311,19 @@ export async function main(argv = process.argv.slice(2), { stdout = process.stdo
   const lockFile = path.join(lockDir, "lock.json");
   const brief = readDelegateBody(options.briefFile);
   if (!brief.trim()) fail("task brief is empty");
+
+  const plannerWorkspace = existingDirectoryRealpath(options.plannerWorkspace, "planner workspace");
+  const workerWorkspace = existingDirectoryRealpath(options.workerWorkspace, "worker workspace");
+  const plannerArtifactRoot = options.plannerArtifactRoot || path.join(plannerWorkspace, ".agent-artifacts");
+  const laneRecordFile = findPlannerLaneRecord(plannerArtifactRoot, workerWorkspace);
+  if (!laneRecordFile) {
+    fail(`planner workspace record missing for worker lane '${workerWorkspace}' under ${path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspaces")} (or legacy planner-workspace.json); run prepare-workspaces.mjs for this lane before dispatch`);
+  }
+  const laneRecord = readJson(laneRecordFile);
+  const recordPlanner = stringField(laneRecord, "planner_session_id");
+  const recordBranch = stringField(laneRecord, "integration_branch");
+  if (recordPlanner !== options.plannerSessionId) fail(`planner workspace record planner mismatch: record='${recordPlanner || "<missing>"}' dispatch='${options.plannerSessionId}'`);
+  if (recordBranch !== options.integrationBranch) fail(`planner workspace record integration branch mismatch: record='${recordBranch || "<missing>"}' dispatch='${options.integrationBranch}'`);
 
   const coderTarget = verifyDispatchTarget("coder", options.toAddress, options.coderSessionId, { sessionHost: options.sessionHost, stderr });
   const reviewerTarget = options.reviewContext === "required"
