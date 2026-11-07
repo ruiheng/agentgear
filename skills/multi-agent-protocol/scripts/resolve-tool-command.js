@@ -73,6 +73,10 @@ Options:
   --format <json|text>           Select output format (default: json)
   --json                         Use JSON output
   -h, --help                     Show this help message
+
+The project-local tool-profiles.local.toml layer is read from the current
+working directory, not --workdir; run in the owning checkout, not a fresh
+worktree.
 `;
 
 function stripInlineComment(line) {

@@ -19,7 +19,9 @@ Waypost does not map roles or read this configuration.
   ```
 
   Omit `--profile` when none is set. When an action accepts an explicit full
-  command, use it unchanged instead of resolving.
+  command, use it unchanged instead of resolving. Project-local config is
+  read from the resolver's working directory, not `--workdir` — run in the
+  owning checkout, not inside a fresh worktree.
 - List configured roles with:
 
   ```bash
