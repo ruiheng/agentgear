@@ -14,7 +14,7 @@ Choose from explicit input; ask only when unclear:
 
 Per run: dedicated `.agent-artifacts/intent-framing/<flow_id>/`. Initialize `input.md` from the original request and needed user-authored context, preserving their wording; never substitute coordinator interpretation. Record later context and hypotheses as sourced additions; never rewrite `input.md`. The directory stays deliverable at any stop.
 
-Use `agentgear run intent-framing flow.mjs` for artifact state. Commands are agent-facing; do not make the user remember or assemble them.
+Use `agentgear run intent-framing flow` for artifact state. Commands are agent-facing; do not make the user remember or assemble them.
 
 For sequence mode, retrieve `agentgear skill get multi-agent-protocol/shared-protocol multi-agent-protocol/session-host multi-agent-protocol/tool-resolution intent-framing/sequence`.
 

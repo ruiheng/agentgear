@@ -1148,8 +1148,17 @@ function requiredRuntimeCommand(commands, relativePath, consumer) {
 }
 
 const STATIC_MODULE_SPECIFIER = /(?:^|[;\n])\s*(?:import\s+(?:[\w*$\s{},]+?\s+from\s+)?|export\s+(?:[\w*$\s{},]+?\s+from\s+)?)(["'])([^"']+)\1/gm;
-const DOCUMENTED_RUNTIME_SCRIPT = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9.][A-Za-z0-9._/-]*\.(?:mjs|cjs|js))(?![A-Za-z0-9._/-])/g;
+const DOCUMENTED_RUNTIME_SCRIPT = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)*(?:\.(?:cjs|mjs|js))?)(?![A-Za-z0-9._/-])/g;
 const DOCUMENTED_SKILL_REFERENCE = /(?:^|[^A-Za-z0-9._/-])((?:\.\/)?references\/[A-Za-z0-9][A-Za-z0-9._/-]*\.md)(?![A-Za-z0-9._/-])/gm;
+
+function documentedCommandPath(snapshotRoot, skill, commandName) {
+  const base = path.join("skills", skill, "scripts");
+  const extensions = /\.(?:cjs|mjs|js)$/.test(commandName) ? [""] : [".mjs", ".js", ".cjs", ""];
+  return extensions
+    .map(extension => path.join(base, commandName + extension))
+    .find(relative => regularFileStatusUnderRoot(snapshotRoot, relative) === "file")
+    ?? path.join(base, commandName);
+}
 
 function documentedSkillRuntimeRequirements(snapshotRoot, skillRuntimeRelative) {
   const skillRoot = path.resolve(snapshotRoot, skillRuntimeRelative);
@@ -1177,7 +1186,7 @@ function documentedSkillRuntimeRequirements(snapshotRoot, skillRuntimeRelative) 
     for (const match of source.matchAll(DOCUMENTED_RUNTIME_SCRIPT)) {
       const [, scriptSkill, script] = match;
       if (path.isAbsolute(script) || script.split(/[\\/]/).includes("..")) continue;
-      scripts.add(path.join("skills", scriptSkill, "scripts", script));
+      scripts.add(documentedCommandPath(snapshotRoot, scriptSkill, script));
     }
     for (const match of source.matchAll(DOCUMENTED_SKILL_REFERENCE)) {
       const reference = match[1];
@@ -1373,12 +1382,12 @@ export function validateSharedRuntimeConsumers({
     }
     for (const documented of index.documentedScripts) {
       if (path.isAbsolute(documented.script) || documented.script.split(/[\\/]/).includes("..")) {
-        commands.set(`invalid:${documented.filePath}`, new Set([`invalid documented script ${documented.script}`]));
+        commands.set(`invalid:${documented.filePath}`, new Set([`invalid documented command ${documented.script}`]));
         continue;
       }
       requiredRuntimeCommand(
         commands,
-        path.join("skills", documented.skill, "scripts", documented.script),
+        documentedCommandPath(snapshotRoot, documented.skill, documented.script),
         `selector ${documented.filePath}`
       );
     }

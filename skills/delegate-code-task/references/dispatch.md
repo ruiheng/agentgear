@@ -26,7 +26,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
    preparation:
 
    ```bash
-   agentgear run multi-agent-protocol send-skill-warmup.mjs \
+   agentgear run multi-agent-protocol send-skill-warmup \
      --task-id "<task_id>" \
      --from-address "<waypost_status.default_sender>" \
      --to-address "<role returned address>" \
@@ -44,7 +44,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
 2. Prepare workspace records:
 
    ```bash
-   agentgear run multi-agent-protocol prepare-workspaces.mjs \
+   agentgear run multi-agent-protocol prepare-workspaces \
      --worker-workspace "<worker_workspace>" \
      --planner-workspace "<planner_workspace>" \
      --integration-branch "<integration_branch>" \
@@ -65,7 +65,7 @@ For `temporary; cleanup=planner`, require `task_dir` and `worker_workspace` to r
    contract and rerun with the returned id and address.
 
    ```bash
-   agentgear run multi-agent-protocol send-delegate-with-active-task-lock.mjs \
+   agentgear run multi-agent-protocol send-delegate-with-active-task-lock \
      --workdir "<worker_workspace>" \
      --task-id "<task_id>" \
      --start-branch "<start_branch>" \

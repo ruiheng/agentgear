@@ -23,7 +23,7 @@ Use this after direct, harness, or planner-owned fallback selection. The planner
    - let `review-request` create or reuse the reviewer on demand with the verified planner parent
    - after `review-request` sends the request, follow the shared Message delivery and continuation rule
    - when a later inbound `work_accepted` produces an accepted review, let the planner decide whether to run `review-closeout` and `planner-closeout` or take another action
-8. if `Per-task review: skip`, run workspace prepare for this planner-owned task, then run `planner-closeout-batch.mjs` directly with the recorded `task_branch`, `integration_branch`, `worker_workspace`, `planner_workspace`, `task_id`, and task dir before marking the task done; a persistent Waypost coder instead returns `code_delivery_complete` for `planner-closeout`
+8. if `Per-task review: skip`, run workspace prepare for this planner-owned task, then run `planner-closeout-batch` directly with the recorded `task_branch`, `integration_branch`, `worker_workspace`, `planner_workspace`, `task_id`, and task dir before marking the task done; a persistent Waypost coder instead returns `code_delivery_complete` for `planner-closeout`
 9. record the result under `Tasks Completed`
 
 Planner-owned git writes, commits, review requests, and closeout are workflow-authorized for either executor.
@@ -96,6 +96,6 @@ Round: final
 - treat workspace prep as an early closeout viability gate too: if another worktree already holds `integration_branch` and planner closeout later needs to attach it here, stop immediately instead of letting the plan fail only at final closeout
 - keep the planner workspace record aligned with the current planner session; if the workspace-prep script reports a live-session mismatch, stop instead of reusing the workspace
 - pass `--override-workspaces` only after explicit user confirmation to replace this lane's workspace records
-- do not run ad hoc workspace record cleanup; closeout helpers own release and `prepare-workspaces.mjs --release-workspaces` is only for explicit script-reported cleanup recovery
+- do not run ad hoc workspace record cleanup; closeout helpers own release and `prepare-workspaces --release-workspaces` is only for explicit script-reported cleanup recovery
 - do not naturally end after the last task if the final report to supervisor is still pending
 - if this turn owns a claimed `execute_plan` delivery, complete the final report and the delivery lifecycle step before ending

@@ -12,7 +12,7 @@ Use exact recorded real IDs and the shared host-neutral cleanup entry point.
 For draft-review:
 
 ```bash
-agentgear run multi-agent-protocol archive-and-remove-task-sessions.mjs \
+agentgear run multi-agent-protocol archive-and-remove-task-sessions \
   --task-id <task_id> \
   --owner-session-id <requester_session_id> \
   --session-host <session_host> \

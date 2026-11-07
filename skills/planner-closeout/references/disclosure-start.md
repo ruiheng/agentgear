@@ -77,7 +77,7 @@ Branch-plan rule with a Handoff:
 Required closeout command shape:
 
 ```bash
-agentgear run multi-agent-protocol planner-closeout-batch.mjs \
+agentgear run multi-agent-protocol planner-closeout-batch \
   --task-id <task_id> \
   --task-branch <task_branch> \
   --integration-branch <integration_branch> \

@@ -7,7 +7,7 @@ import { execute, fail, isMain, nowIso, parseArgs, writeJsonAtomic } from "./wor
 const usage = `Archive task-session metadata, including provider resume ids when available, then optionally remove task-scoped disposable sessions.
 
 Usage:
-  archive-and-remove-task-sessions.mjs [options]
+  archive-and-remove-task-sessions [options]
 
 Options:
   --task-id <id>                    Required task id (YYYYMMDD-HHMM-<slug>)

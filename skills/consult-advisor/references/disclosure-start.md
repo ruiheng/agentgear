@@ -60,7 +60,7 @@ Send another `advisor_consult` envelope to the recorded address; the advisor kee
 The requester owns the advisor's lifespan: keep it while follow-ups are foreseeable. When the discussion has concluded and none are foreseen soon, delete it through the shared cleanup path and drop the record:
 
 ```bash
-agentgear run multi-agent-protocol archive-and-remove-task-sessions.mjs \
+agentgear run multi-agent-protocol archive-and-remove-task-sessions \
   --task-id <consult_id> \
   --owner-session-id <requester_session_id> \
   --session-host <advisor host> \

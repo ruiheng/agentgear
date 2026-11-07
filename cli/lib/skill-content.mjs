@@ -10,7 +10,7 @@ const ACTION_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const AGENT_PROFILE = /^[a-z0-9][a-z0-9-]*$/;
 const MAX_BOOTSTRAP_BYTES = 2 * 1024;
 const MAX_SLICE_BYTES = 12 * 1024;
-const RUNTIME_SCRIPT_REFERENCE = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9.][A-Za-z0-9._/-]*\.(?:mjs|cjs|js))(?![A-Za-z0-9._/-])/g;
+const RUNTIME_SCRIPT_REFERENCE = /\bagentgear\s+run\s+([A-Za-z0-9][A-Za-z0-9_-]*)\s+([A-Za-z0-9][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)*(?:\.(?:cjs|mjs|js))?)(?![A-Za-z0-9._/-])/g;
 const INLINE_CODE = /`([^`\r\n]+)`/g;
 const ACTION_PRODUCER_DECLARATION = "action-producers.json";
 const ACTION_PRODUCER_MODULE = "action-producers.mjs";
@@ -830,8 +830,11 @@ export function validateSkillContentIndex(index) {
       continue;
     }
     const relative = path.join("skills", documented.skill, "scripts", documented.script);
-    if (regularFileStatus(index.rootDir, relative) !== "file") {
-      errors.push(`${documented.filePath}: documented runtime script is missing or unsafe: ${relative}`);
+    const extensions = /\.(?:cjs|mjs|js)$/.test(relative) ? [""] : [".mjs", ".js", ".cjs", ""];
+    const resolved = extensions.some(extension =>
+      regularFileStatus(index.rootDir, relative + extension) === "file");
+    if (!resolved) {
+      errors.push(`${documented.filePath}: documented runtime command is missing or unsafe: ${relative}`);
     }
   }
   return errors;

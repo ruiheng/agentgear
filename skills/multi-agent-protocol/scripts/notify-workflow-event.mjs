@@ -5,7 +5,7 @@ import { execute, isMain, parseArgs, resolveCommand, run } from "./workflow-lib.
 export const usage = `Best-effort desktop notifications for Agentgear multi-agent workflow events.
 
 Usage:
-  notify-workflow-event.mjs [options]
+  notify-workflow-event [options]
 
 Options:
   --event <name>             Required event name

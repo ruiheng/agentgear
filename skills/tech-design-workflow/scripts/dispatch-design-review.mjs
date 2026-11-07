@@ -289,13 +289,13 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       if (!manifest.structure_doc) {
         fail(
           "implementation dispatch requires an accepted structure document; "
-            + "record it with record-design-structure.mjs after the structure delivery is accepted"
+            + "record it with record-design-structure after the structure delivery is accepted"
         );
       }
       if (manifest.structure_amendment_pending) {
         fail(
           "a structure amendment is in flight; implementation rounds wait until "
-            + "record-design-structure.mjs records the newly accepted structure document"
+            + "record-design-structure records the newly accepted structure document"
         );
       }
       if (!options.structureDoc) {

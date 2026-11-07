@@ -720,14 +720,14 @@ test("agentgear run accepts canonical and recorded prefixed skill names", () => 
     ], fixture.environment);
     for (const skill of ["multi-agent-protocol", "acme-multi-agent-protocol"]) {
       const result = spawnAgentgear(
-        ["run", skill, "resolve-tool-command.js", "--help"],
+        ["run", skill, "resolve-tool-command", "--help"],
         fixture,
         fixture.environment
       );
       assert.equal(result.status, 0, result.stderr);
     }
     const unknown = spawnAgentgear(
-      ["run", "other-multi-agent-protocol", "resolve-tool-command.js", "--help"],
+      ["run", "other-multi-agent-protocol", "resolve-tool-command", "--help"],
       fixture,
       fixture.environment
     );
@@ -742,8 +742,8 @@ test("agentgear run supports command and skill help", () => {
   try {
     const commandHelp = spawnAgentgear(["run", "--help"], fixture, fixture.environment);
     assert.equal(commandHelp.status, 0, commandHelp.stderr);
-    assert.match(commandHelp.stdout, /Usage: agentgear run <skill> <script> \[args\.\.\.\]/);
-    assert.match(commandHelp.stdout, /Pass --help after <script> for script-specific help\./);
+    assert.match(commandHelp.stdout, /Usage: agentgear run <skill> <command> \[args\.\.\.\]/);
+    assert.match(commandHelp.stdout, /Pass --help after <command> for command-specific help\./);
 
     for (const helpOption of ["--help", "-h"]) {
       const skillHelp = spawnAgentgear(
@@ -754,11 +754,35 @@ test("agentgear run supports command and skill help", () => {
       assert.equal(skillHelp.status, 0, skillHelp.stderr);
       assert.match(
         skillHelp.stdout,
-        /Usage: agentgear run multi-agent-protocol <script> \[args\.\.\.\]/
+        /Usage: agentgear run multi-agent-protocol <command> \[args\.\.\.\]/
       );
-      assert.match(skillHelp.stdout, /Bundled scripts:/);
-      assert.match(skillHelp.stdout, /  resolve-tool-command\.js/);
+      assert.match(skillHelp.stdout, /Bundled commands:/);
+      assert.match(skillHelp.stdout, /  resolve-tool-command$/m);
     }
+  } finally {
+    fs.rmSync(fixture.temporary, { recursive: true, force: true });
+  }
+});
+
+test("agentgear run resolves command names and legacy script filenames", () => {
+  const fixture = environmentFixture();
+  try {
+    for (const command of ["resolve-tool-command", "resolve-tool-command.js"]) {
+      const result = spawnAgentgear(
+        ["run", "multi-agent-protocol", command, "--help"],
+        fixture,
+        fixture.environment
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Usage: resolve-tool-command \[options\]/);
+    }
+    const missing = spawnAgentgear(
+      ["run", "multi-agent-protocol", "not-a-command"],
+      fixture,
+      fixture.environment
+    );
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /Unknown bundled command: not-a-command/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -788,7 +812,7 @@ test("agentgear run skill help includes nested script paths", () => {
       { cwd: checkout, encoding: "utf8", env: { ...process.env, ...fixture.environment } }
     );
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /  nested\/tool\.mjs/);
+    assert.match(result.stdout, /  nested\/tool$/m);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -1349,7 +1373,7 @@ test("resolve-tool-command is available as a top-level Agentgear command", () =>
       fixture.environment
     );
     assert.equal(resolved.status, 0, resolved.stderr);
-    assert.match(resolved.stdout, /Usage: resolve-tool-command\.js \[options\]/);
+    assert.match(resolved.stdout, /Usage: resolve-tool-command \[options\]/);
   } finally {
     fs.rmSync(fixture.temporary, { recursive: true, force: true });
   }
@@ -3459,7 +3483,7 @@ test("source-install validates documented scripts required by active shared skil
 
     assert.throws(
       () => runCheckout(["source-install", "--skill", "handoff", "--target", "general"]),
-      /missing or unsafe: .*prepare-workspaces\.mjs/
+      /missing or unsafe: .*prepare-workspaces/
     );
 
     assert.equal(fs.realpathSync(current), previousRuntime);

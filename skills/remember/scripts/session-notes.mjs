@@ -9,7 +9,7 @@ import { appendInboxOp, noteCommandOp, readInboxOps } from "../../multi-agent-pr
 
 function usage() {
   return [
-    "Usage: session-notes.mjs <command>",
+    "Usage: session-notes <command>",
     "  add <text>          pin a note for this session",
     "  remove <N|text>     remove by number from the pinned block or exact text",
     "  clear               remove all session notes",

@@ -13,7 +13,7 @@ Planner-side records are keyed per worker workspace under .agent-artifacts/plann
 a legacy single planner-workspace.json still serves the lane whose worker_workspace it records.
 
 Usage:
-  prepare-workspaces.mjs [options]
+  prepare-workspaces [options]
 
 Options:
   --worker-workspace <path>       Required worker/shared workspace path

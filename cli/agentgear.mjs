@@ -110,7 +110,7 @@ function usage() {
     "  resolve-tool-command [resolver options]",
     "  session delete --host NAME --session-id ID [--profile NAME] [--json]",
     "  hooks install|uninstall|doctor [--target NAME[,NAME]]",
-    "  run <skill> <script> [args...]",
+    "  run <skill> <command> [args...]",
     "",
     "Install/update defaults:",
     "  --pack all (when --skill is also omitted)",
@@ -575,10 +575,10 @@ function bundledScriptPaths(scriptsRoot, relative = "") {
 
 function runUsage(skill) {
   const lines = [
-    `Usage: agentgear run ${skill ? `${skill} ` : "<skill> "}<script> [args...]`,
+    `Usage: agentgear run ${skill ? `${skill} ` : "<skill> "}<command> [args...]`,
     "",
-    "Run a bundled script owned by a skill.",
-    "Pass --help after <script> for script-specific help."
+    "Run a bundled command owned by a skill.",
+    "Pass --help after <command> for command-specific help."
   ];
   if (!skill) return lines.join("\n");
 
@@ -586,9 +586,10 @@ function runUsage(skill) {
   const scripts = fs.statSync(scriptsRoot, { throwIfNoEntry: false })?.isDirectory()
     ? bundledScriptPaths(scriptsRoot)
     : [];
-  lines.push("", "Bundled scripts:");
+  lines.push("", "Bundled commands:");
   if (scripts.length === 0) lines.push("  (none)");
-  else lines.push(...scripts.map(script => `  ${script}`));
+  else lines.push(...[...new Set(scripts.map(script => script.replace(/\.(?:cjs|mjs|js)$/, "")))]
+    .map(name => `  ${name}`));
   return lines.join("\n");
 }
 
@@ -597,7 +598,7 @@ function run(argumentsList) {
     print(runUsage());
     return;
   }
-  if (argumentsList.length < 2) fail("run requires <skill> <script>");
+  if (argumentsList.length < 2) fail("run requires <skill> <command>");
   const [requestedSkill, script, ...scriptArgs] = argumentsList;
   const catalog = loadCatalog(rootDir);
   const skill = resolveRunSkill(catalog, requestedSkill);
@@ -606,14 +607,17 @@ function run(argumentsList) {
     return;
   }
   if (path.isAbsolute(script) || script.split(/[\\/]/).includes("..")) {
-    fail("Script must be relative to the skill's scripts directory");
+    fail("Command must be relative to the skill's scripts directory");
   }
+  const extensions = /\.(?:cjs|mjs|js)$/.test(script) ? [""] : [".mjs", ".js", ".cjs", ""];
   const scriptsRoot = path.join(rootDir, "skills", skill, "scripts");
-  const scriptPath = path.resolve(scriptsRoot, script);
-  if (!scriptPath.startsWith(scriptsRoot + path.sep) || !fs.statSync(scriptPath, { throwIfNoEntry: false })?.isFile()) {
-    fail("Unknown bundled script: " + script);
+  const scriptPath = extensions.map(extension => path.resolve(scriptsRoot, script + extension))
+    .find(candidate => candidate.startsWith(scriptsRoot + path.sep)
+      && fs.statSync(candidate, { throwIfNoEntry: false })?.isFile());
+  if (!scriptPath) {
+    fail("Unknown bundled command: " + script);
   }
-  const command = /\.(?:cjs|mjs|js)$/.test(script) ? process.execPath : scriptPath;
+  const command = /\.(?:cjs|mjs|js)$/.test(scriptPath) ? process.execPath : scriptPath;
   const commandArgs = command === process.execPath ? [scriptPath, ...scriptArgs] : scriptArgs;
   const result = childProcess.spawnSync(command, commandArgs, {
     cwd: process.cwd(),

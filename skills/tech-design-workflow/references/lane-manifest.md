@@ -46,10 +46,10 @@ closeout. Round progress and reports remain in messages and artifacts.
 On a two-phase lane the manifest is the phase boundary:
 
 - `structure_doc`: the accepted `sNNN.md` structure document, recorded by
-  `record-design-structure.mjs` after the requester accepts a structure
+  `record-design-structure` after the requester accepts a structure
   delivery. Implementation dispatch requires it and names it via
   `--structure-doc`.
-- `structure_amendment_pending`: set by `record-design-structure.mjs
+- `structure_amendment_pending`: set by `record-design-structure
   --open-amendment` when implementation-phase evidence requires a structure
   revision. While present, implementation dispatch is blocked; recording the
   next accepted `sNNN` clears it. Re-recording the same `structure_doc` closes
@@ -62,7 +62,7 @@ manifest tracks workflow progress.
 
 `structure_checkpoint` gates `sNNN` rounds and `review_checkpoint` gates `rNNN`
 rounds; each advances by `review_checkpoint_interval` through
-`advance-design-review-checkpoint.mjs --phase` after the author records
+`advance-design-review-checkpoint --phase` after the author records
 convergence evidence in the round notes, or after the user chooses to continue
 a reported risk. `initial_review_checkpoint` preserves the lane-creation value
 for the later implementation phase. This does not change the contract or send a

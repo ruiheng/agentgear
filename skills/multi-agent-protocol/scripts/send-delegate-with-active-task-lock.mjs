@@ -317,7 +317,7 @@ export async function main(argv = process.argv.slice(2), { stdout = process.stdo
   const plannerArtifactRoot = options.plannerArtifactRoot || path.join(plannerWorkspace, ".agent-artifacts");
   const laneRecordFile = findPlannerLaneRecord(plannerArtifactRoot, workerWorkspace);
   if (!laneRecordFile) {
-    fail(`planner workspace record missing for worker lane '${workerWorkspace}' under ${path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspaces")} (or legacy planner-workspace.json); run prepare-workspaces.mjs for this lane before dispatch`);
+    fail(`planner workspace record missing for worker lane '${workerWorkspace}' under ${path.join(plannerArtifactRoot.replace(/[\\/]+$/, ""), "planner-workspaces")} (or legacy planner-workspace.json); run agentgear run multi-agent-protocol prepare-workspaces for this lane before dispatch`);
   }
   const laneRecord = readJson(laneRecordFile);
   const recordPlanner = stringField(laneRecord, "planner_session_id");

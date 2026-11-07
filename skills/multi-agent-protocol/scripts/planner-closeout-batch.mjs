@@ -13,7 +13,7 @@ Required actions (hard-fail): merge the task branch, then append a planner progr
 Optional actions: message acknowledgement, active-task-lock cleanup, task-session cleanup, lane workspace-record cleanup, branch pruning, and notifications.
 
 Usage:
-  planner-closeout-batch.mjs [options]
+  planner-closeout-batch [options]
 
 Options:
   --task-id <id>                   Required task id
@@ -321,7 +321,7 @@ export function main(argv = process.argv.slice(2)) {
   if (!workspaceReleaseBlocked) {
     const result = invokeNodeScript(path.join(scriptDir, "prepare-workspaces.mjs"), ["--worker-workspace", workerWorkspace, "--planner-workspace", plannerWorkspace, "--planner-session-id", plannerSessionRef, "--worker-artifact-root", workerArtifactRoot, "--planner-artifact-root", plannerArtifactRoot, "--release-workspaces"]);
     if (result.status === 0) workspaceRecordStatus = result.stdout.includes("status=already_absent") ? "already_absent" : "released";
-    else { workspaceRecordStatus = "failed"; optionalFails += 1; warn(`failed to release lane workspace records rc=${result.status}; rerun prepare-workspaces.mjs --release-workspaces with the same worker/planner workspace pair`); }
+    else { workspaceRecordStatus = "failed"; optionalFails += 1; warn(`failed to release lane workspace records rc=${result.status}; rerun prepare-workspaces --release-workspaces with the same worker/planner workspace pair`); }
   } else {
     workspaceRecordStatus = "skipped_optional_failures";
   }

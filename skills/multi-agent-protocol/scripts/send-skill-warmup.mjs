@@ -6,7 +6,7 @@ import { appendStickyTaskContextMarker } from "./compact-memory-shared.mjs";
 export const usage = `Ask one collaborator session to load a task's key skills before its first task delivery.
 
 Usage:
-  send-skill-warmup.mjs --task-id <id> --from-address <address> --to-address <address> \\
+  send-skill-warmup --task-id <id> --from-address <address> --to-address <address> \\
     --skill <selector> [--skill <selector> ...] [--json]
 
 Options:

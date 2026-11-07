@@ -55,7 +55,7 @@ const ROLE_COMPATIBILITY_ALIASES = Object.freeze({
   architect_reviewer: "architect",
 });
 
-const HELP_TEXT = `Usage: resolve-tool-command.js [options]
+const HELP_TEXT = `Usage: resolve-tool-command [options]
 
 Resolve ordered launch candidates from a profile or role default.
 

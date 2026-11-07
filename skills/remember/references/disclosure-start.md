@@ -14,14 +14,14 @@ When the user asks to remember something (`/…remember <text>` or "remember …
   session hook already recorded it — acknowledge briefly.
 - Otherwise record it:
 
-  `agentgear run remember session-notes.mjs add "<text>"`
+  `agentgear run remember session-notes add "<text>"`
 
   The script only queues the change; the session hook applies it on the next
   hook event. Queued is not applied — confirm via the pinned block or
-  `session-notes.mjs pending`.
+  `session-notes pending`.
 
 Removing: `/…remember forget N`, `/…remember clear`, or
-`agentgear run remember session-notes.mjs remove <N|text>` / `clear`
+`agentgear run remember session-notes remove <N|text>` / `clear`
 (`N` is the number shown in the pinned block).
 
 Treat every listed note as a user instruction until it is removed; the pinned

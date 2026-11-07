@@ -440,9 +440,9 @@ For every skill in `sharedSkills`:
    inside the same skill directory, require each referenced file to exist, and
    deduplicate cycles.
 3. In every visited document, collect literal
-   `agentgear run <skill> <script>` commands. Accept only simple skill tokens
-   and relative `.mjs`, `.cjs`, or `.js` script paths with no `..`; map each to
-   `skills/<skill>/scripts/<script>` in the staged snapshot.
+   `agentgear run <skill> <command>` commands. Accept only simple skill tokens
+   and relative command names (no `..`, no script extension); map each to
+   `skills/<skill>/scripts/<command>.<ext>` in the staged snapshot.
 4. Require each documented entrypoint to be a regular file, then recursively
    validate its local static ESM closure: follow relative specifiers in static
    `import` and `export ... from` declarations, reject paths outside the

@@ -13,7 +13,7 @@ to structure:
 1. Stop implementation rounds. Open the amendment from the author workspace:
 
    ```bash
-   agentgear run tech-design-workflow record-design-structure.mjs \
+   agentgear run tech-design-workflow record-design-structure \
      --workdir "<current workspace>" \
      --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
      --open-amendment \
@@ -31,7 +31,7 @@ to structure:
 4. After the requester accepts the structure delivery, record it:
 
    ```bash
-   agentgear run tech-design-workflow record-design-structure.mjs \
+   agentgear run tech-design-workflow record-design-structure \
      --workdir "<current workspace>" \
      --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
      --structure-doc ".agent-artifacts/design-spec/<author_session_id>/sNNN.md" \

@@ -9,7 +9,7 @@ Before the first dispatch that names a newly created `design_pruner`, send it
 one warmup:
 
 ```bash
-agentgear run multi-agent-protocol send-skill-warmup.mjs \
+agentgear run multi-agent-protocol send-skill-warmup \
   --task-id "<task_id>" \
   --from-address "<manifest author_to_address>" \
   --to-address "<pruner address>" \

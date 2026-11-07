@@ -59,7 +59,7 @@ Final-review continuation:
 
 1. read the goal, workspace contract, and review policy from the message body
    - set internal `planner_workspace = workspace` and `worker_workspace = workspace`
-2. run `agentgear run multi-agent-protocol prepare-workspaces.mjs --worker-workspace <worker_workspace> --planner-workspace <planner_workspace> --integration-branch <integration_branch> --planner-session-id <planner_session_id> --supervisor-session-id <supervisor_session_id>`
+2. run `agentgear run multi-agent-protocol prepare-workspaces --worker-workspace <worker_workspace> --planner-workspace <planner_workspace> --integration-branch <integration_branch> --planner-session-id <planner_session_id> --supervisor-session-id <supervisor_session_id>`
 3. decompose the goal into the smallest reasonable task sequence for this workspace
 4. execute that sequence serially; a parallel lane runs only in its own lane-exclusive workspace
 5. for each implementation task:

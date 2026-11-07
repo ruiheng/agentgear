@@ -1840,7 +1840,7 @@ test("PostToolUse claims queued inbox ops into the session notes", () => {
       session_id: sessionId,
       hook_event_name: "PostToolUse",
       tool_name: "exec",
-      tool_input: { command: "agentgear run remember session-notes.mjs add x" },
+      tool_input: { command: "agentgear run remember session-notes add x" },
       tool_response: { success: true, output: "" },
       cwd
     }, { env: item.env });
@@ -1925,7 +1925,7 @@ test("prompt capture and inbox claim dedupe identical note text", () => {
       session_id: sessionId,
       hook_event_name: "PostToolUse",
       tool_name: "exec",
-      tool_input: { command: "agentgear run remember session-notes.mjs add x" },
+      tool_input: { command: "agentgear run remember session-notes add x" },
       tool_response: { success: true, output: "" },
       cwd
     }, { env: item.env });

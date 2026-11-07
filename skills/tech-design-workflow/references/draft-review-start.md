@@ -40,7 +40,7 @@ Warm up each session with its key skills as soon as it has an address, before
 writing the contract:
 
 ```bash
-agentgear run multi-agent-protocol send-skill-warmup.mjs \
+agentgear run multi-agent-protocol send-skill-warmup \
   --task-id "<task_id>" \
   --from-address "<waypost_status.default_sender>" \
   --to-address "<role address>" \
@@ -68,7 +68,7 @@ Preserve Original Request separately from requester normalization.
 Create the manifest and notify the reviewer, then the enabled pruner, then the author:
 
 ```bash
-agentgear run tech-design-workflow send-design-draft-with-review-context.mjs \
+agentgear run tech-design-workflow send-design-draft-with-review-context \
   --workdir "<current workspace>" \
   --task-id "<task_id>" \
   --requester-session-id "<requester_session_id>" \

@@ -18,7 +18,7 @@ Converging â€” findings shrinking, none reopened, no deadlocked contradiction â€
 needs no user decision. Advance that phase's checkpoint and continue:
 
 ```bash
-agentgear run tech-design-workflow advance-design-review-checkpoint.mjs \
+agentgear run tech-design-workflow advance-design-review-checkpoint \
   --workdir "<current workspace>" \
   --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
   --phase "<structure|implementation>" \

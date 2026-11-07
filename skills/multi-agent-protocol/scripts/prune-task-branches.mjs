@@ -5,7 +5,7 @@ import { execute, fail, isMain, parseArgs, run } from "./workflow-lib.mjs";
 const usage = `Prune stale task branches using "keep recent N + ancestor of current base" policy.
 
 Usage:
-  prune-task-branches.mjs [options]
+  prune-task-branches [options]
 
 Options:
   --keep N          Keep newest N task branches (default: 10)

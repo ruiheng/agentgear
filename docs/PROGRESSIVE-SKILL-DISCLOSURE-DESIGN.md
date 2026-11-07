@@ -72,7 +72,7 @@ Rules for this metadata:
 - Canonical addresses and alias addresses are globally unique and at most 256 bytes. A bare alias must resolve to one canonical slice after canonical-selector and alias-suffix matching. Validation and runtime lookup fail on duplicates, alias/canonical collisions, skill-entry shadowing, or bare-address ambiguity.
 - File location below references/ is not an API. A file may move within its owning skill without changing its selector.
 - Prompt bodies refer to other prompt content with independent addresses, for example `agentgear skill get multi-agent-protocol/session-host tech-design-workflow/report-handling`, never by an installation-specific path.
-- Prompt bodies may refer to runtime scripts only through the existing agentgear run <skill> <script> form.
+- Prompt bodies may refer to runtime scripts only through the existing agentgear run <skill> <command> form.
 - The skill command removes the metadata frontmatter and returns only the Markdown body in normal single-selector text mode.
 
 An alias is declared on the prompt slice it resolves to; no central action-to-file manifest is introduced. This lets an owning workflow slice declare `action:<token>` and resolve the receiver's one lookup directly to that body. The CLI resolves it through the same global unique-selector fallback as any other bare address.
@@ -431,10 +431,10 @@ scripts/validate.mjs and catalog validation enforce:
 
 All indexed selector slices are considered reachable for runtime validation because skill list/get intentionally exposes the complete canonical selector collection. The implementation therefore does not need a fragile graph rooted only in installed SKILL.md references.
 
-For every SKILL.md and indexed selector body, the shared indexer recognizes exact agentgear run <skill> <script.js|mjs|cjs> references. It validates that:
+For every SKILL.md and indexed selector body, the shared indexer recognizes exact agentgear run <skill> <command> references. It validates that:
 
 - the named skill exists in the catalog;
-- the script path is relative, contains no parent traversal, and resolves under skills/<skill>/scripts/;
+- the command name is relative, contains no parent traversal or script extension, and resolves to a script under skills/<skill>/scripts/;
 - every path component is contained and symlink-free and the leaf is a regular JavaScript file;
 - the script and every static relative import or export dependency resolve inside the staged runtime.
 

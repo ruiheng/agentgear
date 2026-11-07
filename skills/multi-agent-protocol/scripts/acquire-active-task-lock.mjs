@@ -9,7 +9,7 @@ import {
 const usage = `Acquire the workflow active-task lock for one delegated task.
 
 Usage:
-  acquire-active-task-lock.mjs [options]
+  acquire-active-task-lock [options]
 
 Required:
   --workdir <path>               Workspace path that owns .agent-artifacts/

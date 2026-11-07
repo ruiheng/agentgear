@@ -7,7 +7,7 @@ selector-summary: Complete multi-agent-protocol instructions, part 1.
 
 Use this skill as the shared transport, envelope, and lifecycle layer for multi-session work.
 
-Run a bundled workflow script through `agentgear run multi-agent-protocol <script> [args...]`.
+Run a bundled workflow command through `agentgear run multi-agent-protocol <command> [args...]`.
 The `workflow` pack installer installs that launcher; do not recover the old
 installation-specific path from another repository.
 

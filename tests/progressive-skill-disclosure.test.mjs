@@ -246,6 +246,32 @@ test("agent appendix guards accept CommonMark heading indentation", () => {
   }
 });
 
+test("runtime command references resolve command names and script filenames to bundled scripts", () => {
+  const item = contentIndexFixture();
+  try {
+    const scriptsRoot = path.join(item.temporary, "skills", "fixture", "scripts");
+    fs.mkdirSync(scriptsRoot, { recursive: true });
+    fs.writeFileSync(path.join(scriptsRoot, "tool.mjs"), "export {};\n");
+    const slicePath = path.join(item.temporary, "skills", "fixture", "references", "slice.md");
+    const sliceSource = fs.readFileSync(slicePath, "utf8");
+
+    for (const command of ["tool", "tool.mjs"]) {
+      fs.writeFileSync(slicePath, `${sliceSource}Run \`agentgear run fixture ${command} --help\`.\n`);
+      assert.deepEqual(
+        validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog)),
+        [], command);
+    }
+
+    fs.writeFileSync(slicePath, `${sliceSource}Run \`agentgear run fixture missing\`.\n`);
+    const missing = validateSkillContentIndex(buildSkillContentIndex(item.temporary, item.catalog));
+    assert.equal(
+      missing.some(error => /documented runtime command is missing or unsafe: skills\/fixture\/scripts\/missing$/.test(error)),
+      true, missing.join("\n"));
+  } finally {
+    fs.rmSync(item.temporary, { recursive: true, force: true });
+  }
+});
+
 test("runtime appendices compose independent advisory candidates", () => {
   const item = contentIndexFixture();
   item.catalog.skills.runtimeCommands = {
@@ -620,7 +646,7 @@ test("task-start skill warmups name resolvable key skills for every launched rol
   const selectors = new Set();
   for (const [relativePath, expected] of Object.entries(sites)) {
     const source = fs.readFileSync(path.join(rootDir, relativePath), "utf8");
-    assert.match(source, /agentgear run multi-agent-protocol send-skill-warmup\.mjs/, relativePath);
+    assert.match(source, /agentgear run multi-agent-protocol send-skill-warmup\b/, relativePath);
     const named = [...source.matchAll(/--skill ([^\s`\\]+)/g)].map(match => match[1]);
     assert.ok(named.includes("multi-agent-protocol/shared-protocol"), `${relativePath} warms the shared protocol`);
     for (const selector of expected) assert.ok(named.includes(selector), `${relativePath} warms ${selector}`);

@@ -15,7 +15,7 @@ Authenticate the requester/author transport endpoints and Task against the lane
 manifest. Read the Canonical Contract. A draft request can also open
 implementation phase mid-lane (`Phase: implementation`, `Round: 1`,
 `Structure: <accepted sNNN>`): record that structure with
-`record-design-structure.mjs --structure-doc` before drafting `r001`.
+`record-design-structure --structure-doc` before drafting `r001`.
 
 ## Draft
 
@@ -100,7 +100,7 @@ assessment goes into the next round's notes before dispatch.
 After the artifact is complete, run from the author workspace:
 
 ```bash
-agentgear run tech-design-workflow dispatch-design-review.mjs \
+agentgear run tech-design-workflow dispatch-design-review \
   --lane-manifest ".agent-artifacts/design-spec-dispatch/<task_id>.lock/lane.json" \
   --phase "<structure|implementation>" \
   --artifact ".agent-artifacts/design-spec/<author_session_id>/<sNNN|rNNN>.md" \

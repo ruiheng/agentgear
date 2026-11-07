@@ -54,7 +54,7 @@ test("CLI prints help without loading the default config", () => {
   );
 
   for (const result of results) {
-    assert.match(result, /Usage: resolve-tool-command\.js/);
+    assert.match(result, /Usage: resolve-tool-command \[options\]/);
     assert.match(result, /--profile <profile>/);
     assert.match(result, /-h, --help/);
   }
